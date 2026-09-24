@@ -4,6 +4,9 @@ use iris_sqlite_spike::{
 };
 use sqlx::Row;
 
+#[path = "../../../agent-interface/evidence.rs"]
+mod evidence;
+
 fn input(now: i64) -> IssueInvitation {
     IssueInvitation {
         project_id: 41,
@@ -96,19 +99,21 @@ async fn snapshot_backoff_crash_recovery_and_stale_ack() {
         .await
         .unwrap();
     let first = claim(&mut conn, 100).await.unwrap().unwrap();
+    evidence::record("first_attempt", first.attempt);
     assert_eq!(first.token, token);
     assert_eq!(first.recipient, "bob@example.test");
     let mut other = connect(&dir.path().join("app.db")).await.unwrap();
     assert!(claim(&mut other, 129).await.unwrap().is_none());
     // Simulate SMTP success then process death without acknowledgement.
     let recovered = claim(&mut other, 130).await.unwrap().unwrap();
+    evidence::record("recovered_attempt", recovered.attempt);
     assert_eq!(recovered.attempt, 2);
     assert_eq!(recovered.token, first.token);
-    assert!(
-        !complete(&mut conn, &first, Completion::Sent, 131)
-            .await
-            .unwrap()
-    );
+    let stale_ack = complete(&mut conn, &first, Completion::Sent, 131)
+        .await
+        .unwrap();
+    evidence::record("stale_ack_accepted", i64::from(stale_ack));
+    assert!(!stale_ack);
     assert!(
         complete(&mut other, &recovered, Completion::Retry, 131)
             .await
@@ -116,6 +121,7 @@ async fn snapshot_backoff_crash_recovery_and_stale_ack() {
     );
     assert!(claim(&mut conn, 140).await.unwrap().is_none());
     let third = claim(&mut conn, 141).await.unwrap().unwrap();
+    evidence::record("retry_attempt", third.attempt);
     assert_eq!(third.attempt, 3);
     assert!(
         complete(&mut conn, &third, Completion::Sent, 142)
@@ -127,6 +133,13 @@ async fn snapshot_backoff_crash_recovery_and_stale_ack() {
         .await
         .unwrap();
     assert_eq!(row.get::<String, _>("state"), "sent");
+    evidence::record(
+        "payload_cleared",
+        i64::from(
+            row.get::<Option<String>, _>("token").is_none()
+                && row.get::<Option<String>, _>("recipient").is_none(),
+        ),
+    );
     assert!(row.get::<Option<String>, _>("token").is_none());
     assert!(row.get::<Option<String>, _>("recipient").is_none());
     assert!(claim(&mut conn, 200).await.unwrap().is_none());

@@ -21,6 +21,9 @@ use tower_sessions::{
     session::{Id, Record},
 };
 
+#[path = "../../../agent-interface/evidence.rs"]
+mod evidence;
+
 struct Fixture {
     _dir: tempfile::TempDir,
     provider: Child,
@@ -566,31 +569,34 @@ async fn logout_wins_against_callback_waiting_on_provider() {
     })
     .await
     .unwrap();
-    assert_eq!(
-        send(
-            &f.app,
-            &mut browser,
-            "POST",
-            "/api/auth/logout",
-            Value::Null,
-            Some("http://127.0.0.1:5173"),
-            true
-        )
-        .await
-        .0,
-        204
-    );
+    evidence::record("provider_waiting", 1);
+    let logout_status = send(
+        &f.app,
+        &mut browser,
+        "POST",
+        "/api/auth/logout",
+        Value::Null,
+        Some("http://127.0.0.1:5173"),
+        true,
+    )
+    .await
+    .0;
+    evidence::record("logout_status", i64::from(logout_status));
+    assert_eq!(logout_status, 204);
     http.post(format!("{}/__test/release", f.issuer))
         .send()
         .await
         .unwrap()
         .error_for_status()
         .unwrap();
-    assert_eq!(pending.await.unwrap().0, 401);
+    let callback_status = pending.await.unwrap().0;
+    evidence::record("callback_status", i64::from(callback_status));
+    assert_eq!(callback_status, 401);
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM iris_sessions")
         .fetch_one(&f.store.pool)
         .await
         .unwrap();
+    evidence::record("remaining_sessions", count);
     assert_eq!(count, 0);
 }
 

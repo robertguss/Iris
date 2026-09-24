@@ -57,6 +57,11 @@ jobs:
       - name: Verify web application and contract
         run: npm --prefix experiments/api-slice/web run verify
 
+      - name: Verify agent interface and real MCP scenarios
+        run: |
+          npm --prefix experiments/agent-interface ci
+          npm --prefix experiments/agent-interface test
+
       - name: Test local OIDC fixture
         run: node --test experiments/api-slice/checks/oidc-provider.test.mjs
 

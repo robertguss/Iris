@@ -247,6 +247,37 @@ migrations are combined with shared migrations in one SQLx ledger; Turso's
 historical comparison is unchanged. See the
 [delivery record](../experiments/api-slice/delivery.md).
 
+## Agent verification interface — September 24, 2026
+
+Optimize for time to an independently verified change, not generated code
+volume. Conventions should distinguish compiler/database enforcement, CI checks,
+and documented expectations. Rust types alone cannot establish business intent.
+
+Start with a shared local verification runner and thin MCP adapter, using the
+official TypeScript MCP SDK 1.30.1 and Zod 4.6.5. This is an experiment in
+access to evidence, not a framework-language decision. CLI and MCP use the same
+check catalog and report schema; no separate MCP implementation of application
+logic.
+
+Expose conventions, fixed check plans, controlled scenario reproduction, and
+run/operation inspection. Begin with the existing logout/callback race and
+outbox recovery tests. Include expected/observed checkpoints, source
+fingerprints, versions, evidence completeness and reproduction commands. Do not
+present these test checkpoints as production traces or claim causal diagnosis
+from partial data.
+
+Keep production access, arbitrary commands/SQL, application generation and broad
+profiling out of scope. Allowlisted commands still execute trusted repository
+code. Raw logs and credential-bearing payloads are not part of the evidence
+format. Reviewers own intent and acceptance criteria; agent-editable tests and
+reports are not a protected evaluator.
+
+Next evaluate seeded regressions and valid-change controls against independent
+acceptance checks before claiming faster or more reliable agent repairs. See the
+[pilot guide](../experiments/agent-interface/README.md) for commands,
+verification, limitations, and the proposed study. Librarian research informed
+the SDK choice; oracle review informed the evidence and stale-report safeguards.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

@@ -50,6 +50,9 @@ of the framework design, not a later addition.
 5. [API slice](experiments/api-slice/README.md) — runnable React demo,
    utoipa/aide comparison, contract verification, and application-authoring
    conventions.
+6. [Agent interface](experiments/agent-interface/README.md) — shared
+   verification runner, JSON CLI, MCP conventions and scenario evidence, trust
+   boundaries, and the proposed agent-repair evaluation.
 
 ## Run the database experiment
 
@@ -83,6 +86,12 @@ email enqueueing, bounded retries, and Mailpit capture without sending real
 email. Real-provider authentication remains deferred until a stable callback
 environment is available. Production delivery, signup, and deployment are not
 implemented. SQLite and utoipa remain provisional.
+
+The [agent interface pilot](experiments/agent-interface/README.md) now exposes
+conventions, bounded checks and test-observed evidence through a CLI and MCP.
+Next, evaluate whether agents repair seeded regressions more reliably with this
+interface. It does not yet inspect production requests or profile performance;
+successful tool calls alone do not demonstrate better repairs.
 
 ## Provenance and status
 

@@ -1,5 +1,5 @@
 [workspace]
-members = ["experiments/embedded-db/sqlite", "experiments/embedded-db/turso"]
+members = ["experiments/embedded-db/sqlite", "experiments/embedded-db/turso", "experiments/api-slice/server"]
 resolver = "3"
 
 [workspace.dependencies]

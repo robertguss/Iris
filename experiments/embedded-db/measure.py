@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +39,13 @@ def main():
     inputs = [ROOT / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml")]
     for directory in ("sqlite", "turso", "shared"):
         inputs.extend(p for p in (ROOT / EXPERIMENT / directory).rglob("*") if p.is_file())
+    # Cargo resolves every workspace member even for -p. Copy other members so
+    # adding a later experiment does not break this isolated measurement runner.
+    workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    for member in workspace["workspace"]["members"]:
+        for path in (ROOT / member).rglob("*"):
+            if path.is_file() and path not in inputs:
+                inputs.append(path)
     env = os.environ.copy()
     for key in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR",
                 "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"):

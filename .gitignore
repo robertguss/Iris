@@ -1,2 +1,6 @@
 /target/
 .amp/portals/
+.amp/in/artifacts/
+node_modules/
+dist/
+.contract-probe-*/

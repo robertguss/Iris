@@ -17,3 +17,6 @@ fi
 if [ -f Cargo.lock ]; then
   cargo fetch --locked
 fi
+if [ -f experiments/api-slice/web/package-lock.json ]; then
+  npm --prefix experiments/api-slice/web ci
+fi

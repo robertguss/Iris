@@ -19,6 +19,26 @@ authentication.
 The proposals and open questions below preserve the initial design record; exact
 experiment dependency pins are in Cargo.toml/Cargo.lock, not framework promises.
 
+## API follow-up — September 24, 2026
+
+The [API slice](../experiments/api-slice/README.md) now exercises Axum + SQLite,
+both utoipa and aide exports, generated TypeScript, and a React consumer. Both
+OpenAPI integrations pass the same runtime contract checks. Utoipa is the
+provisional choice for the running demo because it needs fewer custom operation
+traits here; no compile-time winner has been measured for these libraries.
+
+The experiment keeps actions independent of HTTP, uses string IDs on the wire,
+rejects unknown request fields, and maps explicit domain outcomes to documented
+statuses and `{code,message}` errors. This is not an RFC 9457 implementation.
+Contract drift checks and an intentional breaking-change probe complement
+business and browser tests; generated types are not runtime validation.
+
+Development identity is feature-gated and the demo binary requires explicit
+opt-in. Ordinary builds reject the synthetic header. Real authentication remains
+open. These are experiment conventions, not a released framework API. The
+proposal table and open questions below retain the original research context;
+the linked slice records which portions now have executable evidence.
+
 **Status vocabulary:** Accepted direction means agreement on the project's
 direction, not an irreversible technical commitment. Proposed means a candidate
 to test. Open means not yet decided. Deferred means intentionally outside the

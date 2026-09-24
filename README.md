@@ -3,9 +3,9 @@
 A personal experiment in building an opinionated, API-first Rust application
 framework from existing crates, with React as its first client.
 
-Iris contains the design record and a runnable SQLite/Turso experiment with
-shared behavior tests and build measurements. **There is no application
-framework yet.**
+Iris contains the design record, a runnable SQLite/Turso comparison, and an
+end-to-end Axum → OpenAPI → TypeScript → React experiment. **There is no
+application framework yet.**
 
 ## Why build this?
 
@@ -47,6 +47,9 @@ of the framework design, not a later addition.
    behavior, database comparison, build measurements, and subsequent API slice.
 4. [Embedded database findings](docs/embedded-db-findings.md) — executed checks,
    measured results, limitations, and a provisional SQLite recommendation.
+5. [API slice](experiments/api-slice/README.md) — runnable React demo,
+   utoipa/aide comparison, contract verification, and application-authoring
+   conventions.
 
 ## Run the database experiment
 
@@ -60,12 +63,20 @@ See the [experiment guide](experiments/embedded-db/README.md) for setup, test
 semantics, and reproducible measurements. In an orb, `.agents/setup` installs
 the toolchain and fetches locked dependencies.
 
+## Run the API experiment
+
+Follow the [API slice guide](experiments/api-slice/README.md) for setup and
+checks. In an orb, `amp orb services ensure` starts the API and React and prints
+a portal. The demo uses disposable data and explicitly gated synthetic
+identities, not production authentication. Generated contracts are checked
+against real HTTP responses and the actual React consumer.
+
 ## Next milestone
 
-Use the database findings to sketch the framework-user experience, then build an
-end-to-end slice: application action → HTTP endpoint → OpenAPI → generated
-TypeScript client → React screen. Keep the concrete Turso experiment available;
-the measured SQLite recommendation is not a permanent backend commitment.
+Add a second application action to test which conventions generalize before
+extracting framework APIs. Authentication and production boundaries still need
+design. Keep the concrete Turso experiment available; SQLite and utoipa are
+provisional choices, not permanent commitments.
 
 ## Provenance and status
 

@@ -1,0 +1,13 @@
+services:
+  iris-api:
+    command: cargo run --locked -p iris-api-spike --features dev-identity --bin iris-api-demo -- --dev-demo
+    port: 3001
+    health: /api/openapi.json
+  iris-web:
+    command: npm run dev
+    cwd: experiments/api-slice/web
+    port: 5173
+    health: /
+    portal:
+      title: Iris API experiment
+      description: Development-only synthetic identities and disposable data. Valid invitations are single-use; restarting iris-api resets them.

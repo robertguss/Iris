@@ -1,5 +1,10 @@
 # Research map
 
+This is the initial source-research snapshot. For subsequent executed evidence,
+see [embedded database findings](embedded-db-findings.md); the unverified claims
+listed below describe the state at the time of research, not the current test
+status.
+
 Research snapshot: September 24, 2026. Links to `main` and unversioned
 documentation move over time. Confirm the exact released API before implementing
 or pinning a dependency. No benchmark or dependency compatibility matrix has

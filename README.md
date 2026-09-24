@@ -3,9 +3,9 @@
 A personal experiment in building an opinionated, API-first Rust application
 framework from existing crates, with React as its first client.
 
-This repository captures the design before implementation. **There is no working
-framework or benchmark yet.** Iris is the home for the research, design record,
-and upcoming experiments.
+Iris contains the design record and a runnable SQLite/Turso experiment with
+shared behavior tests and build measurements. **There is no application
+framework yet.**
 
 ## Why build this?
 
@@ -45,16 +45,27 @@ of the framework design, not a later addition.
    and claims requiring validation.
 3. [Verification and first experiment](docs/first-experiment.md) — intended
    behavior, database comparison, build measurements, and subsequent API slice.
+4. [Embedded database findings](docs/embedded-db-findings.md) — executed checks,
+   measured results, limitations, and a provisional SQLite recommendation.
+
+## Run the database experiment
+
+With the pinned Rust toolchain and a C compiler installed:
+
+```sh
+cargo test --workspace --locked
+```
+
+See the [experiment guide](experiments/embedded-db/README.md) for setup, test
+semantics, and reproducible measurements. In an orb, `.agents/setup` installs
+the toolchain and fetches locked dependencies.
 
 ## Next milestone
 
-Compare two small implementations of invitation acceptance: SQLite through a
-concrete Rust driver, and native local Turso. Exercise identical behavioral
-expectations without first introducing a universal database abstraction.
-
-Use the results to sketch the framework-user experience, then build an
+Use the database findings to sketch the framework-user experience, then build an
 end-to-end slice: application action → HTTP endpoint → OpenAPI → generated
-TypeScript client → React screen.
+TypeScript client → React screen. Keep the concrete Turso experiment available;
+the measured SQLite recommendation is not a permanent backend commitment.
 
 ## Provenance and status
 
@@ -62,8 +73,9 @@ Recorded September 24, 2026, from a design discussion with Robert Guss:
 [original Amp thread](https://ampcode.com/threads/T-01a0d13e-b20f-73ee-bed5-747eb2d3346c).
 These documents are self-contained; thread access is not required to understand
 the direction. Research included librarian source investigations and an oracle
-architecture consultation. Findings are research notes, not executed
-verification.
+architecture consultation. The initial research notes are distinguished from the
+subsequently executed database experiment and its findings.
 
-No engine, dependency versions, application API, authentication design, or
-performance claims are finalized. No application code has been implemented.
+Experiment dependencies are pinned; the framework API, default engine, and
+authentication design remain provisional or open. Measurements describe this
+specific orb and workload, not general performance guarantees.

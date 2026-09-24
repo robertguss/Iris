@@ -1,0 +1,654 @@
+{
+  "recorded_utc": "2026-09-24T11:11:25Z",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+  "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+  "cpu": "model name\t: Intel(R) Xeon(R) Processor @ 2.60GHz",
+  "available_cpus": 4,
+  "memory": "MemTotal:        8147616 kB",
+  "cc": "cc (Debian 12.2.0-14+deb12u1) 12.2.0",
+  "system_ld": "GNU ld (GNU Binutils for Debian) 2.40",
+  "settings": {
+    "jobs": 4,
+    "incremental": true,
+    "profile": "default test (debug)",
+    "cache": "fresh target per sample; warm downloaded crates and OS cache",
+    "wrappers": "disabled",
+    "rustflags": "unset",
+    "linker": "rustc default"
+  },
+  "source_sha256": {
+    "Cargo.lock": "d9c138aba2293b7339fde1b275fea0cba1b45051b0ff616720ec4f55280b8a4a",
+    "Cargo.toml": "ba643411ceb5cc958602984d7e8e8461a4ff918d7888517a5f926455252b87a1",
+    "experiments/embedded-db/shared/domain.rs": "dedafc2e05bb2401ec3fe294800570d4d31a78fb37d5b74cc59d1c678fc07bd5",
+    "experiments/embedded-db/shared/migrations/0001_invitations.sql": "c505b36201697223a4590ef5733eaa753faae812306c15d0470832470a83c2c9",
+    "experiments/embedded-db/shared/scenarios.rs": "a1feafd533ea21e3d511dac5c7bd45ceb8621b46e47bfca4b97040466a0f19cb",
+    "experiments/embedded-db/sqlite/Cargo.toml": "4693c79646021f83e12d5340579f612f7c6d2100360f7f9f5bfc2fa8ffd4e813",
+    "experiments/embedded-db/sqlite/src/lib.rs": "a97d52614359cedca051d257619fe126d004089f0bc25008b0585c5d6964f195",
+    "experiments/embedded-db/sqlite/tests/scenarios.rs": "dcf9c8b5dc316bedebcf13b5e8a090c7bfe52c701677d5968831eba18e10f13c",
+    "experiments/embedded-db/turso/Cargo.toml": "97f808020374b8e15a1138f0be95cdd7b095075c7a8507dad731589e9f08b39d",
+    "experiments/embedded-db/turso/src/lib.rs": "f872646890e08dac17ea2c5658a4ed00741a167a0b5b2df036970d2e3731e94f",
+    "experiments/embedded-db/turso/tests/scenarios.rs": "7340857a89ede8118dc1c31c71e95ddb1dbac723f263534497ee6190976a02ca",
+    "rust-toolchain.toml": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167"
+  },
+  "samples": [
+    {
+      "backend": "sqlite",
+      "sample": 1,
+      "measurements": [
+        {
+          "label": "clean_test_build",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 19.3355,
+          "exit_code": 0
+        },
+        {
+          "label": "warm_no_change",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.1658,
+          "exit_code": 0
+        },
+        {
+          "label": "function_body_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.973,
+          "exit_code": 0
+        },
+        {
+          "label": "shared_type_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 1.1701,
+          "exit_code": 0
+        },
+        {
+          "label": "targeted_test",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "scenarios::expiration_boundary",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.2155,
+          "exit_code": 0
+        },
+        {
+          "label": "all_scenarios",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios"
+          ],
+          "seconds": 0.3202,
+          "exit_code": 0
+        }
+      ]
+    },
+    {
+      "backend": "turso",
+      "sample": 1,
+      "measurements": [
+        {
+          "label": "clean_test_build",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 58.8194,
+          "exit_code": 0
+        },
+        {
+          "label": "warm_no_change",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.1648,
+          "exit_code": 0
+        },
+        {
+          "label": "function_body_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 1.9863,
+          "exit_code": 0
+        },
+        {
+          "label": "shared_type_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 2.3104,
+          "exit_code": 0
+        },
+        {
+          "label": "targeted_test",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "scenarios::expiration_boundary",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.2722,
+          "exit_code": 0
+        },
+        {
+          "label": "all_scenarios",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios"
+          ],
+          "seconds": 0.3164,
+          "exit_code": 0
+        }
+      ]
+    },
+    {
+      "backend": "turso",
+      "sample": 2,
+      "measurements": [
+        {
+          "label": "clean_test_build",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 58.713,
+          "exit_code": 0
+        },
+        {
+          "label": "warm_no_change",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.165,
+          "exit_code": 0
+        },
+        {
+          "label": "function_body_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 1.9469,
+          "exit_code": 0
+        },
+        {
+          "label": "shared_type_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 2.2003,
+          "exit_code": 0
+        },
+        {
+          "label": "targeted_test",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "scenarios::expiration_boundary",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.2656,
+          "exit_code": 0
+        },
+        {
+          "label": "all_scenarios",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios"
+          ],
+          "seconds": 0.3176,
+          "exit_code": 0
+        }
+      ]
+    },
+    {
+      "backend": "sqlite",
+      "sample": 2,
+      "measurements": [
+        {
+          "label": "clean_test_build",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 18.5703,
+          "exit_code": 0
+        },
+        {
+          "label": "warm_no_change",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.166,
+          "exit_code": 0
+        },
+        {
+          "label": "function_body_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.9714,
+          "exit_code": 0
+        },
+        {
+          "label": "shared_type_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 1.2383,
+          "exit_code": 0
+        },
+        {
+          "label": "targeted_test",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "scenarios::expiration_boundary",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.2152,
+          "exit_code": 0
+        },
+        {
+          "label": "all_scenarios",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios"
+          ],
+          "seconds": 0.2774,
+          "exit_code": 0
+        }
+      ]
+    },
+    {
+      "backend": "sqlite",
+      "sample": 3,
+      "measurements": [
+        {
+          "label": "clean_test_build",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 18.9257,
+          "exit_code": 0
+        },
+        {
+          "label": "warm_no_change",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.1652,
+          "exit_code": 0
+        },
+        {
+          "label": "function_body_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 0.9762,
+          "exit_code": 0
+        },
+        {
+          "label": "shared_type_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 1.2013,
+          "exit_code": 0
+        },
+        {
+          "label": "targeted_test",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios",
+            "scenarios::expiration_boundary",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.2184,
+          "exit_code": 0
+        },
+        {
+          "label": "all_scenarios",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-sqlite-spike",
+            "--test",
+            "scenarios"
+          ],
+          "seconds": 0.2659,
+          "exit_code": 0
+        }
+      ]
+    },
+    {
+      "backend": "turso",
+      "sample": 3,
+      "measurements": [
+        {
+          "label": "clean_test_build",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 59.4461,
+          "exit_code": 0
+        },
+        {
+          "label": "warm_no_change",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 1.0186,
+          "exit_code": 0
+        },
+        {
+          "label": "function_body_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 3.4357,
+          "exit_code": 0
+        },
+        {
+          "label": "shared_type_edit",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "--no-run"
+          ],
+          "seconds": 2.1886,
+          "exit_code": 0
+        },
+        {
+          "label": "targeted_test",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios",
+            "scenarios::expiration_boundary",
+            "--",
+            "--exact"
+          ],
+          "seconds": 0.2684,
+          "exit_code": 0
+        },
+        {
+          "label": "all_scenarios",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "-p",
+            "iris-turso-spike",
+            "--test",
+            "scenarios"
+          ],
+          "seconds": 0.3157,
+          "exit_code": 0
+        }
+      ]
+    }
+  ]
+}

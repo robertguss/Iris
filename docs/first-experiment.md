@@ -1,6 +1,10 @@
 # Verification and first experiment
 
-Status: planned, not implemented or measured.
+Status: the database acceptance slice is implemented and measured; see
+[findings](embedded-db-findings.md) and the
+[runnable experiment](../experiments/embedded-db/README.md). The broader plan
+below is retained: invitation creation/authorization, HTTP, React, and email are
+not implemented. Engine support and a general framework API remain undecided.
 
 ## Purpose
 

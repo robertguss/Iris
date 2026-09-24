@@ -1,0 +1,13 @@
+[package]
+name = "iris-turso-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+turso = { version = "=0.7.2", default-features = false }
+sha2.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tempfile.workspace = true

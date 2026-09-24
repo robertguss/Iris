@@ -2,6 +2,23 @@
 
 Initial record: September 24, 2026.
 
+## Experiment follow-up — September 24, 2026
+
+The [embedded database spike](embedded-db-findings.md) now supplies executable
+evidence. Both SQLx/SQLite and native Turso passed ten shared scenarios. Three
+isolated build samples per candidate favor SQLx/SQLite's feedback loop for this
+workload; SQLx also supplied migration tooling directly. The recommendation is
+to use SQLite for the next API slice, not to lock in Iris's default permanently.
+
+The spike targets verified user IDs, uses a fixed timestamp per attempt, treats
+expiration equality as expired, returns `AlreadyAccepted` on repeat acceptance,
+and preserves existing membership roles. These settle experiment semantics only.
+It introduces no runtime database abstraction and does not implement
+authentication.
+
+The proposals and open questions below preserve the initial design record; exact
+experiment dependency pins are in Cargo.toml/Cargo.lock, not framework promises.
+
 **Status vocabulary:** Accepted direction means agreement on the project's
 direction, not an irreversible technical commitment. Proposed means a candidate
 to test. Open means not yet decided. Deferred means intentionally outside the

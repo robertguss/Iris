@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::OpenApi;
 
 pub const ACCEPT_PATH: &str = "/api/invitations/accept";
+pub const ISSUE_PATH: &str = "/api/invitations";
+mod invitations;
+use invitations::{IssuedInvitation, issue_endpoint};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -48,6 +51,10 @@ pub struct Acceptance {
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     InvalidRequest,
+    Forbidden,
+    RecipientNotFound,
+    AlreadyMember,
+    InvitationPending,
     Unauthorized,
     NotFound,
     Expired,
@@ -69,7 +76,19 @@ impl IntoResponse for ApiError {
         let (status, message) = match self.0 {
             ErrorCode::InvalidRequest => (
                 StatusCode::BAD_REQUEST,
-                "Provide a token containing 1–256 characters and no other fields.",
+                "Provide the required fields with valid values and no extra fields.",
+            ),
+            ErrorCode::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "Only a project owner can issue invitations.",
+            ),
+            ErrorCode::RecipientNotFound => (StatusCode::NOT_FOUND, "Recipient not found."),
+            ErrorCode::AlreadyMember => {
+                (StatusCode::CONFLICT, "The recipient is already a member.")
+            }
+            ErrorCode::InvitationPending => (
+                StatusCode::CONFLICT,
+                "An unexpired invitation already exists.",
             ),
             ErrorCode::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
@@ -202,6 +221,7 @@ pub fn utoipa_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
     let (router, mut api) = utoipa_axum::router::OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(utoipa_axum::routes!(accept_endpoint))
+        .routes(utoipa_axum::routes!(invitations::issue_endpoint))
         .split_for_parts();
     // No project license has been chosen; omit the inferred empty license.
     api.info.license = None;
@@ -245,6 +265,29 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
                 .response_with::<503, Json<Problem>, _>(|r| r.description("Database busy"))
         }),
     );
+    let app = app.api_route(
+        ISSUE_PATH,
+        post_with(issue_endpoint, |op| {
+            op.id("issueInvitation")
+                .security_requirement("DevIdentity")
+                .response_with::<201, Json<IssuedInvitation>, _>(|r| {
+                    r.description("Invitation issued; membership unchanged")
+                })
+                .response_with::<400, Json<Problem>, _>(|r| r.description("Invalid request"))
+                .response_with::<401, Json<Problem>, _>(|r| {
+                    r.description("Missing or invalid development identity")
+                })
+                .response_with::<403, Json<Problem>, _>(|r| {
+                    r.description("Not a project owner, including unknown project")
+                })
+                .response_with::<404, Json<Problem>, _>(|r| r.description("Recipient not found"))
+                .response_with::<409, Json<Problem>, _>(|r| {
+                    r.description("Already a member or invitation pending")
+                })
+                .response_with::<500, Json<Problem>, _>(|r| r.description("Internal error"))
+                .response_with::<503, Json<Problem>, _>(|r| r.description("Database busy"))
+        }),
+    );
     let mut api = aide::openapi::OpenApi::default();
     let router = app.finish_api_with(&mut api, |api| {
         api.title("Iris invitation experiment")
@@ -266,9 +309,12 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
 
 /// Disposable fixtures only; do not call this against an application database.
 pub async fn seed_demo(conn: &mut sqlx::SqliteConnection, now: i64) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql("INSERT INTO users VALUES (11), (29); INSERT INTO projects VALUES (7), (19)")
-        .execute(&mut *conn)
-        .await?;
+    sqlx::raw_sql(
+        "INSERT INTO users VALUES (11), (29); INSERT INTO projects VALUES (7), (19), (41), (43);
+        INSERT INTO memberships VALUES (41, 11, 'owner'), (43, 29, 'owner')",
+    )
+    .execute(&mut *conn)
+    .await?;
     for (token, project, recipient, expiry) in [
         ("iris-valid", 7_i64, 11_i64, now + 3600),
         ("iris-expired", 7, 11, now),

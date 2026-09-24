@@ -1,4 +1,20 @@
 export interface paths {
+    "/api/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["issueInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/invitations/accept": {
         parameters: {
             query?: never;
@@ -29,7 +45,21 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        ErrorCode: "invalid_request" | "unauthorized" | "not_found" | "expired" | "already_accepted" | "internal" | "unavailable";
+        ErrorCode: "invalid_request" | "forbidden" | "recipient_not_found" | "already_member" | "invitation_pending" | "unauthorized" | "not_found" | "expired" | "already_accepted" | "internal" | "unavailable";
+        IssueRequest: {
+            /** @description Positive signed-64-bit decimal ID. No leading zeros. */
+            project_id: string;
+            /** @description Existing account; same ID format as project_id. */
+            recipient_id: string;
+        };
+        IssuedInvitation: {
+            /** @description Unix seconds, serialized as a string. */
+            expires_at: string;
+            project_id: string;
+            recipient_id: string;
+            /** @description Demo-only delivery: treat as a credential. Stored only as a hash. */
+            token: string;
+        };
         Problem: {
             code: components["schemas"]["ErrorCode"];
             message: string;
@@ -43,6 +73,93 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    issueInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IssueRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation issued; membership unchanged */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedInvitation"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid development identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a project owner, including unknown project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Recipient not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Already a member or invitation pending */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Database busy */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     acceptInvitation: {
         parameters: {
             query?: never;

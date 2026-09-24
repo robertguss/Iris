@@ -17,7 +17,7 @@ pub async fn connect(db: &turso::Database) -> Result<turso::Connection, turso::E
     Ok(conn)
 }
 
-/// One explicit migration for the spike. Not a reusable migration runner.
+/// Explicit migrations for the spike. Not a reusable migration runner.
 pub async fn migrate(conn: &mut turso::Connection) -> Result<(), turso::Error> {
     let tx = conn
         .transaction_with_behavior(turso::transaction::TransactionBehavior::Immediate)
@@ -28,8 +28,12 @@ pub async fn migrate(conn: &mut turso::Connection) -> Result<(), turso::Error> {
     if version == 0 {
         tx.execute_batch(include_str!("../../shared/migrations/0001_invitations.sql"))
             .await?;
-        tx.execute("PRAGMA user_version = 1", ()).await?;
-    } else if version != 1 {
+    }
+    if version == 0 || version == 1 {
+        tx.execute_batch(include_str!("../../shared/migrations/0002_owners.sql"))
+            .await?;
+        tx.execute("PRAGMA user_version = 2", ()).await?;
+    } else if version != 2 {
         return Err(turso::Error::ConversionFailure(
             "unsupported schema version".into(),
         ));

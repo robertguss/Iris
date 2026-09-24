@@ -35,6 +35,10 @@
       "ErrorCode": {
         "enum": [
           "invalid_request",
+          "forbidden",
+          "recipient_not_found",
+          "already_member",
+          "invitation_pending",
           "unauthorized",
           "not_found",
           "expired",
@@ -43,6 +47,53 @@
           "unavailable"
         ],
         "type": "string"
+      },
+      "IssueRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "description": "Positive signed-64-bit decimal ID. No leading zeros.",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "recipient_id": {
+            "description": "Existing account; same ID format as project_id.",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "recipient_id"
+        ],
+        "type": "object"
+      },
+      "IssuedInvitation": {
+        "properties": {
+          "expires_at": {
+            "description": "Unix seconds, serialized as a string.",
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "recipient_id": {
+            "type": "string"
+          },
+          "token": {
+            "description": "Demo-only delivery: treat as a credential. Stored only as a hash.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "recipient_id",
+          "token",
+          "expires_at"
+        ],
+        "type": "object"
       },
       "Problem": {
         "properties": {
@@ -75,6 +126,108 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/invitations": {
+      "post": {
+        "operationId": "issueInvitation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedInvitation"
+                }
+              }
+            },
+            "description": "Invitation issued; membership unchanged"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Missing or invalid development identity"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not a project owner, including unknown project"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Recipient not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Already a member or invitation pending"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Database busy"
+          }
+        },
+        "security": [
+          {
+            "DevIdentity": []
+          }
+        ]
+      }
+    },
     "/api/invitations/accept": {
       "post": {
         "operationId": "acceptInvitation",

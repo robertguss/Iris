@@ -1,6 +1,6 @@
 use axum::{Router, body::Body, http::Request};
 use http_body_util::BodyExt;
-use iris_api_spike::{ACCEPT_PATH, AppState, aide_router, utoipa_router};
+use iris_api_spike::{ACCEPT_PATH, AppState, ISSUE_PATH, aide_router, utoipa_router};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -27,7 +27,19 @@ async fn request(
     expected: Value,
     api: &Value,
 ) {
-    let mut builder = Request::post(ACCEPT_PATH).header("content-type", "application/json");
+    request_at(router, ACCEPT_PATH, identity, body, status, expected, api).await;
+}
+
+async fn request_at(
+    router: Router,
+    path: &str,
+    identity: Option<&str>,
+    body: &str,
+    status: u16,
+    expected: Value,
+    api: &Value,
+) -> Value {
+    let mut builder = Request::post(path).header("content-type", "application/json");
     if let Some(identity) = identity {
         builder = builder.header("x-iris-dev-user", identity);
     }
@@ -37,15 +49,19 @@ async fn request(
         .unwrap();
     assert_eq!(response.status().as_u16(), status);
     assert_eq!(response.headers()["content-type"], "application/json");
+    if status == 201 {
+        assert_eq!(response.headers()["cache-control"], "no-store");
+    }
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let actual: Value = serde_json::from_slice(&bytes).unwrap();
     for (key, value) in expected.as_object().unwrap() {
         assert_eq!(&actual[key], value, "{actual}");
     }
-    let schema = &api["paths"][ACCEPT_PATH]["post"]["responses"][status.to_string()]["content"]["application/json"]
+    let schema = &api["paths"][path]["post"]["responses"][status.to_string()]["content"]["application/json"]
         ["schema"];
     assert!(!schema.is_null(), "undocumented response {status}");
     validator(api, schema).validate(&actual).unwrap();
+    actual
 }
 
 #[test]
@@ -106,9 +122,19 @@ async fn ordinary_build_rejects_development_identity() {
             now: || 100,
         });
         request(
-            app,
+            app.clone(),
             Some("11"),
             r#"{"token":"iris-valid"}"#,
+            401,
+            json!({"code":"unauthorized"}),
+            &api,
+        )
+        .await;
+        request_at(
+            app,
+            ISSUE_PATH,
+            Some("11"),
+            r#"{"project_id":"41","recipient_id":"29"}"#,
             401,
             json!({"code":"unauthorized"}),
             &api,
@@ -139,6 +165,220 @@ mod demo {
             }),
             conn,
         )
+    }
+
+    #[tokio::test]
+    async fn issue_authorize_then_accept_through_both_contracts() {
+        for (_, router, api) in candidates() {
+            let (_dir, app, mut conn) = fixture(router).await;
+            let body = r#"{"project_id":"41","recipient_id":"29"}"#;
+            for (actor, status, code) in
+                [(None, 401, "unauthorized"), (Some("29"), 403, "forbidden")]
+            {
+                request_at(
+                    app.clone(),
+                    ISSUE_PATH,
+                    actor,
+                    body,
+                    status,
+                    json!({"code":code}),
+                    &api,
+                )
+                .await;
+            }
+            for (body, status, code) in [
+                (
+                    r#"{"project_id":"43","recipient_id":"29"}"#,
+                    403,
+                    "forbidden",
+                ),
+                (
+                    r#"{"project_id":"999","recipient_id":"999"}"#,
+                    403,
+                    "forbidden",
+                ),
+                (
+                    r#"{"project_id":"41","recipient_id":"999"}"#,
+                    404,
+                    "recipient_not_found",
+                ),
+                (
+                    r#"{"project_id":"41","recipient_id":"11"}"#,
+                    409,
+                    "already_member",
+                ),
+                (
+                    r#"{"project_id":"41","recipient_id":"29","token":"chosen"}"#,
+                    400,
+                    "invalid_request",
+                ),
+                (
+                    r#"{"project_id":"41","recipient_id":"29","actor_id":"11"}"#,
+                    400,
+                    "invalid_request",
+                ),
+                (
+                    r#"{"project_id":"41","recipient_id":"29","role":"owner"}"#,
+                    400,
+                    "invalid_request",
+                ),
+                (
+                    r#"{"project_id":"041","recipient_id":"29"}"#,
+                    400,
+                    "invalid_request",
+                ),
+                (
+                    r#"{"project_id":"9223372036854775808","recipient_id":"29"}"#,
+                    400,
+                    "invalid_request",
+                ),
+                (
+                    r#"{"project_id":41,"recipient_id":"29"}"#,
+                    400,
+                    "invalid_request",
+                ),
+            ] {
+                request_at(
+                    app.clone(),
+                    ISSUE_PATH,
+                    Some("11"),
+                    body,
+                    status,
+                    json!({"code":code}),
+                    &api,
+                )
+                .await;
+            }
+            let issued = request_at(
+                app.clone(),
+                ISSUE_PATH,
+                Some("11"),
+                body,
+                201,
+                json!({"project_id":"41","recipient_id":"29","expires_at":"3700"}),
+                &api,
+            )
+            .await;
+            let token = issued["token"].as_str().unwrap();
+            assert_eq!(token.len(), 64);
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM memberships WHERE project_id=41 AND user_id=29",
+            )
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+            assert_eq!(count, 0, "Issuing must not grant membership");
+            request_at(
+                app.clone(),
+                ISSUE_PATH,
+                Some("11"),
+                body,
+                409,
+                json!({"code":"invitation_pending"}),
+                &api,
+            )
+            .await;
+            let accept = json!({"token": token}).to_string();
+            request(
+                app.clone(),
+                Some("11"),
+                &accept,
+                404,
+                json!({"code":"not_found"}),
+                &api,
+            )
+            .await;
+            request(
+                app.clone(),
+                Some("29"),
+                &accept,
+                200,
+                json!({"project_id":"41","user_id":"29"}),
+                &api,
+            )
+            .await;
+            let role: String = sqlx::query_scalar(
+                "SELECT role FROM memberships WHERE project_id=41 AND user_id=29",
+            )
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+            assert_eq!(role, "editor");
+            request_at(
+                app.clone(),
+                ISSUE_PATH,
+                Some("11"),
+                body,
+                409,
+                json!({"code":"already_member"}),
+                &api,
+            )
+            .await;
+            request_at(
+                app,
+                ISSUE_PATH,
+                Some("29"),
+                body,
+                403,
+                json!({"code":"forbidden"}),
+                &api,
+            )
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn issue_database_failures_match_both_contracts() {
+        for (_, router, api) in candidates() {
+            let (_dir, app, mut conn) = fixture(router).await;
+            let body = r#"{"project_id":"41","recipient_id":"29"}"#;
+            sqlx::raw_sql("BEGIN IMMEDIATE")
+                .execute(&mut conn)
+                .await
+                .unwrap();
+            request_at(
+                app.clone(),
+                ISSUE_PATH,
+                Some("11"),
+                body,
+                503,
+                json!({"code":"unavailable"}),
+                &api,
+            )
+            .await;
+            sqlx::raw_sql("ROLLBACK; CREATE TRIGGER fail_issue BEFORE INSERT ON invitations BEGIN SELECT RAISE(ABORT, 'private database detail'); END;")
+                .execute(&mut conn).await.unwrap();
+            request_at(
+                app.clone(),
+                ISSUE_PATH,
+                Some("11"),
+                body,
+                500,
+                json!({"code":"internal","message":"The request could not be completed."}),
+                &api,
+            )
+            .await;
+            let count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM invitations WHERE project_id=41")
+                    .fetch_one(&mut conn)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 0);
+            sqlx::raw_sql("DROP TRIGGER fail_issue")
+                .execute(&mut conn)
+                .await
+                .unwrap();
+            request_at(
+                app,
+                ISSUE_PATH,
+                Some("11"),
+                body,
+                201,
+                json!({"project_id":"41"}),
+                &api,
+            )
+            .await;
+        }
     }
 
     #[tokio::test]
@@ -217,10 +457,11 @@ mod demo {
                 &api,
             )
             .await;
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM memberships")
-                .fetch_one(&mut conn)
-                .await
-                .unwrap();
+            let count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM memberships WHERE project_id IN (7,19)")
+                    .fetch_one(&mut conn)
+                    .await
+                    .unwrap();
             assert_eq!(count, 2);
         }
     }
@@ -266,10 +507,11 @@ mod demo {
                 &api,
             )
             .await;
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM memberships")
-                .fetch_one(&mut conn)
-                .await
-                .unwrap();
+            let count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM memberships WHERE project_id IN (7,19)")
+                    .fetch_one(&mut conn)
+                    .await
+                    .unwrap();
             assert_eq!(count, 0);
         }
     }

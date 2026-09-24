@@ -6,6 +6,9 @@ use sqlx::{Connection, Row, SqliteConnection, sqlite::SqliteConnectOptions};
 mod domain;
 pub use domain::{AcceptInvitation, Outcome, token_hash};
 
+mod issue;
+pub use issue::{IssueInvitation, IssueOutcome, issue};
+
 pub async fn connect(path: &Path) -> Result<SqliteConnection, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(path)

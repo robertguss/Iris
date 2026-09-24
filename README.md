@@ -73,10 +73,11 @@ against real HTTP responses and the actual React consumer.
 
 ## Next milestone
 
-Add a second application action to test which conventions generalize before
-extracting framework APIs. Authentication and production boundaries still need
-design. Keep the concrete Turso experiment available; SQLite and utoipa are
-provisional choices, not permanent commitments.
+The API experiment now supports owner-authorized issuance and recipient
+acceptance. Both actions follow the same explicit boundaries without a generic
+Action trait. Design real authentication and token delivery/recovery before
+making this a deployable application. SQLite and utoipa remain provisional; the
+concrete Turso comparison is still available.
 
 ## Provenance and status
 

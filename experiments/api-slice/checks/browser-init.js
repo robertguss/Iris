@@ -5,7 +5,7 @@
   window.irisTest = { hold: false, fail: false, requests: 0, release: null };
   window.fetch = async (...args) => {
     const url = args[0] instanceof Request ? args[0].url : String(args[0]);
-    if (url.endsWith('/api/invitations/accept')) {
+    if (url.endsWith('/api/invitations/accept') || url.endsWith('/api/invitations')) {
       window.irisTest.requests++;
       if (window.irisTest.hold) {
         await new Promise(resolve => { window.irisTest.release = resolve; });

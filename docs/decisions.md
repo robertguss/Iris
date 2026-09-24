@@ -39,6 +39,29 @@ open. These are experiment conventions, not a released framework API. The
 proposal table and open questions below retain the original research context;
 the linked slice records which portions now have executable evidence.
 
+## Second-action follow-up — September 24, 2026
+
+Owner-authorized invitation creation now complements acceptance. The action
+checks the owner's project membership inside the write transaction, generates a
+random token, stores its hash, and grants no membership until acceptance. It
+issues editor invitations only, with a fixed one-hour lifetime. Existing members
+and unexpired pending invitations are conflicts; an expired invitation can be
+replaced. Revocation of ownership prevents new issuance, not acceptance of
+already-issued invitations. These choices apply to the experiment, not a general
+authorization system.
+
+Both actions reuse identity extraction, structured errors, database-error
+mapping, OpenAPI/client tooling, and a contract-test request helper. No generic
+Action trait or policy DSL was justified by this second action. The application
+convention remains explicit input + actor + time → transactional domain function
+→ outcome → HTTP mapping. The [API guide](../experiments/api-slice/README.md)
+records the workflow, boundary cases, build-loop measurements, and limitations.
+
+Creation is SQLite-only; the shared schema migration is exercised by both
+database experiments. Development identity remains caller-controlled. Tokens are
+returned directly only to make this demo testable; email, idempotency, recovery
+after a lost response, and real authentication remain future work.
+
 **Status vocabulary:** Accepted direction means agreement on the project's
 direction, not an irreversible technical commitment. Proposed means a candidate
 to test. Open means not yet decided. Deferred means intentionally outside the

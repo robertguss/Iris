@@ -6,6 +6,19 @@ import type { paths as AidePaths, components as AideComponents } from "../src/ge
 async function contracts() {
   const clients = [createClient<UtoipaPaths>(), createClient<AidePaths>()];
   for (const client of clients) {
+    const issued = await client.POST("/api/invitations", { body: { project_id: "41", recipient_id: "29" } });
+    if (issued.data) {
+      const token: string = issued.data.token;
+      const recipient: string = issued.data.recipient_id;
+      void [token, recipient];
+    }
+    // @ts-expect-error Recipient is required.
+    await client.POST("/api/invitations", { body: { project_id: "41" } });
+    // @ts-expect-error IDs are strings, not JavaScript numbers.
+    await client.POST("/api/invitations", { body: { project_id: 41, recipient_id: "29" } });
+    // @ts-expect-error Tokens are server-generated, never input.
+    const issueBody: UtoipaComponents["schemas"]["IssueRequest"] = { project_id: "41", recipient_id: "29", token: "chosen" };
+    void issueBody;
     const { data, error } = await client.POST("/api/invitations/accept", { body: { token: "example" } });
     if (data) {
       const project: string = data.project_id;

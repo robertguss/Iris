@@ -39,6 +39,7 @@ button { font: inherit; cursor: pointer; border-radius: 5px; }
 .submit { width: 100%; display: flex; align-items: center; justify-content: space-between; background: #655093; border: 1px solid #655093; color: #fff; padding: 11px 14px; font-size: 13px; font-weight: 600; }
 .submit:hover { background: #55407f; }
 button:disabled, fieldset:disabled button { opacity: .65; cursor: wait; }
+fieldset:disabled input, fieldset:disabled select { background: #f0eef3; color: #8c8496; border-color: #e2dfe7; opacity: .7; cursor: wait; }
 :focus-visible { outline: 3px solid #ad97d9; outline-offset: 3px; }
 .footnote { margin: 16px 0 0; }
 .response-panel { display: flex; flex-direction: column; }

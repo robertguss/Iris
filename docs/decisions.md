@@ -224,6 +224,29 @@ assurance. A real-provider smoke test, deployment, and durable account lifecycle
 remain deferred. See the
 [implementation and verification record](../experiments/api-slice/authentication.md).
 
+## Local delivery follow-up — September 24, 2026
+
+Real-provider authentication remains unverified and is deferred to a stable
+callback environment. Instead, exercise delivery to existing local users using
+Lettre 0.11.23, Mailpit 1.31.2, and a SQLite transactional outbox. No real
+email, signup, email-based identity linking, generic queue framework, or resend
+API.
+
+Both HTTP demos now commit invitation and delivery payload together. A 201 means
+queued, not sent. Delivery uses a snapshot of the user's test address; changing
+a contact does not redirect an existing invitation. Automatic retries reuse its
+token and Message-ID. Delivery is not exactly-once: SMTP acceptance followed by
+lost acknowledgement can duplicate mail. Five attempts and a 30-second fenced
+lease bound recovery; expired/accepted invitations are not newly claimed.
+Pending plaintext credentials are cleared on terminal cleanup, which is not
+secure disk erasure. Demo database restarts still discard data.
+
+This supersedes earlier statements that HTTP issuance stores only hashes or has
+no email delivery. Acceptance remains bound to user ID, not email. SQLite-only
+migrations are combined with shared migrations in one SQLx ledger; Turso's
+historical comparison is unchanged. See the
+[delivery record](../experiments/api-slice/delivery.md).
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

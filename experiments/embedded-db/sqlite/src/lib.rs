@@ -7,7 +7,8 @@ mod domain;
 pub use domain::{AcceptInvitation, Outcome, token_hash};
 
 mod issue;
-pub use issue::{IssueInvitation, IssueOutcome, issue};
+pub use issue::{IssueInvitation, IssueOutcome, issue, issue_with_delivery};
+pub mod outbox;
 
 pub async fn connect(path: &Path) -> Result<SqliteConnection, sqlx::Error> {
     let options = SqliteConnectOptions::new()
@@ -19,7 +20,11 @@ pub async fn connect(path: &Path) -> Result<SqliteConnection, sqlx::Error> {
 }
 
 pub async fn migrate(conn: &mut SqliteConnection) -> Result<(), sqlx::migrate::MigrateError> {
-    sqlx::migrate!("../shared/migrations").run(conn).await
+    let shared = sqlx::migrate!("../shared/migrations");
+    let local = sqlx::migrate!("./migrations");
+    sqlx::migrate::Migrator::with_migrations(shared.iter().chain(local.iter()).cloned().collect())
+        .run(conn)
+        .await
 }
 
 pub async fn accept(

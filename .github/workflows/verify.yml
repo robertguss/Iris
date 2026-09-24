@@ -60,6 +60,11 @@ jobs:
       - name: Test local OIDC fixture
         run: node --test experiments/api-slice/checks/oidc-provider.test.mjs
 
+      - name: Install local mail capture and verify SMTP recovery
+        run: |
+          bash experiments/api-slice/checks/install-mailpit.sh
+          cargo test --locked -p iris-api-spike --features dev-identity --test mail_delivery -- --ignored
+
       - name: Install browser runner
         run: |
           npm install --global agent-browser@0.38.1
@@ -71,8 +76,10 @@ jobs:
           set -euo pipefail
           node experiments/api-slice/checks/oidc-provider.mjs --port 4000 --issuer http://127.0.0.1:4000 --redirect-uri http://127.0.0.1:5174/api/auth/callback > /tmp/oidc.log 2>&1 &
           oidc=$!
-          api=''; web=''
-          trap 'kill "$oidc" ${api:-} ${web:-} 2>/dev/null || true' EXIT
+          api=''; web=''; mail=''
+          trap 'kill "$oidc" ${api:-} ${web:-} ${mail:-} 2>/dev/null || true' EXIT
+          "$HOME/.local/bin/mailpit" --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025 --disable-version-check > /tmp/mailpit.log 2>&1 &
+          mail=$!
           wait_for() {
             for attempt in $(seq 1 90); do
               if curl --fail --silent "$1" >/dev/null; then return; fi
@@ -82,10 +89,11 @@ jobs:
             return 1
           }
           wait_for http://127.0.0.1:4000/.well-known/openid-configuration
+          wait_for http://127.0.0.1:8025/livez
           IRIS_PUBLIC_ORIGIN=http://127.0.0.1:5174 IRIS_OIDC_ISSUER=http://127.0.0.1:4000 cargo run --locked -p iris-api-spike --bin iris-auth-demo -- --local-oidc-demo > /tmp/auth-api.log 2>&1 &
           api=$!
           npm --prefix experiments/api-slice/web run dev -- --port 5174 > /tmp/auth-web.log 2>&1 &
           web=$!
           wait_for http://127.0.0.1:3002/api/openapi.json
           wait_for http://127.0.0.1:5174
-          python3 experiments/api-slice/checks/auth-browser.py http://127.0.0.1:5174 --artifacts /tmp/auth-artifacts
+          python3 experiments/api-slice/checks/auth-browser.py http://127.0.0.1:5174 --artifacts /tmp/auth-artifacts --mailpit http://127.0.0.1:8025

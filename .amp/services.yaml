@@ -1,8 +1,4 @@
 services:
-  iris-api:
-    command: cargo run --locked -p iris-api-spike --features dev-identity --bin iris-api-demo -- --dev-demo
-    port: 3001
-    health: /api/openapi.json
   iris-web:
     command: VITE_IRIS_LEGACY_DEMO=true IRIS_API_TARGET=http://127.0.0.1:3001 npm run dev
     cwd: experiments/api-slice/web
@@ -11,6 +7,17 @@ services:
     portal:
       title: Iris API experiment
       description: Development-only synthetic identities and disposable data. Valid invitations are single-use; restarting iris-api resets them.
+  iris-api:
+    command: IRIS_INVITATION_ORIGIN="$(jq -er '.links[0].url | rtrimstr("/")' .amp/portals/iris-web.json)" cargo run --locked -p iris-api-spike --features dev-identity --bin iris-api-demo -- --dev-demo
+    port: 3001
+    health: /api/openapi.json
+  iris-mail:
+    command: exec "$HOME/.local/bin/mailpit" --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025 --database /tmp/iris-mailpit.db --max-age 24h --disable-version-check
+    port: 8025
+    health: /livez
+    portal:
+      title: Iris local inbox
+      description: Synthetic invitation emails only. No relay is configured; nothing is sent to real inboxes. Legacy-demo links work through the app portal; auth-demo links remain orb-local.
   iris-oidc:
     command: node experiments/api-slice/checks/oidc-provider.mjs --port 4000 --issuer http://127.0.0.1:4000 --redirect-uri http://127.0.0.1:5174/api/auth/callback
     port: 4000

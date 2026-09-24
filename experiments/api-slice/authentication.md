@@ -51,7 +51,10 @@ logout. Logout does not revoke other browser sessions or provider SSO.
 `Session::flush()` alone does **not** rotate its retained record ID in 0.15.0.
 The implementation explicitly uses `cycle_id()`. Session state is server-side;
 React keeps only its CSRF token in memory. Invitation tokens are displayed once
-and must be copied before switching users; no browser storage is used.
+and must be copied before switching users; no browser storage is used. The
+subsequent [delivery milestone](delivery.md) adds email links: sign in, then
+reopen the email to load the token without copying it or persisting it in
+browser storage. Pending outbox payloads temporarily contain plaintext tokens.
 
 ## Run and verify
 

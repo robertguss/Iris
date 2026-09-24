@@ -14,6 +14,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     iris_sqlite_spike::migrate(&mut conn).await?;
     seed_demo(&mut conn, unix_time()).await?;
     drop(conn);
+    let mailer =
+        iris_api_spike::delivery::Mailer::new(std::env::var("IRIS_INVITATION_ORIGIN")?, 1025)?;
+    let worker = tokio::spawn(mailer.run(database.clone()));
     let (router, api) = utoipa_router();
     let app = iris_api_spike::development_identity(router)
         .with_state(AppState {
@@ -28,6 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!(
         "Iris API experiment: development identity enabled; disposable database; loopback only."
     );
-    axum::serve(listener, app).await?;
+    tokio::select! {
+        result = axum::serve(listener, app).into_future() => result?,
+        _ = worker => return Err("delivery worker stopped".into()),
+    }
     Ok(())
 }

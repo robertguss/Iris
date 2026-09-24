@@ -30,6 +30,20 @@ function App() {
   const [pending, setPending] = useState(false);
   const inFlight = useRef(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [fromEmail, setFromEmail] = useState(false);
+  useEffect(() => {
+    const loadInvitation = () => {
+      const value = new URLSearchParams(window.location.hash.slice(1)).get("invitation");
+      if (!value) return;
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      if (/^[a-f0-9]{64}$/.test(value)) {
+        setToken(value); setOperation("accept"); setResult(null); setFromEmail(true);
+      }
+    };
+    loadInvitation();
+    window.addEventListener("hashchange", loadInvitation);
+    return () => window.removeEventListener("hashchange", loadInvitation);
+  }, []);
 
   async function authenticate(action: "login" | "logout" | "refresh") {
     if (authBusy || inFlight.current) return;
@@ -103,6 +117,8 @@ function App() {
 
       <aside className="notice"><span aria-hidden="true">◈</span><div><strong>{legacyDemo ? "Development identity — not real authentication" : "Local OIDC experiment — test identities only"}</strong><p>{legacyDemo ? "Two synthetic users. Disposable SQLite data. Never use this identity header in a deployed application." : "Real OIDC token validation and browser sessions; the local issuer does not verify human identity. Disposable data. Not a production login service."}</p></div></aside>
 
+      {fromEmail && <aside className="notice" role="status"><div><strong>Invitation loaded from email</strong><p>{legacyDemo ? "Select the recipient’s development identity, then accept explicitly." : "Sign in as the recipient before accepting. If you need to sign in now, reopen the email link afterward."} The token is kept in memory, not in the address bar or browser storage.</p></div></aside>}
+
       {!legacyDemo && <section className="panel auth-panel" aria-busy={authBusy}>
         <div aria-live="polite"><h2>{authBusy ? "Checking session…" : session?.user_id ? `Signed in as ${session.user_id === "11" ? "Alice" : "Bob"} · user ${session.user_id}` : "Not signed in"}</h2>
           <p className="help">Eight-hour session. Signing out affects this session only.</p>
@@ -169,7 +185,7 @@ function App() {
                     <p>{result.kind === "success" ? `User ${result.body.user_id} is a member of project ${result.body.project_id}.` : result.kind === "issued" ? "Invitation created. Membership is unchanged until acceptance." : result.body.message}</p>
                   </div>
                   {result.kind === "issued" && <>
-                    <p className="help">Demo-only token delivery, not email. This credential is shown once; a duplicate request will not recover it.</p>
+                    <p className="help">Local email queued—not yet confirmed sent. Open the Mailpit inbox for the recipient’s link. This response retains a demo-only token preview; duplicate issuance will not recover it.</p>
                     {legacyDemo ? <button className="submit" type="button" onClick={() => {
                       setToken(result.body.token); setIdentity(result.body.recipient_id); setOperation("accept"); setResult(null);
                     }}>Switch to recipient and load token →</button> : <p className="help">Copy the token from the response before signing out. Sign in as the recipient, then paste it to accept. Tokens are not saved in browser storage.</p>}

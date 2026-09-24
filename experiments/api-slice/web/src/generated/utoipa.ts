@@ -121,7 +121,7 @@ export interface components {
             expires_at: string;
             project_id: string;
             recipient_id: string;
-            /** @description Demo-only delivery: treat as a credential. Stored only as a hash. */
+            /** @description Demo-only credential preview. Also retained in the pending delivery outbox. */
             token: string;
         };
         LoginInfo: {

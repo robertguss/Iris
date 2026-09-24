@@ -26,6 +26,7 @@ time = { version = "0.3", features = ["serde"] }
 openidconnect = { version = "=4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 getrandom = "0.4"
 subtle = "2"
+lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

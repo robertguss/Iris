@@ -22,6 +22,22 @@ pub async fn issue(
     conn: &mut SqliteConnection,
     input: IssueInvitation,
 ) -> Result<IssueOutcome, sqlx::Error> {
+    issue_inner(conn, input, false).await
+}
+
+/// Invitation and immutable local-mail payload commit together or not at all.
+pub async fn issue_with_delivery(
+    conn: &mut SqliteConnection,
+    input: IssueInvitation,
+) -> Result<IssueOutcome, sqlx::Error> {
+    issue_inner(conn, input, true).await
+}
+
+async fn issue_inner(
+    conn: &mut SqliteConnection,
+    input: IssueInvitation,
+    deliver: bool,
+) -> Result<IssueOutcome, sqlx::Error> {
     let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
     let result = async {
         let owner: bool = sqlx::query_scalar(
@@ -42,9 +58,15 @@ pub async fn issue(
         let mut bytes = [0_u8; 32];
         getrandom::fill(&mut bytes).map_err(|e| sqlx::Error::Io(std::io::Error::other(e.to_string())))?;
         let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        sqlx::query("INSERT INTO invitations (token_hash, project_id, recipient_id, role, expires_at) VALUES (?, ?, ?, 'editor', ?)")
+        let invitation_id: i64 = sqlx::query_scalar("INSERT INTO invitations (token_hash, project_id, recipient_id, role, expires_at) VALUES (?, ?, ?, 'editor', ?) RETURNING id")
             .bind(crate::token_hash(&token)).bind(input.project_id).bind(input.recipient_id).bind(expires_at)
-            .execute(&mut *tx).await?;
+            .fetch_one(&mut *tx).await?;
+        if deliver {
+            let recipient: String = sqlx::query_scalar("SELECT email FROM user_contacts WHERE user_id=?")
+                .bind(input.recipient_id).fetch_one(&mut *tx).await?;
+            sqlx::query("INSERT INTO invitation_outbox(invitation_id,recipient,token,next_attempt_at) VALUES(?,?,?,?)")
+                .bind(invitation_id).bind(recipient).bind(&token).bind(input.now).execute(&mut *tx).await?;
+        }
         Ok(IssueOutcome::Issued { token, expires_at })
     }.await;
     match result {

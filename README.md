@@ -78,9 +78,11 @@ The API experiment now supports OIDC-backed browser sessions, owner-authorized
 issuance, and recipient acceptance. The credential-free
 [authentication experiment](experiments/api-slice/authentication.md) validates
 the protocol against a local test issuer; it is not production authentication.
-Next: exercise a real provider and design invitation delivery/recovery before
-deployment. SQLite and utoipa remain provisional; the Turso comparison remains
-available.
+The [local delivery experiment](experiments/api-slice/delivery.md) adds atomic
+email enqueueing, bounded retries, and Mailpit capture without sending real
+email. Real-provider authentication remains deferred until a stable callback
+environment is available. Production delivery, signup, and deployment are not
+implemented. SQLite and utoipa remain provisional.
 
 ## Provenance and status
 

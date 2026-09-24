@@ -16,6 +16,7 @@ use utoipa::OpenApi;
 pub const ACCEPT_PATH: &str = "/api/invitations/accept";
 pub const ISSUE_PATH: &str = "/api/invitations";
 pub mod auth;
+pub mod delivery;
 mod invitations;
 use invitations::{IssuedInvitation, issue_endpoint};
 
@@ -328,6 +329,7 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
 pub async fn seed_demo(conn: &mut sqlx::SqliteConnection, now: i64) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "INSERT INTO users VALUES (11), (29); INSERT INTO projects VALUES (7), (19), (41), (43);
+        INSERT INTO user_contacts VALUES (11, 'alice@example.test'), (29, 'bob@example.test');
         INSERT INTO memberships VALUES (41, 11, 'owner'), (43, 29, 'owner')",
     )
     .execute(&mut *conn)

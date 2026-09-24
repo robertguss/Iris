@@ -4,10 +4,14 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import re
+import time
+from urllib.request import urlopen
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("url")
 parser.add_argument("--artifacts", type=Path, required=True)
+parser.add_argument("--mailpit", help="Verify delivery using this local Mailpit API instead of the response token")
 args = parser.parse_args()
 args.artifacts.mkdir(parents=True, exist_ok=True)
 
@@ -34,6 +38,24 @@ def login(identity):
     button(f"Continue as {identity}")
     browser("wait", "--text", f"Signed in as {identity}")
 
+def mail_json(path):
+    with urlopen(args.mailpit.rstrip("/") + path, timeout=5) as response:
+        return json.load(response)
+
+def delivered_link(previous):
+    for _ in range(100):
+        for mail in mail_json("/api/v1/messages")["messages"]:
+            if mail["ID"] in previous:
+                continue
+            message = mail_json("/api/v1/message/" + mail["ID"])
+            if message["To"][0]["Address"] != "bob@example.test":
+                continue
+            match = re.search(r"https?://[^\s]+/#invitation=[a-f0-9]{64}", message["Text"])
+            if match and match[0].startswith(args.url.rstrip("/") + "/#"):
+                return match[0]
+        time.sleep(0.2)
+    raise AssertionError("No matching invitation email arrived")
+
 try:
     browser("open", args.url)
     browser("set", "viewport", "1280", "1000", "2")
@@ -50,17 +72,34 @@ try:
     browser("wait", "--fn", "!document.querySelector('.auth-panel button').disabled")
     login("Alice")
     check("!document.querySelector('fieldset').disabled && !document.cookie.includes('iris-session')")
+    previous = {m["ID"] for m in mail_json("/api/v1/messages")["messages"]} if args.mailpit else set()
     browser("select", "#operation", "issue")
     button("Issue invitation")
     browser("wait", "--text", "201 · Invitation issued")
     check("JSON.parse(document.querySelector('pre').textContent).recipient_id === '29'")
-    # Keep this disposable invitation in the test runner, never browser storage.
-    token = json.loads(browser("eval", "JSON.parse(document.querySelector('pre').textContent).token"))
+    capture("queued")
+    if args.mailpit:
+        link = delivered_link(previous)
+        browser("open", link)
+        browser("wait", "--text", "Invitation loaded from email")
+        button("Accept invitation")
+        browser("wait", "--text", "404 · Invitation not found")
+    else:
+        token = json.loads(browser("eval", "JSON.parse(document.querySelector('pre').textContent).token"))
     button("Sign out")
     browser("wait", "--text", "Not signed in")
     check("document.querySelector('fieldset').disabled")
+    if args.mailpit:
+        browser("open", link)
+        browser("wait", "--text", "Invitation loaded from email")
+        capture("email-signed-out")
     login("Bob")
-    browser("fill", "#token", token)
+    if args.mailpit:
+        browser("open", link)
+        browser("wait", "--text", "Invitation loaded from email")
+        check("location.hash === '' && localStorage.length === 0 && sessionStorage.length === 0")
+    else:
+        browser("fill", "#token", token)
     button("Accept invitation")
     browser("wait", "--text", "200 · Invitation accepted")
     check("JSON.parse(document.querySelector('pre').textContent).project_id === '41' && JSON.parse(document.querySelector('pre').textContent).user_id === '29'")
@@ -76,6 +115,6 @@ try:
     browser("reload")
     browser("wait", "--text", "Not signed in")
     check("document.querySelector('fieldset').disabled && localStorage.length === 0 && sessionStorage.length === 0")
-    print("PASS: OIDC redirects, Alice issuance, Bob acceptance, replay rejection, HttpOnly visibility, logout, and narrow layout")
+    print("PASS: OIDC redirects, Alice issuance, Bob acceptance, replay rejection, HttpOnly visibility, logout, and narrow layout" + ("; Mailpit email link, wrong-recipient rejection, and fragment scrubbing" if args.mailpit else ""))
 finally:
     browser("close")

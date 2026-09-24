@@ -5,7 +5,7 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use iris_sqlite_spike::{IssueInvitation, IssueOutcome, connect, issue};
+use iris_sqlite_spike::{IssueInvitation, IssueOutcome, connect, issue_with_delivery};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, utoipa::ToSchema, schemars::JsonSchema)]
@@ -25,7 +25,7 @@ pub struct IssueRequest {
 pub struct IssuedInvitation {
     pub project_id: String,
     pub recipient_id: String,
-    /// Demo-only delivery: treat as a credential. Stored only as a hash.
+    /// Demo-only credential preview. Also retained in the pending delivery outbox.
     pub token: String,
     /// Unix seconds, serialized as a string.
     pub expires_at: String,
@@ -66,7 +66,10 @@ pub async fn issue_endpoint(
         now: (state.now)(),
     };
     let mut conn = connect(&state.database).await.map_err(database_error)?;
-    match issue(&mut conn, input).await.map_err(database_error)? {
+    match issue_with_delivery(&mut conn, input)
+        .await
+        .map_err(database_error)?
+    {
         IssueOutcome::Issued { token, expires_at } => Ok((
             StatusCode::CREATED,
             [(header::CACHE_CONTROL, "no-store")],

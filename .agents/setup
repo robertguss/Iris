@@ -20,3 +20,4 @@ fi
 if [ -f experiments/api-slice/web/package-lock.json ]; then
   npm --prefix experiments/api-slice/web ci
 fi
+bash experiments/api-slice/checks/install-mailpit.sh

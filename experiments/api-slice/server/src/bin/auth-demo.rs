@@ -37,6 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .execute(&store.pool)
             .await?;
     }
+    let mailer = iris_api_spike::delivery::Mailer::new(origin.clone(), 1025)?;
+    let worker = tokio::spawn(mailer.run(database.clone()));
     let auth = Auth::discover(store.clone(), origin, issuer, "iris-local".into(), None).await?;
     let (router, api) = utoipa_router();
     let app = auth
@@ -62,6 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!(
         "Iris local OIDC experiment listening; disposable data, no real-provider login configured."
     );
-    axum::serve(listener, app).await?;
+    tokio::select! {
+        result = axum::serve(listener, app).into_future() => result?,
+        _ = worker => return Err("delivery worker stopped".into()),
+    }
     Ok(())
 }

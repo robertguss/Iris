@@ -13,6 +13,11 @@ acceptance creates Bob's editor membership. Bob owns a separate project, `43`,
 for the reverse example. The original project `7`/`19` acceptance fixtures still
 work.
 
+The subsequent [delivery experiment](delivery.md) also queues local email in the
+issuance transaction. Open the Mailpit inbox, sign in/select the recipient, then
+follow the email link and accept. The direct-token handoff remains a demo
+shortcut, not the delivery verification path.
+
 Creation semantics for this experiment:
 
 - `POST /api/invitations` accepts `{project_id,recipient_id}` only. IDs are
@@ -31,14 +36,17 @@ Creation semantics for this experiment:
   Concurrent issuance yields one creation and one pending conflict when the lock
   is acquired within the timeout; sustained contention returns 503.
 - The server generates 32 random bytes via `getrandom`, encodes them as 64 hex
-  characters, and stores only SHA-256. Token generation, role (`editor`), and
-  lifetime (3,600 seconds from the captured action timestamp) are server-owned.
+  characters, and stores SHA-256 in the invitation row. The delivery outbox
+  temporarily retains plaintext until terminal cleanup. Token generation, role
+  (`editor`), and lifetime (3,600 seconds from the captured action timestamp)
+  are server-owned.
 - Success is 201 with `{project_id,recipient_id,token,expires_at}` and
   `Cache-Control: no-store`. Expiry is Unix seconds represented as a string.
-  Direct token return is **demo delivery**, not a production email design. A
-  lost response cannot recover the token by repeating the request. No automatic
-  retry, idempotency key, resend, cancellation, or token recovery is
-  implemented.
+  Direct token return remains a **demo credential preview**. HTTP issuance now
+  atomically queues local delivery; 201 is not confirmation of SMTP delivery. A
+  lost response cannot recover the token by repeating issuance, but the queued
+  email can supply it. Automatic SMTP retries are bounded; request retry,
+  idempotency keys, resend, and cancellation are not implemented.
 - Revoking an owner's role prevents future issuance, but does not revoke already
   issued invitations. Acceptance uses the existing recipient/token policy.
 
@@ -68,8 +76,8 @@ In an Amp orb, `amp orb services ensure` starts the API and Vite and prints the
 browser-accessible portal. Elsewhere, run these in two terminals:
 
 ```sh
-cargo run --locked -p iris-api-spike --features dev-identity --bin iris-api-demo -- --dev-demo
-npm --prefix experiments/api-slice/web run dev
+IRIS_INVITATION_ORIGIN=http://127.0.0.1:5173 cargo run --locked -p iris-api-spike --features dev-identity --bin iris-api-demo -- --dev-demo
+VITE_IRIS_LEGACY_DEMO=true IRIS_API_TARGET=http://127.0.0.1:3001 npm --prefix experiments/api-slice/web run dev
 ```
 
 The API binds loopback port 3001; Vite binds loopback port 5173 and proxies

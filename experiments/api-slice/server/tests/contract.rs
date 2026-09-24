@@ -73,10 +73,10 @@ fn exported_contracts_and_constraints_match() {
         assert_eq!(api, committed, "regenerate {name} contract");
         let operation = &api["paths"][ACCEPT_PATH]["post"];
         assert_eq!(operation["operationId"], "acceptInvitation");
-        assert_eq!(operation["security"], json!([{"DevIdentity": []}]));
+        assert_eq!(operation["security"], json!([{"BrowserSession": []}]));
         assert_eq!(
-            api["components"]["securitySchemes"]["DevIdentity"]["name"],
-            "x-iris-dev-user"
+            api["components"]["securitySchemes"]["BrowserSession"]["name"],
+            "__Host-iris-session"
         );
         let statuses: Vec<_> = operation["responses"]
             .as_object()
@@ -84,7 +84,10 @@ fn exported_contracts_and_constraints_match() {
             .keys()
             .map(String::as_str)
             .collect();
-        assert_eq!(statuses, ["200", "400", "401", "404", "409", "500", "503"]);
+        assert_eq!(
+            statuses,
+            ["200", "400", "401", "403", "404", "409", "500", "503"]
+        );
         let input = validator(
             &api,
             &operation["requestBody"]["content"]["application/json"]["schema"],
@@ -113,7 +116,6 @@ fn exported_contracts_and_constraints_match() {
     }
 }
 
-#[cfg(not(feature = "dev-identity"))]
 #[tokio::test]
 async fn ordinary_build_rejects_development_identity() {
     for (_, router, api) in candidates() {
@@ -152,6 +154,7 @@ mod demo {
     async fn fixture(
         router: Router<AppState>,
     ) -> (tempfile::TempDir, Router, sqlx::SqliteConnection) {
+        let router = iris_api_spike::development_identity(router);
         let dir = tempfile::tempdir().unwrap();
         let database = dir.path().join("app.db");
         let mut conn = connect(&database).await.unwrap();

@@ -45,13 +45,13 @@ fn id(value: &str) -> Result<i64, ApiError> {
     responses(
         (status = 201, description = "Invitation issued; membership unchanged", body = IssuedInvitation),
         (status = 400, description = "Invalid request", body = Problem),
-        (status = 401, description = "Missing or invalid development identity", body = Problem),
-        (status = 403, description = "Not a project owner, including unknown project", body = Problem),
+        (status = 401, description = "Sign-in required", body = Problem),
+        (status = 403, description = "Not a project owner or CSRF validation failed", body = Problem),
         (status = 404, description = "Recipient not found", body = Problem),
         (status = 409, description = "Already a member or invitation pending", body = Problem),
         (status = 500, description = "Internal error", body = Problem),
         (status = 503, description = "Database busy", body = Problem)
-    ), security(("DevIdentity" = []))
+    ), security(("BrowserSession" = []))
 )]
 pub async fn issue_endpoint(
     State(state): State<AppState>,

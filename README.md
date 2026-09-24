@@ -53,7 +53,8 @@ of the framework design, not a later addition.
 
 ## Run the database experiment
 
-With the pinned Rust toolchain and a C compiler installed:
+With the pinned Rust toolchain, a C compiler, and Node.js installed (the API
+authentication tests start a local OIDC fixture):
 
 ```sh
 cargo test --workspace --locked
@@ -73,11 +74,13 @@ against real HTTP responses and the actual React consumer.
 
 ## Next milestone
 
-The API experiment now supports owner-authorized issuance and recipient
-acceptance. Both actions follow the same explicit boundaries without a generic
-Action trait. Design real authentication and token delivery/recovery before
-making this a deployable application. SQLite and utoipa remain provisional; the
-concrete Turso comparison is still available.
+The API experiment now supports OIDC-backed browser sessions, owner-authorized
+issuance, and recipient acceptance. The credential-free
+[authentication experiment](experiments/api-slice/authentication.md) validates
+the protocol against a local test issuer; it is not production authentication.
+Next: exercise a real provider and design invitation delivery/recovery before
+deployment. SQLite and utoipa remain provisional; the Turso comparison remains
+available.
 
 ## Provenance and status
 

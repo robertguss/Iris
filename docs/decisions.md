@@ -197,6 +197,33 @@ with ordinary code rather than design the extension system first.
 - Packaging, crate layout, CLI name, framework name, license, and release
   strategy.
 
+## Authentication experiment — selected September 24, 2026
+
+This supersedes the earlier open authentication proposal for the experiment, not
+for a released framework. Use same-origin server-side sessions with an HttpOnly
+cookie and OIDC authorization-code flow with PKCE. Rust owns identity
+verification; React receives local user IDs and a session-bound CSRF token,
+never provider tokens. Map `(issuer, subject)` to existing local users; do not
+link accounts by email.
+
+Use `openidconnect 4.0.1` and `tower-sessions 0.15.0`. Keep a small SQLx 0.9
+SQLite session adapter because the published SQLx adapter and axum-login
+versions use older, incompatible session/SQLx types. Its update-only saves also
+prevent stale writes from recreating logged-out sessions. Keep protocol attempts
+in their own table for atomic one-use consumption, not a session JSON map.
+
+Select fixed eight-hour authenticated sessions, ten-minute anonymous sessions
+and login attempts, and logout of this session only. Login promotion and logout
+compete atomically for the old browser session row. A callback that loses to
+logout fails; already-authorized domain actions are not cancelled. Provider SSO
+and other browser sessions are unaffected.
+
+Start with a credential-free local issuer and allowlisted Alice/Bob subjects.
+This tests signed tokens and browser behavior without granting real identity
+assurance. A real-provider smoke test, deployment, and durable account lifecycle
+remain deferred. See the
+[implementation and verification record](../experiments/api-slice/authentication.md).
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

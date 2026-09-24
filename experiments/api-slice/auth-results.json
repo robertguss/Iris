@@ -1,0 +1,284 @@
+{
+  "recorded_utc": "2026-09-24T19:57:07Z",
+  "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+  "available_cpus": 4,
+  "settings": "4 jobs; incremental; default debug; rustc default linker; no wrappers; warm downloads and OS cache; one fresh target",
+  "versions": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "node": "v26.10.0",
+    "npm": "10.9.9"
+  },
+  "measurements": [
+    {
+      "label": "fresh_target_test",
+      "seconds": 49.643,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "prime_contract_export_and_types",
+      "seconds": 17.738,
+      "commands": [
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "generate"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "typecheck"
+        ]
+      ]
+    },
+    {
+      "label": "warm_test_1",
+      "seconds": 0.3687,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "body_edit_to_test_1",
+      "seconds": 3.1235,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "contract_shape_edit_to_react_types_1",
+      "seconds": 5.1063,
+      "commands": [
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "generate"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "typecheck"
+        ]
+      ]
+    },
+    {
+      "label": "warm_test_2",
+      "seconds": 0.3668,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "body_edit_to_test_2",
+      "seconds": 2.5123,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "contract_shape_edit_to_react_types_2",
+      "seconds": 4.7736,
+      "commands": [
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "generate"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "typecheck"
+        ]
+      ]
+    },
+    {
+      "label": "warm_test_3",
+      "seconds": 0.3715,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "body_edit_to_test_3",
+      "seconds": 2.5878,
+      "commands": [
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "iris-api-spike",
+          "--features",
+          "dev-identity",
+          "--test",
+          "contract",
+          "demo::issue_authorize_then_accept_through_both_contracts",
+          "--",
+          "--exact"
+        ]
+      ]
+    },
+    {
+      "label": "contract_shape_edit_to_react_types_3",
+      "seconds": 4.7433,
+      "commands": [
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "generate"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "experiments/api-slice/web",
+          "run",
+          "typecheck"
+        ]
+      ]
+    }
+  ],
+  "source_sha256": {
+    "Cargo.lock": "c3312c3938ef0d3b905d4c38b3e4e2ee7e76255b626193cb333973578ad59eeb",
+    "Cargo.toml": "d4f90272867145374338fe224829289d90fcfba95e58fb8602f393009276ff23",
+    "experiments/api-slice/checks/auth-browser.py": "dce340cac48e5d1a20eda575e320f6f22c2de00c6f8721803df657b68b0324e6",
+    "experiments/api-slice/checks/browser-smoke.py": "ca1b7031046c6dbb99e6866445d8f6b1e2f096cd527785f3905c372b6c1e6734",
+    "experiments/api-slice/checks/oidc-provider.mjs": "66c5e74a1130a5ea92fe3f590b4a8135a3d31a904e8ed90861ada1b728959cb7",
+    "experiments/api-slice/checks/oidc-provider.test.mjs": "4795369a98270bbfc6c2d121b55c8707d8531fa7f2ebb221b292e791228fe075",
+    "experiments/api-slice/contracts/aide.json": "07d4fed20fe12a930988b01ef5ad533fbeb653337c73c80950df9a5651dc5e8e",
+    "experiments/api-slice/contracts/utoipa.json": "aa998899521675f1ac0aeff1974f3de7a74b8e8ecc8e6b4bd7d33b69f6f9feb1",
+    "experiments/api-slice/measure.py": "b4e633dc6c9078201b4981fed3401cf93577fd131383d78eee97cefa5679b383",
+    "experiments/api-slice/results.json": "4ac4b1a47d05e83fa45790c0bde8ed6b1e416640480437e6b99ecd85089b7154",
+    "experiments/api-slice/server/Cargo.toml": "817655bf9711d9a2098dd765c3ff206ab600992a7a0a1821258794effb9320bf",
+    "experiments/api-slice/server/src/auth/mod.rs": "7f6a5b387df9faaf2b1be893357fd1fe3fc9f10244b6ddd342bc9c2335659c8c",
+    "experiments/api-slice/server/src/auth/schema.sql": "33d7a66646124aeec3ec0c556d3beee3c75d2e363638caea128f90152a11d959",
+    "experiments/api-slice/server/src/auth/store.rs": "fdeb2f79922ebe8d30e8daeaebc826280f505ae9d4644c6aeed5fef25177a2ee",
+    "experiments/api-slice/server/src/bin/auth-demo.rs": "6fd892fdd0a2448c0c7c2b187472ec0b063c5421ccc98a93e12e8003d2708926",
+    "experiments/api-slice/server/src/bin/export-contracts.rs": "00ad76f7bc315f1790499a75d8d3952cef17582f0053ad356637df1b80f9b3b0",
+    "experiments/api-slice/server/src/invitations.rs": "55c12abd6ec70505cd38adfbcd0dba27c892d60146bab59c9fbb49d4d9889843",
+    "experiments/api-slice/server/src/lib.rs": "54ec8eaf37f56b369cfa59dc28782457947c425c7a6fdac150c2f38118d2c08b",
+    "experiments/api-slice/server/src/main.rs": "af2ffc5618d19e6f218a7239647312e4a1f4cf67f8f36bdae76c2747332c1470",
+    "experiments/api-slice/server/tests/auth.rs": "734ea17f0719b623ffe6dfd955240c2b2ea22c4212caa2a8c196fd282753d3c4",
+    "experiments/api-slice/server/tests/contract.rs": "4a48c8f28caa38e276303b601076af2fa72774ddc6dba8e7ba24d6352acd531e",
+    "experiments/api-slice/web/package-lock.json": "c8eb99161cd2847bb367ee0dc75040d22ef633e61bca4e557eaa1dd027d8b3c9",
+    "experiments/api-slice/web/package.json": "68712c722fe0f001685363fd1c2ab5ecab4a89e90848d9c046b90379c5140b19",
+    "experiments/api-slice/web/scripts/breaking-change.mjs": "667238f0ccb819f54eb1bb0aaa364887e2adbb2c8abe4721768eea7711a37d07",
+    "experiments/api-slice/web/scripts/contracts.mjs": "48a995ff39ea1f1fcf87873c461bd721028ef491cbe517b950fb9833cdf9c875",
+    "experiments/api-slice/web/src/api.ts": "2b432c2e7ee7be0d4ecefa96b7ef90ae2edfaf51ea1809911f0aeb3007c1d2a9",
+    "experiments/api-slice/web/src/generated/aide.ts": "cb41bd3a4e9320d3dfb8aa05d342ae6185f4af31c3e9378ae568e5b6763bb643",
+    "experiments/api-slice/web/src/generated/utoipa.ts": "c4742833e7337c94a33f92e8f299d52eb01b895a458c37c25ba023d98bf680db",
+    "experiments/api-slice/web/src/main.tsx": "70ce3beabf151137eee9d4dd48db89d0b557dcb546fdad2f4e5439e9854f53f7",
+    "experiments/api-slice/web/tsconfig.json": "beed22cee9d0e3d28eb1330056da05c1071fcc6acbeb6a9a00518d2392ce0711",
+    "experiments/api-slice/web/type-tests/clients.ts": "0ce3d61d52189de25ba4e5e46f9c4f7a4e5f7f190ef28f6e84e7f64c17ba4230",
+    "experiments/api-slice/web/vite.config.ts": "4eb4be5644f79196215b3a1e851c498b3a9d024b2a890bd8e7e6c604db8b633b",
+    "experiments/embedded-db/measure.py": "66dfcd18b8199943cf1b97fd65d6c8ed7b3d104772e099fc656cef74272fc601",
+    "experiments/embedded-db/results.json": "5c68007be76e39764da699c78991d994a5dafafd550f3c1f04a31bcb49fc7aa8",
+    "experiments/embedded-db/shared/domain.rs": "dedafc2e05bb2401ec3fe294800570d4d31a78fb37d5b74cc59d1c678fc07bd5",
+    "experiments/embedded-db/shared/migrations/0001_invitations.sql": "c505b36201697223a4590ef5733eaa753faae812306c15d0470832470a83c2c9",
+    "experiments/embedded-db/shared/migrations/0002_owners.sql": "ffff97b7460da0daa4ecbc6be0873a0eb770f0fed8597a5bfe1a9e3b145500d3",
+    "experiments/embedded-db/shared/scenarios.rs": "a1feafd533ea21e3d511dac5c7bd45ceb8621b46e47bfca4b97040466a0f19cb",
+    "experiments/embedded-db/sqlite/Cargo.toml": "95d53d5f1e17362fd15c6e09195f563b4ef3f4e442a67647748221160ac46c5c",
+    "experiments/embedded-db/sqlite/src/issue.rs": "517d5a8d019eed679e54842dbe3f2e51b8ba694b7ba7a5a902f37de81b9d8475",
+    "experiments/embedded-db/sqlite/src/lib.rs": "085aec48b83e1855662efcd2ae8086bc61ad1d39f5e1f55107cdb246babb89ff",
+    "experiments/embedded-db/sqlite/tests/issuance.rs": "11574f79853103de2356958919740328af0d95177aabe50a9448d4938c66a75d",
+    "experiments/embedded-db/sqlite/tests/scenarios.rs": "dcf9c8b5dc316bedebcf13b5e8a090c7bfe52c701677d5968831eba18e10f13c",
+    "experiments/embedded-db/turso/Cargo.toml": "97f808020374b8e15a1138f0be95cdd7b095075c7a8507dad731589e9f08b39d",
+    "experiments/embedded-db/turso/src/lib.rs": "621c6cf62caf350480f106a29c6ff84ff66caddf180f3f1dee3aab27d6868e05",
+    "experiments/embedded-db/turso/tests/migration.rs": "6bb80b40ad0b99fa66c3b55f869765de3664e56fad26ee7e22c8517bc0c5c7d5",
+    "experiments/embedded-db/turso/tests/scenarios.rs": "7340857a89ede8118dc1c31c71e95ddb1dbac723f263534497ee6190976a02ca",
+    "rust-toolchain.toml": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167"
+  }
+}

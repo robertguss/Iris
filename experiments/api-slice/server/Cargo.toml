@@ -20,11 +20,18 @@ utoipa-axum = "=0.3.0"
 aide = { version = "=0.15.1", features = ["axum", "axum-json"] }
 schemars = "0.9"
 tempfile.workspace = true
+tower-sessions = { version = "=0.15.0", default-features = false, features = ["axum-core"] }
+async-trait = "0.1"
+time = { version = "0.3", features = ["serde"] }
+openidconnect = { version = "=4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
+getrandom = "0.4"
+subtle = "2"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 jsonschema = { version = "=0.57.0", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
 [[bin]]
 name = "iris-api-demo"
@@ -34,3 +41,7 @@ required-features = ["dev-identity"]
 [[bin]]
 name = "export-contracts"
 path = "src/bin/export-contracts.rs"
+
+[[bin]]
+name = "iris-auth-demo"
+path = "src/bin/auth-demo.rs"

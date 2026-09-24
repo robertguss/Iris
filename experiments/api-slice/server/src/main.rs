@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     seed_demo(&mut conn, unix_time()).await?;
     drop(conn);
     let (router, api) = utoipa_router();
-    let app = router
+    let app = iris_api_spike::development_identity(router)
         .with_state(AppState {
             database,
             now: unix_time,

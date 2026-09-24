@@ -15,6 +15,7 @@ use utoipa::OpenApi;
 
 pub const ACCEPT_PATH: &str = "/api/invitations/accept";
 pub const ISSUE_PATH: &str = "/api/invitations";
+pub mod auth;
 mod invitations;
 use invitations::{IssuedInvitation, issue_endpoint};
 
@@ -51,6 +52,8 @@ pub struct Acceptance {
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     InvalidRequest,
+    Csrf,
+    LoginFailed,
     Forbidden,
     RecipientNotFound,
     AlreadyMember,
@@ -74,6 +77,14 @@ pub struct ApiError(pub ErrorCode);
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self.0 {
+            ErrorCode::Csrf => (
+                StatusCode::FORBIDDEN,
+                "Refresh the session and send a valid same-origin CSRF token.",
+            ),
+            ErrorCode::LoginFailed => (
+                StatusCode::UNAUTHORIZED,
+                "Login failed. Start a new login attempt.",
+            ),
             ErrorCode::InvalidRequest => (
                 StatusCode::BAD_REQUEST,
                 "Provide the required fields with valid values and no extra fields.",
@@ -90,10 +101,7 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "An unexpired invitation already exists.",
             ),
-            ErrorCode::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "Select a valid development identity.",
-            ),
+            ErrorCode::Unauthorized => (StatusCode::UNAUTHORIZED, "Sign in to continue."),
             ErrorCode::NotFound => (
                 StatusCode::NOT_FOUND,
                 "Invitation not found for this identity.",
@@ -123,33 +131,39 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Synthetic identity only. Without the feature, this extractor fails closed.
+/// Only explicitly assembled middleware can supply an actor; headers cannot.
+#[derive(Clone)]
 pub struct Actor(i64);
 
 impl<S: Send + Sync> FromRequestParts<S> for Actor {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        #[cfg(feature = "dev-identity")]
-        {
-            let headers = parts.headers.get_all("x-iris-dev-user");
-            let mut values = headers.iter();
-            let user = values.next().and_then(|v| v.to_str().ok());
-            if values.next().is_some() {
-                return Err(ApiError(ErrorCode::Unauthorized));
-            }
-            match user {
-                Some("11") => Ok(Self(11)),
-                Some("29") => Ok(Self(29)),
-                _ => Err(ApiError(ErrorCode::Unauthorized)),
-            }
-        }
-        #[cfg(not(feature = "dev-identity"))]
-        {
-            let _ = parts;
-            Err(ApiError(ErrorCode::Unauthorized))
-        }
+        parts
+            .extensions
+            .get::<Actor>()
+            .cloned()
+            .ok_or(ApiError(ErrorCode::Unauthorized))
     }
+}
+
+/// Isolated legacy demo adapter. Never applied by the session-authenticated app.
+#[cfg(feature = "dev-identity")]
+pub fn development_identity(router: Router<AppState>) -> Router<AppState> {
+    router.layer(axum::middleware::from_fn(
+        async |mut req: axum::extract::Request, next: axum::middleware::Next| {
+            let mut values = req.headers().get_all("x-iris-dev-user").iter();
+            let id = match (values.next().and_then(|v| v.to_str().ok()), values.next()) {
+                (Some("11"), None) => Some(11),
+                (Some("29"), None) => Some(29),
+                _ => None,
+            };
+            if let Some(id) = id {
+                req.extensions_mut().insert(Actor(id));
+            }
+            next.run(req).await
+        },
+    ))
 }
 
 impl aide::OperationInput for Actor {
@@ -166,13 +180,14 @@ impl aide::OperationOutput for ApiError {
     responses(
         (status = 200, description = "Invitation accepted; existing membership role preserved", body = Acceptance),
         (status = 400, description = "Invalid JSON, fields, or token length", body = Problem),
-        (status = 401, description = "Missing or invalid development identity", body = Problem),
+        (status = 401, description = "Sign-in required", body = Problem),
+        (status = 403, description = "CSRF validation failed", body = Problem),
         (status = 404, description = "Unknown token or wrong recipient", body = Problem),
         (status = 409, description = "Expired or already accepted", body = Problem),
         (status = 500, description = "Internal error", body = Problem),
         (status = 503, description = "Database busy", body = Problem)
     ),
-    security(("DevIdentity" = []))
+    security(("BrowserSession" = []))
 )]
 async fn accept_endpoint(
     State(state): State<AppState>,
@@ -222,14 +237,18 @@ pub fn utoipa_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     let (router, mut api) = utoipa_axum::router::OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(utoipa_axum::routes!(accept_endpoint))
         .routes(utoipa_axum::routes!(invitations::issue_endpoint))
+        .routes(utoipa_axum::routes!(auth::session_info))
+        .routes(utoipa_axum::routes!(auth::login))
+        .routes(utoipa_axum::routes!(auth::callback))
+        .routes(utoipa_axum::routes!(auth::logout))
         .split_for_parts();
     // No project license has been chosen; omit the inferred empty license.
     api.info.license = None;
     api.components
         .get_or_insert_with(Default::default)
         .add_security_scheme(
-            "DevIdentity",
-            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("x-iris-dev-user"))),
+            "BrowserSession",
+            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("__Host-iris-session"))),
         );
     (router, api)
 }
@@ -245,16 +264,15 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
         ACCEPT_PATH,
         post_with(accept_endpoint, |op| {
             op.id("acceptInvitation")
-                .security_requirement("DevIdentity")
+                .security_requirement("BrowserSession")
                 .response_with::<200, Json<Acceptance>, _>(|r| {
                     r.description("Invitation accepted; existing membership role preserved")
                 })
                 .response_with::<400, Json<Problem>, _>(|r| {
                     r.description("Invalid JSON, fields, or token length")
                 })
-                .response_with::<401, Json<Problem>, _>(|r| {
-                    r.description("Missing or invalid development identity")
-                })
+                .response_with::<401, Json<Problem>, _>(|r| r.description("Sign-in required"))
+                .response_with::<403, Json<Problem>, _>(|r| r.description("CSRF validation failed"))
                 .response_with::<404, Json<Problem>, _>(|r| {
                     r.description("Unknown token or wrong recipient")
                 })
@@ -269,16 +287,14 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
         ISSUE_PATH,
         post_with(issue_endpoint, |op| {
             op.id("issueInvitation")
-                .security_requirement("DevIdentity")
+                .security_requirement("BrowserSession")
                 .response_with::<201, Json<IssuedInvitation>, _>(|r| {
                     r.description("Invitation issued; membership unchanged")
                 })
                 .response_with::<400, Json<Problem>, _>(|r| r.description("Invalid request"))
-                .response_with::<401, Json<Problem>, _>(|r| {
-                    r.description("Missing or invalid development identity")
-                })
+                .response_with::<401, Json<Problem>, _>(|r| r.description("Sign-in required"))
                 .response_with::<403, Json<Problem>, _>(|r| {
-                    r.description("Not a project owner, including unknown project")
+                    r.description("Not a project owner or CSRF validation failed")
                 })
                 .response_with::<404, Json<Problem>, _>(|r| r.description("Recipient not found"))
                 .response_with::<409, Json<Problem>, _>(|r| {
@@ -293,16 +309,17 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
         api.title("Iris invitation experiment")
             .version("0.1.0")
             .security_scheme(
-                "DevIdentity",
-                SecurityScheme::ApiKey {
-                    location: ApiKeyLocation::Header,
-                    name: "x-iris-dev-user".into(),
-                    description: Some(
-                        "Synthetic identity; never deploy this as authentication.".into(),
-                    ),
-                    extensions: Default::default(),
-                },
-            )
+            "BrowserSession",
+            SecurityScheme::ApiKey {
+                location: ApiKeyLocation::Cookie,
+                name: "__Host-iris-session".into(),
+                description: Some(
+                    "HTTPS browser session; unsafe requests also require Origin and X-Iris-Csrf."
+                        .into(),
+                ),
+                extensions: Default::default(),
+            },
+        )
     });
     (router, api)
 }

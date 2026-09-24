@@ -35,6 +35,8 @@
       "ErrorCode": {
         "enum": [
           "invalid_request",
+          "csrf",
+          "login_failed",
           "forbidden",
           "recipient_not_found",
           "already_member",
@@ -112,10 +114,10 @@
       }
     },
     "securitySchemes": {
-      "DevIdentity": {
-        "description": "Synthetic identity; never deploy this as authentication.",
-        "in": "header",
-        "name": "x-iris-dev-user",
+      "BrowserSession": {
+        "description": "HTTPS browser session; unsafe requests also require Origin and X-Iris-Csrf.",
+        "in": "cookie",
+        "name": "__Host-iris-session",
         "type": "apiKey"
       }
     }
@@ -168,7 +170,7 @@
                 }
               }
             },
-            "description": "Missing or invalid development identity"
+            "description": "Sign-in required"
           },
           "403": {
             "content": {
@@ -178,7 +180,7 @@
                 }
               }
             },
-            "description": "Not a project owner, including unknown project"
+            "description": "Not a project owner or CSRF validation failed"
           },
           "404": {
             "content": {
@@ -223,7 +225,7 @@
         },
         "security": [
           {
-            "DevIdentity": []
+            "BrowserSession": []
           }
         ]
       }
@@ -270,7 +272,17 @@
                 }
               }
             },
-            "description": "Missing or invalid development identity"
+            "description": "Sign-in required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "CSRF validation failed"
           },
           "404": {
             "content": {
@@ -315,7 +327,7 @@
         },
         "security": [
           {
-            "DevIdentity": []
+            "BrowserSession": []
           }
         ]
       }

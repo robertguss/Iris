@@ -45,7 +45,7 @@ export interface components {
             user_id: string;
         };
         /** @enum {string} */
-        ErrorCode: "invalid_request" | "forbidden" | "recipient_not_found" | "already_member" | "invitation_pending" | "unauthorized" | "not_found" | "expired" | "already_accepted" | "internal" | "unavailable";
+        ErrorCode: "invalid_request" | "csrf" | "login_failed" | "forbidden" | "recipient_not_found" | "already_member" | "invitation_pending" | "unauthorized" | "not_found" | "expired" | "already_accepted" | "internal" | "unavailable";
         IssueRequest: {
             /** @description Positive signed-64-bit decimal ID. No leading zeros. */
             project_id: string;
@@ -104,7 +104,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Missing or invalid development identity */
+            /** @description Sign-in required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -113,7 +113,7 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Not a project owner, including unknown project */
+            /** @description Not a project owner or CSRF validation failed */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -191,8 +191,17 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Missing or invalid development identity */
+            /** @description Sign-in required */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description CSRF validation failed */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

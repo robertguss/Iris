@@ -21,6 +21,8 @@ h1 { font-family: Manrope, system-ui, sans-serif; font-weight: 600; font-size: c
 .notice p { margin: 3px 0 0; color: #665779; }
 .lab { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
 .panel { background: #fff; border: 1px solid #e1dfd9; border-radius: 12px; padding: 25px; box-shadow: 0 3px 12px #27203303; min-width: 0; }
+.auth-panel { margin-bottom: 22px; }
+.auth-panel .examples { margin-bottom: 0; }
 .panel-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 23px; }
 .step { font-size: 11px; color: #8b819c; font-variant-numeric: tabular-nums; }
 h2 { margin: 0; font-size: 16px; font-weight: 600; }
@@ -39,6 +41,7 @@ button { font: inherit; cursor: pointer; border-radius: 5px; }
 .submit { width: 100%; display: flex; align-items: center; justify-content: space-between; background: #655093; border: 1px solid #655093; color: #fff; padding: 11px 14px; font-size: 13px; font-weight: 600; }
 .submit:hover { background: #55407f; }
 button:disabled, fieldset:disabled button { opacity: .65; cursor: wait; }
+fieldset:disabled .submit { background: #e2dfe7; border-color: #e2dfe7; color: #6b6573; cursor: not-allowed; }
 fieldset:disabled input, fieldset:disabled select { background: #f0eef3; color: #8c8496; border-color: #e2dfe7; opacity: .7; cursor: wait; }
 :focus-visible { outline: 3px solid #ad97d9; outline-offset: 3px; }
 .footnote { margin: 16px 0 0; }

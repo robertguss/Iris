@@ -35,6 +35,8 @@
       "ErrorCode": {
         "enum": [
           "invalid_request",
+          "csrf",
+          "login_failed",
           "forbidden",
           "recipient_not_found",
           "already_member",
@@ -95,6 +97,17 @@
         ],
         "type": "object"
       },
+      "LoginInfo": {
+        "properties": {
+          "authorization_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "properties": {
           "code": {
@@ -109,12 +122,29 @@
           "message"
         ],
         "type": "object"
+      },
+      "SessionInfo": {
+        "properties": {
+          "csrf_token": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "csrf_token"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
-      "DevIdentity": {
-        "in": "header",
-        "name": "x-iris-dev-user",
+      "BrowserSession": {
+        "in": "cookie",
+        "name": "__Host-iris-session",
         "type": "apiKey"
       }
     }
@@ -126,6 +156,131 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/auth/callback": {
+      "get": {
+        "operationId": "callback",
+        "responses": {
+          "303": {
+            "description": "Login complete"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginInfo"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "This session logged out"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ]
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "operationId": "session_info",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/invitations": {
       "post": {
         "operationId": "issueInvitation",
@@ -168,7 +323,7 @@
                 }
               }
             },
-            "description": "Missing or invalid development identity"
+            "description": "Sign-in required"
           },
           "403": {
             "content": {
@@ -178,7 +333,7 @@
                 }
               }
             },
-            "description": "Not a project owner, including unknown project"
+            "description": "Not a project owner or CSRF validation failed"
           },
           "404": {
             "content": {
@@ -223,7 +378,7 @@
         },
         "security": [
           {
-            "DevIdentity": []
+            "BrowserSession": []
           }
         ]
       }
@@ -270,7 +425,17 @@
                 }
               }
             },
-            "description": "Missing or invalid development identity"
+            "description": "Sign-in required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "CSRF validation failed"
           },
           "404": {
             "content": {
@@ -315,7 +480,7 @@
         },
         "security": [
           {
-            "DevIdentity": []
+            "BrowserSession": []
           }
         ]
       }

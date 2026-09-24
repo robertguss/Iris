@@ -233,9 +233,10 @@ all API compatibility. Error schemas list all codes rather than narrowing codes
 by status. Axum's unmatched-route/method responses are outside this endpoint
 contract.
 
-Real authentication, session/CSRF policy, production connection management, rate
-limiting, operational logging, deployment, durable email delivery, and
-cross-version client compatibility are not implemented. No PostgreSQL or remote
-Turso behavior is inferred from SQLite tests. Verification covers named
-scenarios; it cannot establish that every business requirement was correctly
-understood.
+The subsequent [authentication experiment](authentication.md) adds OIDC
+verification and session/CSRF policy with a local test issuer. Real-provider
+verification, production connection management, rate limiting, operational
+logging, deployment, durable email delivery, and cross-version client
+compatibility are not implemented. No PostgreSQL or remote Turso behavior is
+inferred from SQLite tests. Verification covers named scenarios; it cannot
+establish that every business requirement was correctly understood.

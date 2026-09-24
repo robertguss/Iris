@@ -4,10 +4,23 @@ services:
     port: 3001
     health: /api/openapi.json
   iris-web:
-    command: npm run dev
+    command: VITE_IRIS_LEGACY_DEMO=true IRIS_API_TARGET=http://127.0.0.1:3001 npm run dev
     cwd: experiments/api-slice/web
     port: 5173
     health: /
     portal:
       title: Iris API experiment
       description: Development-only synthetic identities and disposable data. Valid invitations are single-use; restarting iris-api resets them.
+  iris-oidc:
+    command: node experiments/api-slice/checks/oidc-provider.mjs --port 4000 --issuer http://127.0.0.1:4000 --redirect-uri http://127.0.0.1:5174/api/auth/callback
+    port: 4000
+    health: /.well-known/openid-configuration
+  iris-auth-api:
+    command: IRIS_PUBLIC_ORIGIN=http://127.0.0.1:5174 IRIS_OIDC_ISSUER=http://127.0.0.1:4000 cargo run --locked -p iris-api-spike --bin iris-auth-demo -- --local-oidc-demo
+    port: 3002
+    health: /api/openapi.json
+  iris-auth-web:
+    command: npm run dev -- --port 5174
+    cwd: experiments/api-slice/web
+    port: 5174
+    health: /

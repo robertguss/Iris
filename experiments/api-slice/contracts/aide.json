@@ -32,6 +32,30 @@
         ],
         "type": "object"
       },
+      "ChangeRoleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "user_id": {
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "user_id",
+          "role"
+        ],
+        "type": "object"
+      },
       "ErrorCode": {
         "enum": [
           "invalid_request",
@@ -39,6 +63,8 @@
           "login_failed",
           "forbidden",
           "recipient_not_found",
+          "member_not_found",
+          "last_owner",
           "already_member",
           "invitation_pending",
           "unauthorized",
@@ -97,6 +123,32 @@
         ],
         "type": "object"
       },
+      "MemberChange": {
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null means the membership was removed."
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "user_id"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "properties": {
           "code": {
@@ -111,6 +163,34 @@
           "message"
         ],
         "type": "object"
+      },
+      "RemoveMemberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "user_id": {
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "Role": {
+        "enum": [
+          "owner",
+          "editor",
+          "viewer"
+        ],
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -303,6 +383,210 @@
               }
             },
             "description": "Expired or already accepted"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Database busy"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ]
+      }
+    },
+    "/api/memberships/remove": {
+      "post": {
+        "operationId": "removeMember",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberChange"
+                }
+              }
+            },
+            "description": "Membership removed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Sign-in required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not a project owner or CSRF validation failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Member not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Last owner must remain"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Database busy"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ]
+      }
+    },
+    "/api/memberships/role": {
+      "post": {
+        "operationId": "changeMemberRole",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberChange"
+                }
+              }
+            },
+            "description": "Member role changed (same role is a successful no-op)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Sign-in required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not a project owner or CSRF validation failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Member not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Last owner must remain"
           },
           "500": {
             "content": {

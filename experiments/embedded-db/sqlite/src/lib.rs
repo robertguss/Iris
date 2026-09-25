@@ -8,6 +8,8 @@ pub use domain::{AcceptInvitation, Outcome, token_hash};
 
 mod issue;
 pub use issue::{IssueInvitation, IssueOutcome, issue, issue_with_delivery};
+mod members;
+pub use members::{ChangeMember, MemberOutcome, MemberRole, change_member};
 pub mod outbox;
 
 pub async fn connect(path: &Path) -> Result<SqliteConnection, sqlx::Error> {

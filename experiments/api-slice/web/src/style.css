@@ -31,6 +31,7 @@ label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 7px; }
 select, input { width: 100%; font: inherit; font-size: 13px; color: #302c39; border: 1px solid #d7d3de; border-radius: 6px; padding: 11px 12px; background: #fff; }
 select { margin-bottom: 20px; }
 input { font-family: ui-monospace, monospace; }
+input[type="checkbox"] { width: auto; margin: 0 8px 0 0; accent-color: #655093; }
 .help, .footnote { font-size: 11px; color: #77717e; line-height: 1.6; }
 .help { margin: 7px 0 21px; }
 .example-label, .json-label { font-size: 9px; letter-spacing: 1.2px; color: #766e82; font-weight: 600; }

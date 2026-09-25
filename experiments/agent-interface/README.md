@@ -24,11 +24,11 @@ npm --prefix experiments/agent-interface test
 
 Profiles are deliberately fixed:
 
-| Profile     | Checks                                                     | Evidence                                                                                     |
-| ----------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `focused`   | Exact logout/callback race and outbox crash-recovery tests | Ordered numeric checkpoints, expectations and observations                                   |
-| `compile`   | API Cargo check, default features, all targets             | Exit status and Rust error codes, not rendered diagnostics                                   |
-| `contracts` | Existing web `npm run verify`                              | Exit status; install web dependencies with `npm --prefix experiments/api-slice/web ci` first |
+| Profile     | Checks                                                                               | Evidence                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `focused`   | Exact logout/callback race, outbox crash-recovery, and concurrent member-owner tests | Ordered numeric checkpoints, expectations and observations                                   |
+| `compile`   | API Cargo check, default features, all targets                                       | Exit status and Rust error codes, not rendered diagnostics                                   |
+| `contracts` | Existing web `npm run verify`                                                        | Exit status; install web dependencies with `npm --prefix experiments/api-slice/web ci` first |
 
 `describe` lists exact commands and source files. These subsets do not replace
 the full [CI workflow](../../.github/workflows/verify.yml). CLI exits are 0 for
@@ -117,12 +117,18 @@ own acceptance criteria; production permissions stay outside this interface.
 ## Verification and next experiment
 
 `npm test` uses the official MCP client to discover tools, read conventions, run
-both real scenarios, reproduce outbox recovery and inspect their observations.
-It also exercises bad inputs, missing/reordered/mismatched evidence, missing
-executables, timeouts/output caps, stale reports, lock contention, interface
-restart requirements, malformed reports, and canary filtering including Git
-stderr. Synthetic bad evidence tests validate the reporter, not its ability to
-diagnose every real application regression.
+all three real scenarios, reproduce outbox recovery and inspect their
+observations. `node experiments/agent-interface/cli.mjs reproduce members`
+checks concurrent removal/removal, demotion/demotion and mixed self-departures
+(one success and one last-owner conflict per pair), plus rejection of a
+concurrently revoked actor. These are real independent SQLite connections, not
+deterministic interleaving replay. The broader policy, HTTP contracts and UI are
+checked outside this focused scenario. It also exercises bad inputs,
+missing/reordered/mismatched evidence, missing executables, timeouts/output
+caps, stale reports, lock contention, interface restart requirements, malformed
+reports, and canary filtering including Git stderr. Synthetic bad evidence tests
+validate the reporter, not its ability to diagnose every real application
+regression.
 
 **Deferred as of September 25, 2026:** the owner chose framework design before
 further productivity experiments. See the

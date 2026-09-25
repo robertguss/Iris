@@ -95,6 +95,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/memberships/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["removeMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memberships/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["changeMemberRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -108,8 +140,13 @@ export interface components {
             project_id: string;
             user_id: string;
         };
+        ChangeRoleRequest: {
+            project_id: string;
+            role: components["schemas"]["Role"];
+            user_id: string;
+        };
         /** @enum {string} */
-        ErrorCode: "invalid_request" | "csrf" | "login_failed" | "forbidden" | "recipient_not_found" | "already_member" | "invitation_pending" | "unauthorized" | "not_found" | "expired" | "already_accepted" | "internal" | "unavailable";
+        ErrorCode: "invalid_request" | "csrf" | "login_failed" | "forbidden" | "recipient_not_found" | "member_not_found" | "last_owner" | "already_member" | "invitation_pending" | "unauthorized" | "not_found" | "expired" | "already_accepted" | "internal" | "unavailable";
         IssueRequest: {
             /** @description Positive signed-64-bit decimal ID. No leading zeros. */
             project_id: string;
@@ -127,10 +164,21 @@ export interface components {
         LoginInfo: {
             authorization_url: string;
         };
+        MemberChange: {
+            project_id: string;
+            role?: components["schemas"]["Role"] | null;
+            user_id: string;
+        };
         Problem: {
             code: components["schemas"]["ErrorCode"];
             message: string;
         };
+        RemoveMemberRequest: {
+            project_id: string;
+            user_id: string;
+        };
+        /** @enum {string} */
+        Role: "owner" | "editor" | "viewer";
         SessionInfo: {
             csrf_token: string;
             user_id?: string | null;
@@ -420,6 +468,180 @@ export interface operations {
                 };
             };
             /** @description Expired or already accepted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Database busy */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Membership removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberChange"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sign-in required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a project owner or CSRF validation failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Member not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Last owner must remain */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Database busy */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    changeMemberRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Member role changed (same role is a successful no-op) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberChange"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sign-in required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a project owner or CSRF validation failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Member not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Last owner must remain */
             409: {
                 headers: {
                     [name: string]: unknown;

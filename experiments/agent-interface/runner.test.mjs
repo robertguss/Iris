@@ -59,6 +59,8 @@ test('MCP discovery, real focused checks, report inspection, stale detection and
   assert.match(resource.contents[0].text, /not a protected evaluator/);
   const convention = await call('get_convention', { topic: 'delivery' });
   assert.match(convention.structuredContent.data.rule, /stale workers/);
+  const memberConvention = await call('get_convention', { topic: 'membership' });
+  assert.match(memberConvention.structuredContent.data.rule, /last owner/);
   assert.equal((await call('run_checks', { profile: 'arbitrary-command' })).isError, true);
   assert.equal((await call('run_checks', { profile: 'focused', command: 'anything' })).isError, true);
   assert.equal((await call('inspect_run', { id: '../../etc/passwd' })).isError, true);
@@ -66,12 +68,15 @@ test('MCP discovery, real focused checks, report inspection, stale detection and
 
   const report = (await call('run_checks', { profile: 'focused' })).structuredContent.data;
   assert.equal(report.status, 'passed');
-  assert.deepEqual(report.results.map(r => r.events.map(e => e.observed)), [[1, 204, 401, 0], [1, 2, 0, 3, 1]]);
+  assert.deepEqual(report.results.map(r => r.events.map(e => e.observed)), [[1, 204, 401, 0], [1, 2, 0, 3, 1], [3, 3, 3, 1]]);
   assert.match(report.rust_version, /^rustc /);
   assert.equal((await call('inspect_run', { id: report.id })).structuredContent.data.stale, false);
   const operation = (await call('inspect_operation', { id: report.id, check: 'outbox' })).structuredContent.data;
   assert.equal(operation.result.events[2].observed, 0);
+  const membership = (await call('inspect_operation', { id: report.id, check: 'members' })).structuredContent.data;
+  assert.equal(membership.result.events[3].observed, 1);
   assert.equal((await call('reproduce_scenario', { scenario: 'outbox' })).structuredContent.data.status, 'passed');
+  assert.equal((await call('reproduce_scenario', { scenario: 'members' })).structuredContent.data.status, 'passed');
 
   const probe = join(root, `.iris-fingerprint-${randomUUID()}`);
   const before = await fingerprint();

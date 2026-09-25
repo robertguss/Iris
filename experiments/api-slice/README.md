@@ -56,6 +56,55 @@ acceptance tests use the updated schema. Creation is implemented only for SQLx /
 SQLite; this does not claim creation support on Turso. Migration tests use
 disposable databases, not a shared or production database.
 
+## Change roles and remove members
+
+After inviting Bob to project `41` and accepting, select **Change a member’s
+role** as Alice. Enter project `41`, member `29`, and choose viewer, editor, or
+owner. **Remove a member** requires an explicit checkbox confirmation. The
+client remains an ID-based experiment console, not a member directory.
+
+- `POST /api/memberships/role` takes `{project_id,user_id,role}`; role is
+  `viewer`, `editor`, or `owner`. `POST /api/memberships/remove` takes
+  `{project_id,user_id}`. IDs follow the invitation ID rules; extra fields,
+  including actor identity, are rejected.
+- Both return 200 `{project_id,user_id,role}`. Removal returns `role: null`.
+  Setting the current role succeeds. Repeating a removal returns 404
+  `member_not_found` (or 403 if the actor no longer owns the project).
+- Only an owner of that project may act, including on themselves. Authorization
+  precedes member lookup. Unknown projects and nonowners get 403 `forbidden`;
+  authorized requests for absent memberships get 404 `member_not_found`.
+- Removing or demoting the last owner returns 409 `last_owner`. Promote an
+  existing member before transferring ownership or leaving. Other projects'
+  owners do not count. The authorization check, owner count and mutation share
+  `BEGIN IMMEDIATE`; competing writers cannot both read the old owner count or
+  retain stale authority. Lock timeout remains 503 `unavailable`.
+- Removal deletes only the membership, not the account or invitations. It is not
+  a ban: an outstanding invitation can grant membership again. Already accepted
+  tokens remain consumed. No invitation-revocation workflow is added.
+- Session and CSRF policy, sanitized database errors, both OpenAPI exporters,
+  and generated client types follow the existing conventions. The invariant
+  applies to these SQLite actions, not arbitrary SQL or a Turso implementation.
+
+Verification adds role/authorization/project-scope tests, concurrent
+self-removal, self-demotion and mixed departures, a competing-actor authority
+test, both-router runtime schema checks, rollback and lock-contention checks,
+authenticated HTTP checks, and legacy/session browser workflows. The shared
+agent harness exposes `reproduce members` and includes it in `focused`; its
+numeric observations are test evidence, not deterministic scheduling or
+production traces.
+
+Independent-author tooling observations: `.agents/setup` installs the web
+dependencies but the agent-interface dependencies still need their documented
+separate `npm ci`; fresh non-login shells needed `source "$HOME/.cargo/env"`.
+The CLI convention catalog gave useful source entry points but initially had no
+membership-policy scenario or runtime policy inspector. Source inspection and
+ordinary Cargo/browser checks were necessary for the full workflow. The two
+exporters still require duplicate response declarations, and the browser's
+request-holding fixture explicitly allowlists paths and needed both new paths.
+The MCP server's scenario/topic enums are separate from the CLI catalog; a real
+MCP inspection test caught the missing enum entries when adding this scenario.
+No controlled repair study or speed/reliability comparison was performed.
+
 ## Run and verify
 
 Use the pinned Rust toolchain, a C compiler, and Node with npm (tested with Node

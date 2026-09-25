@@ -4,11 +4,13 @@ import { createRoot } from "react-dom/client";
 import { api, errorTitle, legacyDemo, refreshSession } from "./api";
 import type { SessionInfo } from "./api";
 import type { AcceptRequest, Acceptance, IssueRequest, IssuedInvitation, Problem } from "./api";
+import type { ChangeRoleRequest, RemoveMemberRequest, MemberChange, Role } from "./api";
 import "./style.css";
 
 type Result =
   | { kind: "success"; status: number; body: Acceptance }
   | { kind: "issued"; status: number; body: IssuedInvitation }
+  | { kind: "member"; status: number; body: MemberChange }
   | { kind: "error"; status: number; body: Problem }
   | { kind: "network" };
 
@@ -25,6 +27,9 @@ function App() {
   const [operation, setOperation] = useState("accept");
   const [project, setProject] = useState("41");
   const [recipient, setRecipient] = useState("29");
+  const [member, setMember] = useState("29");
+  const [role, setRole] = useState<Role>("viewer");
+  const [confirmed, setConfirmed] = useState(false);
   const [identity, setIdentity] = useState("11");
   const [token, setToken] = useState("iris-valid");
   const [pending, setPending] = useState(false);
@@ -47,7 +52,7 @@ function App() {
 
   async function authenticate(action: "login" | "logout" | "refresh") {
     if (authBusy || inFlight.current) return;
-    setAuthBusy(true); setAuthError(""); setResult(null);
+    setAuthBusy(true); setAuthError(""); setResult(null); setConfirmed(false);
     try {
       if (action === "refresh") { setSession(await refreshSession()); return; }
       if (action === "login") {
@@ -66,12 +71,20 @@ function App() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (inFlight.current) return;
+    if (inFlight.current || (operation === "remove" && !confirmed)) return;
     inFlight.current = true;
     setPending(true);
     setResult(null);
     try {
-      if (operation === "issue") {
+      if (operation === "role" || operation === "remove") {
+        const headers = legacyDemo && identity ? { "x-iris-dev-user": identity } : {};
+        const { data, error, response } = operation === "role"
+          ? await api.POST("/api/memberships/role", { headers, body: { project_id: project, user_id: member, role } satisfies ChangeRoleRequest })
+          : await api.POST("/api/memberships/remove", { headers, body: { project_id: project, user_id: member } satisfies RemoveMemberRequest });
+        if (data) { setResult({ kind: "member", status: response.status, body: data }); setConfirmed(false); }
+        else if (error) setResult({ kind: "error", status: response.status, body: error });
+        else setResult({ kind: "network" });
+      } else if (operation === "issue") {
         const { data, error, response } = await api.POST("/api/invitations", {
           headers: legacyDemo && identity ? { "x-iris-dev-user": identity } : {},
           body: { project_id: project, recipient_id: recipient } satisfies IssueRequest,
@@ -111,8 +124,8 @@ function App() {
 
       <section className="intro">
         <p className="eyebrow">RUST → OPENAPI → TYPESCRIPT → REACT</p>
-        <h1>Issue. Switch identity. Accept.</h1>
-        <p className="lede">Two actions, one explicit permission boundary.<br className="desktop" /> Only an owner can invite. Only the recipient can accept.</p>
+        <h1>Invite. Accept. Manage members.</h1>
+        <p className="lede">Only owners can invite or manage members.<br className="desktop" /> Only recipients can accept. Every project keeps its last owner.</p>
       </section>
 
       <aside className="notice"><span aria-hidden="true">◈</span><div><strong>{legacyDemo ? "Development identity — not real authentication" : "Local OIDC experiment — test identities only"}</strong><p>{legacyDemo ? "Two synthetic users. Disposable SQLite data. Never use this identity header in a deployed application." : "Real OIDC token validation and browser sessions; the local issuer does not verify human identity. Disposable data. Not a production login service."}</p></div></aside>
@@ -135,17 +148,35 @@ function App() {
           <form onSubmit={submit}>
             <fieldset disabled={pending || authBusy || (!legacyDemo && !session?.user_id)}>
               <label htmlFor="operation">Action</label>
-              <select id="operation" value={operation} onChange={e => { setOperation(e.target.value); setResult(null); }}>
+              <select id="operation" value={operation} onChange={e => { setOperation(e.target.value); setResult(null); setConfirmed(false); }}>
                 <option value="issue">Issue an invitation</option>
                 <option value="accept">Accept an invitation</option>
+                <option value="role">Change a member’s role</option>
+                <option value="remove">Remove a member</option>
               </select>
               {legacyDemo && <><label htmlFor="identity">Development identity</label>
-              <select id="identity" value={identity} onChange={e => { setIdentity(e.target.value); setResult(null); }}>
+              <select id="identity" value={identity} onChange={e => { setIdentity(e.target.value); setResult(null); setConfirmed(false); }}>
                 <option value="11">Alice · user 11</option>
                 <option value="29">Bob · user 29</option>
                 <option value="">Unauthenticated</option>
               </select></>}
-              {operation === "issue" ? <>
+              {operation === "role" || operation === "remove" ? <>
+                <label htmlFor="member-project">Project ID</label>
+                <input id="member-project" value={project} onChange={e => { setProject(e.target.value); setResult(null); setConfirmed(false); }} />
+                <label htmlFor="member">Member user ID</label>
+                <input id="member" value={member} onChange={e => { setMember(e.target.value); setResult(null); setConfirmed(false); }} />
+                <p className="help">Initially, Alice (11) owns project 41. Invite Bob (29) and accept first to manage his membership.</p>
+                {operation === "role" ? <>
+                  <label htmlFor="role">New role</label>
+                  <select id="role" value={role} onChange={e => { setRole(e.target.value as Role); setResult(null); }}>
+                    <option value="viewer">Viewer</option><option value="editor">Editor</option><option value="owner">Owner</option>
+                  </select>
+                  <p className="help">Owners can invite and manage members. Promote another member before leaving or demoting the last owner.</p>
+                </> : <>
+                  <p className="help">Removes this project membership, not the account. The last owner cannot leave. Outstanding invitations are not revoked.</p>
+                  <label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> Confirm removal of user {member} from project {project}</label>
+                </>}
+              </> : operation === "issue" ? <>
                 <label htmlFor="project">Project ID</label>
                 <input id="project" value={project} onChange={e => { setProject(e.target.value); setResult(null); }} />
                 <p className="help">Alice owns project 41. Bob owns project 43.</p>
@@ -166,7 +197,7 @@ function App() {
                 <button type="button" onClick={() => example("iris-bob", "29")}>Bob’s invitation</button>
               </div>
               </>}
-              <button className="submit" type="submit">{pending ? "Sending request…" : operation === "issue" ? "Issue invitation" : "Accept invitation"}<span aria-hidden="true">→</span></button>
+              <button className="submit" type="submit" disabled={operation === "remove" && !confirmed}>{pending ? "Sending request…" : operation === "role" ? "Change member role" : operation === "remove" ? "Remove member" : operation === "issue" ? "Issue invitation" : "Accept invitation"}<span aria-hidden="true">→</span></button>
             </fieldset>
           </form>
           <p className="footnote">Valid invitations can be accepted once. Restarting the demo server resets the fixtures.</p>
@@ -174,15 +205,15 @@ function App() {
 
         <section className="panel response-panel" aria-busy={pending}>
           <div className="panel-heading"><span className="step">02</span><h2>Inspect the response</h2></div>
-          <div className="endpoint"><b>POST</b><code>{operation === "issue" ? "/api/invitations" : "/api/invitations/accept"}</code></div>
+          <div className="endpoint"><b>POST</b><code>{operation === "role" ? "/api/memberships/role" : operation === "remove" ? "/api/memberships/remove" : operation === "issue" ? "/api/invitations" : "/api/invitations/accept"}</code></div>
           <div aria-live="polite" aria-atomic="true" className="result">
             {pending ? <div className="empty"><span className="pulse" aria-hidden="true" /><h3>Waiting for the API</h3><p>The server is processing your request.</p></div>
-              : !result ? <div className="empty"><span className="empty-icon" aria-hidden="true">↳</span><h3>Ready when you are</h3><p>Submit an invitation to see its status<br />and JSON response here.</p></div>
+              : !result ? <div className="empty"><span className="empty-icon" aria-hidden="true">↳</span><h3>Ready when you are</h3><p>Submit a request to see its status<br />and JSON response here.</p></div>
               : result.kind === "network" ? <div className="status error"><strong>Couldn’t read an API response</strong><p>Check that the demo server is running. No automatic retry was sent; a request may have reached the server.</p></div>
               : <>
                   <div className={`status ${result.kind === "error" ? "error" : "success"}`}>
-                    <strong>{result.status} · {result.kind === "success" ? "Invitation accepted" : result.kind === "issued" ? "Invitation issued" : errorTitle(result.body.code)}</strong>
-                    <p>{result.kind === "success" ? `User ${result.body.user_id} is a member of project ${result.body.project_id}.` : result.kind === "issued" ? "Invitation created. Membership is unchanged until acceptance." : result.body.message}</p>
+                    <strong>{result.status} · {result.kind === "member" ? (result.body.role ? "Member role changed" : "Member removed") : result.kind === "success" ? "Invitation accepted" : result.kind === "issued" ? "Invitation issued" : errorTitle(result.body.code)}</strong>
+                    <p>{result.kind === "member" ? `User ${result.body.user_id} in project ${result.body.project_id}: ${result.body.role ?? "membership removed"}.` : result.kind === "success" ? `User ${result.body.user_id} is a member of project ${result.body.project_id}.` : result.kind === "issued" ? "Invitation created. Membership is unchanged until acceptance." : result.body.message}</p>
                   </div>
                   {result.kind === "issued" && <>
                     <p className="help">Local email queued—not yet confirmed sent. Open the Mailpit inbox for the recipient’s link. This response retains a demo-only token preview; duplicate issuance will not recover it.</p>

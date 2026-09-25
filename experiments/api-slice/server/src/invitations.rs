@@ -31,7 +31,7 @@ pub struct IssuedInvitation {
     pub expires_at: String,
 }
 
-fn id(value: &str) -> Result<i64, ApiError> {
+pub(crate) fn id(value: &str) -> Result<i64, ApiError> {
     let parsed = value
         .parse::<i64>()
         .ok()

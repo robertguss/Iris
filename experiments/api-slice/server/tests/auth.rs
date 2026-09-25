@@ -367,6 +367,52 @@ async fn session_login_csrf_permissions_logout_and_no_resurrection() {
     .await;
     assert_eq!(accepted.0, 200);
     assert_eq!(accepted.2, json!({"project_id":"41","user_id":"29"}));
+    for (path, body) in [
+        (
+            "/api/memberships/role",
+            json!({"project_id":"41","user_id":"29","role":"viewer"}),
+        ),
+        (
+            "/api/memberships/remove",
+            json!({"project_id":"41","user_id":"29"}),
+        ),
+    ] {
+        let denied = send(
+            &f.app,
+            &mut bob,
+            "POST",
+            path,
+            body.clone(),
+            Some("http://127.0.0.1:5173"),
+            true,
+        )
+        .await;
+        assert_eq!(denied.0, 403);
+        assert_eq!(denied.2["code"], "forbidden");
+        for (origin, csrf) in [
+            (Some("http://127.0.0.1:5173"), false),
+            (Some("https://evil.example"), true),
+        ] {
+            let denied = send(&f.app, &mut a, "POST", path, body.clone(), origin, csrf).await;
+            assert_eq!(denied.0, 403);
+            assert_eq!(denied.2["code"], "csrf");
+        }
+        let changed = send(
+            &f.app,
+            &mut a,
+            "POST",
+            path,
+            body,
+            Some("http://127.0.0.1:5173"),
+            true,
+        )
+        .await;
+        assert_eq!(changed.0, 200);
+        assert_eq!(
+            changed.2,
+            json!({"project_id":"41","user_id":"29","role": if path.ends_with("role") { json!("viewer") } else { Value::Null }})
+        );
+    }
     assert_eq!(
         send(
             &f.app,

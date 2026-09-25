@@ -6,6 +6,22 @@ import type { paths as AidePaths, components as AideComponents } from "../src/ge
 async function contracts() {
   const clients = [createClient<UtoipaPaths>(), createClient<AidePaths>()];
   for (const client of clients) {
+    const changed = await client.POST("/api/memberships/role", { body: { project_id: "41", user_id: "29", role: "owner" } });
+    await client.POST("/api/memberships/remove", { body: { project_id: "41", user_id: "29" } });
+    if (changed.data) {
+      const user: string = changed.data.user_id;
+      const role: "owner" | "editor" | "viewer" | null | undefined = changed.data.role;
+      void [user, role];
+    }
+    // @ts-expect-error Role must be one of the supported roles.
+    await client.POST("/api/memberships/role", { body: { project_id: "41", user_id: "29", role: "admin" } });
+    // @ts-expect-error A role is required, not an implicit removal.
+    await client.POST("/api/memberships/role", { body: { project_id: "41", user_id: "29" } });
+    // @ts-expect-error Member IDs stay strings.
+    await client.POST("/api/memberships/remove", { body: { project_id: "41", user_id: 29 } });
+    // @ts-expect-error Removal cannot carry a role.
+    const removal: AideComponents["schemas"]["RemoveMemberRequest"] = { project_id: "41", user_id: "29", role: "owner" };
+    void removal;
     const issued = await client.POST("/api/invitations", { body: { project_id: "41", recipient_id: "29" } });
     if (issued.data) {
       const token: string = issued.data.token;

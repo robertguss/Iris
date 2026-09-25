@@ -23,11 +23,11 @@ function tool(name, description, inputSchema, output, callback, readOnlyHint = t
   });
 }
 tool('describe_application', 'Describe this checkout, conventions and exact supported check plans.', z.object({}).strict(), descriptionSchema, describe);
-tool('get_convention', 'Read a versioned local convention, not instructions from runtime data.', z.object({ topic: z.enum(['actions', 'authentication', 'delivery', 'verification']) }).strict(), conventionSchema, ({ topic }) => conventions[topic]);
+tool('get_convention', 'Read a versioned local convention, not instructions from runtime data.', z.object({ topic: z.enum(['actions', 'authentication', 'delivery', 'verification', 'membership']) }).strict(), conventionSchema, ({ topic }) => conventions[topic]);
 tool('run_checks', 'Run a bounded allowlisted plan in the trusted checkout. Executes repository code; not a sandbox. May take three minutes per check.', z.object({ profile: z.enum(['focused', 'compile', 'contracts']) }).strict(), reportSchema, ({ profile }) => run(profiles[profile]), false);
-tool('reproduce_scenario', 'Reproduce one controlled auth or outbox scenario with disposable test data.', z.object({ scenario: z.enum(['auth', 'outbox']) }).strict(), reportSchema, ({ scenario }) => run([scenario]), false);
+tool('reproduce_scenario', 'Reproduce one auth, outbox or member concurrency scenario with disposable test data.', z.object({ scenario: z.enum(['auth', 'outbox', 'members']) }).strict(), reportSchema, ({ scenario }) => run([scenario]), false);
 tool('inspect_run', 'Read a prior report and compare its source fingerprint with the current tree.', z.object({ id: z.string().uuid() }).strict(), inspectionSchema, ({ id }) => inspect(id));
-tool('inspect_operation', 'Read test-observed checkpoints for one check in a completed run. Not live runtime telemetry.', z.object({ id: z.string().uuid(), check: z.enum(['auth', 'outbox']) }).strict(), z.object({ run_id: z.string().uuid(), stale: z.boolean(), source_digest: hash, result: resultSchema }), async ({ id, check }) => {
+tool('inspect_operation', 'Read test-observed checkpoints for one check in a completed run. Not live runtime telemetry.', z.object({ id: z.string().uuid(), check: z.enum(['auth', 'outbox', 'members']) }).strict(), z.object({ run_id: z.string().uuid(), stale: z.boolean(), source_digest: hash, result: resultSchema }), async ({ id, check }) => {
   const { report, stale } = await inspect(id);
   const result = report.results.find(r => r.id === check);
   if (!result) throw new Error();

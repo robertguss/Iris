@@ -18,6 +18,7 @@ pub const ISSUE_PATH: &str = "/api/invitations";
 pub mod auth;
 pub mod delivery;
 mod invitations;
+mod members;
 use invitations::{IssuedInvitation, issue_endpoint};
 
 #[derive(Clone)]
@@ -57,6 +58,8 @@ pub enum ErrorCode {
     LoginFailed,
     Forbidden,
     RecipientNotFound,
+    MemberNotFound,
+    LastOwner,
     AlreadyMember,
     InvitationPending,
     Unauthorized,
@@ -92,9 +95,16 @@ impl IntoResponse for ApiError {
             ),
             ErrorCode::Forbidden => (
                 StatusCode::FORBIDDEN,
-                "Only a project owner can issue invitations.",
+                "Only a project owner can perform this action.",
             ),
             ErrorCode::RecipientNotFound => (StatusCode::NOT_FOUND, "Recipient not found."),
+            ErrorCode::MemberNotFound => {
+                (StatusCode::NOT_FOUND, "Member not found in this project.")
+            }
+            ErrorCode::LastOwner => (
+                StatusCode::CONFLICT,
+                "The last owner cannot be removed or demoted. Promote another member first.",
+            ),
             ErrorCode::AlreadyMember => {
                 (StatusCode::CONFLICT, "The recipient is already a member.")
             }
@@ -238,6 +248,8 @@ pub fn utoipa_router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
     let (router, mut api) = utoipa_axum::router::OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(utoipa_axum::routes!(accept_endpoint))
         .routes(utoipa_axum::routes!(invitations::issue_endpoint))
+        .routes(utoipa_axum::routes!(members::change_role_endpoint))
+        .routes(utoipa_axum::routes!(members::remove_endpoint))
         .routes(utoipa_axum::routes!(auth::session_info))
         .routes(utoipa_axum::routes!(auth::login))
         .routes(utoipa_axum::routes!(auth::callback))
@@ -305,6 +317,49 @@ pub fn aide_router() -> (Router<AppState>, aide::openapi::OpenApi) {
                 .response_with::<503, Json<Problem>, _>(|r| r.description("Database busy"))
         }),
     );
+    let app = app
+        .api_route(
+            "/api/memberships/role",
+            post_with(members::change_role_endpoint, |op| {
+                op.id("changeMemberRole")
+                    .security_requirement("BrowserSession")
+                    .response_with::<200, Json<members::MemberChange>, _>(|r| {
+                        r.description("Member role changed (same role is a successful no-op)")
+                    })
+                    .response_with::<400, Json<Problem>, _>(|r| r.description("Invalid request"))
+                    .response_with::<401, Json<Problem>, _>(|r| r.description("Sign-in required"))
+                    .response_with::<403, Json<Problem>, _>(|r| {
+                        r.description("Not a project owner or CSRF validation failed")
+                    })
+                    .response_with::<404, Json<Problem>, _>(|r| r.description("Member not found"))
+                    .response_with::<409, Json<Problem>, _>(|r| {
+                        r.description("Last owner must remain")
+                    })
+                    .response_with::<500, Json<Problem>, _>(|r| r.description("Internal error"))
+                    .response_with::<503, Json<Problem>, _>(|r| r.description("Database busy"))
+            }),
+        )
+        .api_route(
+            "/api/memberships/remove",
+            post_with(members::remove_endpoint, |op| {
+                op.id("removeMember")
+                    .security_requirement("BrowserSession")
+                    .response_with::<200, Json<members::MemberChange>, _>(|r| {
+                        r.description("Membership removed")
+                    })
+                    .response_with::<400, Json<Problem>, _>(|r| r.description("Invalid request"))
+                    .response_with::<401, Json<Problem>, _>(|r| r.description("Sign-in required"))
+                    .response_with::<403, Json<Problem>, _>(|r| {
+                        r.description("Not a project owner or CSRF validation failed")
+                    })
+                    .response_with::<404, Json<Problem>, _>(|r| r.description("Member not found"))
+                    .response_with::<409, Json<Problem>, _>(|r| {
+                        r.description("Last owner must remain")
+                    })
+                    .response_with::<500, Json<Problem>, _>(|r| r.description("Internal error"))
+                    .response_with::<503, Json<Problem>, _>(|r| r.description("Database busy"))
+            }),
+        );
     let mut api = aide::openapi::OpenApi::default();
     let router = app.finish_api_with(&mut api, |api| {
         api.title("Iris invitation experiment")

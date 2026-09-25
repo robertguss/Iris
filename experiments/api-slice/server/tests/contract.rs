@@ -171,6 +171,176 @@ mod demo {
     }
 
     #[tokio::test]
+    async fn member_workflow_and_failures_match_both_contracts() {
+        for (_, router, api) in candidates() {
+            let (_dir, app, mut conn) = fixture(router).await;
+            sqlx::raw_sql("INSERT INTO memberships VALUES(41,29,'editor')")
+                .execute(&mut conn)
+                .await
+                .unwrap();
+            for path in ["/api/memberships/role", "/api/memberships/remove"] {
+                let mut body = json!({"project_id":"41","user_id":"11"});
+                if path.ends_with("role") {
+                    body["role"] = json!("viewer");
+                }
+                for (actor, status, code) in [
+                    (None, 401, "unauthorized"),
+                    (Some("29"), 403, "forbidden"),
+                    (Some("11"), 409, "last_owner"),
+                ] {
+                    request_at(
+                        app.clone(),
+                        path,
+                        actor,
+                        &body.to_string(),
+                        status,
+                        json!({"code":code}),
+                        &api,
+                    )
+                    .await;
+                }
+                for (project, user, status, code) in [
+                    ("999", "999", 403, "forbidden"),
+                    ("43", "11", 403, "forbidden"),
+                    ("41", "999", 404, "member_not_found"),
+                    ("041", "11", 400, "invalid_request"),
+                    ("41", "9223372036854775808", 400, "invalid_request"),
+                ] {
+                    let mut invalid = body.clone();
+                    invalid["project_id"] = json!(project);
+                    invalid["user_id"] = json!(user);
+                    request_at(
+                        app.clone(),
+                        path,
+                        Some("11"),
+                        &invalid.to_string(),
+                        status,
+                        json!({"code":code}),
+                        &api,
+                    )
+                    .await;
+                }
+                for invalid in [
+                    json!({}),
+                    json!({"project_id":"41","user_id":"29","role":"admin"}),
+                    json!({"project_id":"41","user_id":"29","actor_id":"11"}),
+                ] {
+                    request_at(
+                        app.clone(),
+                        path,
+                        Some("11"),
+                        &invalid.to_string(),
+                        400,
+                        json!({"code":"invalid_request"}),
+                        &api,
+                    )
+                    .await;
+                }
+                body["user_id"] = json!("29");
+                sqlx::raw_sql("BEGIN IMMEDIATE")
+                    .execute(&mut conn)
+                    .await
+                    .unwrap();
+                request_at(
+                    app.clone(),
+                    path,
+                    Some("11"),
+                    &body.to_string(),
+                    503,
+                    json!({"code":"unavailable"}),
+                    &api,
+                )
+                .await;
+                sqlx::raw_sql("ROLLBACK").execute(&mut conn).await.unwrap();
+                let trigger = if path.ends_with("role") {
+                    "CREATE TRIGGER fail_member AFTER UPDATE ON memberships BEGIN SELECT RAISE(ABORT, 'private detail'); END"
+                } else {
+                    "CREATE TRIGGER fail_member AFTER DELETE ON memberships BEGIN SELECT RAISE(ABORT, 'private detail'); END"
+                };
+                // AFTER failure proves the attempted mutation is rolled back.
+                sqlx::raw_sql(trigger).execute(&mut conn).await.unwrap();
+                request_at(
+                    app.clone(),
+                    path,
+                    Some("11"),
+                    &body.to_string(),
+                    500,
+                    json!({"code":"internal","message":"The request could not be completed."}),
+                    &api,
+                )
+                .await;
+                sqlx::raw_sql("DROP TRIGGER fail_member")
+                    .execute(&mut conn)
+                    .await
+                    .unwrap();
+                let role: String = sqlx::query_scalar(
+                    "SELECT role FROM memberships WHERE project_id=41 AND user_id=29",
+                )
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+                assert_eq!(role, "editor");
+            }
+            let role_path = "/api/memberships/role";
+            for role in ["viewer", "editor", "owner", "owner"] {
+                request_at(
+                    app.clone(),
+                    role_path,
+                    Some("11"),
+                    &json!({"project_id":"41","user_id":"29","role":role}).to_string(),
+                    200,
+                    json!({"project_id":"41","user_id":"29","role":role}),
+                    &api,
+                )
+                .await;
+                let actual: String = sqlx::query_scalar(
+                    "SELECT role FROM memberships WHERE project_id=41 AND user_id=29",
+                )
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+                assert_eq!(actual, role);
+            }
+            request_at(
+                app.clone(),
+                "/api/memberships/remove",
+                Some("11"),
+                r#"{"project_id":"41","user_id":"11"}"#,
+                200,
+                json!({"project_id":"41","user_id":"11","role":null}),
+                &api,
+            )
+            .await;
+            request_at(
+                app.clone(),
+                role_path,
+                Some("11"),
+                r#"{"project_id":"41","user_id":"29","role":"viewer"}"#,
+                403,
+                json!({"code":"forbidden"}),
+                &api,
+            )
+            .await;
+            request_at(
+                app.clone(),
+                "/api/memberships/remove",
+                Some("29"),
+                r#"{"project_id":"41","user_id":"11"}"#,
+                404,
+                json!({"code":"member_not_found"}),
+                &api,
+            )
+            .await;
+            let remaining: Vec<(i64, String)> =
+                sqlx::query_as("SELECT user_id,role FROM memberships WHERE project_id=41")
+                    .fetch_all(&mut conn)
+                    .await
+                    .unwrap();
+            assert_eq!(remaining, vec![(29, "owner".into())]);
+        }
+    }
+
+    #[tokio::test]
     async fn issue_authorize_then_accept_through_both_contracts() {
         for (_, router, api) in candidates() {
             let (_dir, app, mut conn) = fixture(router).await;

@@ -22,6 +22,10 @@ export type AcceptRequest = components["schemas"]["AcceptRequest"];
 export type Acceptance = components["schemas"]["Acceptance"];
 export type IssueRequest = components["schemas"]["IssueRequest"];
 export type IssuedInvitation = components["schemas"]["IssuedInvitation"];
+export type ChangeRoleRequest = components["schemas"]["ChangeRoleRequest"];
+export type RemoveMemberRequest = components["schemas"]["RemoveMemberRequest"];
+export type MemberChange = components["schemas"]["MemberChange"];
+export type Role = components["schemas"]["Role"];
 export type Problem = components["schemas"]["Problem"];
 
 // Exhaustiveness makes a newly added Rust error code a TypeScript decision.
@@ -32,6 +36,8 @@ export function errorTitle(code: Problem["code"]): string {
     case "login_failed": return "Login failed";
     case "forbidden": return "Owner permission required";
     case "recipient_not_found": return "Recipient not found";
+    case "member_not_found": return "Member not found";
+    case "last_owner": return "Last owner must remain";
     case "already_member": return "Already a member";
     case "invitation_pending": return "Invitation pending";
     case "unauthorized": return "Identity required";

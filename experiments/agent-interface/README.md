@@ -124,11 +124,16 @@ restart requirements, malformed reports, and canary filtering including Git
 stderr. Synthetic bad evidence tests validate the reporter, not its ability to
 diagnose every real application regression.
 
-Next, compare fresh agent sessions using ordinary Cargo/repository tooling
-versus the same tasks with this interface. Seed logout-race and outbox-fencing
-defects in disposable checkouts, include valid-change controls, and retain
-independently reviewed acceptance checks outside each agent's editable
-workspace. Measure accepted repairs within a fixed budget, elapsed time/tool
-cost, unnecessary edits, weakened checks, human intervention and disclosure
-incidents. This study has not run; expand the interface only when an observed
-repair obstacle warrants it.
+**Deferred as of September 25, 2026:** the owner chose framework design before
+further productivity experiments. See the
+[living design spec](../../docs/design-spec.md) for the current direction. The
+following study remains a proposal, not the next authorized task.
+
+When resumed, compare fresh agent sessions using ordinary Cargo/repository
+tooling versus the same tasks with this interface. Seed logout-race and
+outbox-fencing defects in disposable checkouts, include valid-change controls,
+and retain independently reviewed acceptance checks outside each agent's
+editable workspace. Measure accepted repairs within a fixed budget, elapsed
+time/tool cost, unnecessary edits, weakened checks, human intervention and
+disclosure incidents. This study has not run; expand the interface only when an
+observed repair obstacle warrants it.

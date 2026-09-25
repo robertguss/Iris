@@ -39,6 +39,13 @@ of the framework design, not a later addition.
 
 ## Design record
 
+**Start with the [living design specification](docs/design-spec.md).** It
+captures the current direction, rationale, authoring conventions, AI-oriented
+error and evidence contracts, alternatives, and open questions. Status labels
+distinguish agreed principles from proposed APIs and implemented experiments.
+Update it as the design evolves; the records below retain history and supporting
+evidence.
+
 1. [Decisions and open questions](docs/decisions.md) — agreed direction versus
    provisional proposals, including choices that changed during discussion.
 2. [Research map](docs/research.md) — references, ideas to borrow, tradeoffs,
@@ -89,9 +96,10 @@ implemented. SQLite and utoipa remain provisional.
 
 The [agent interface pilot](experiments/agent-interface/README.md) now exposes
 conventions, bounded checks and test-observed evidence through a CLI and MCP.
-Next, evaluate whether agents repair seeded regressions more reliably with this
-interface. It does not yet inspect production requests or profile performance;
-successful tool calls alone do not demonstrate better repairs.
+Further productivity experiments are deferred while we design the framework's
+features and conventions in the [living spec](docs/design-spec.md). The pilot
+does not yet inspect production requests or profile performance; successful tool
+calls alone do not demonstrate better repairs.
 
 ## Provenance and status
 

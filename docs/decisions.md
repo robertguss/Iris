@@ -2,6 +2,10 @@
 
 Initial record: September 24, 2026.
 
+The [living design specification](design-spec.md) is now the current synthesis
+and starting point for agents. This document retains the chronological record;
+early proposals and open questions below may be superseded by later sections.
+
 ## Experiment follow-up — September 24, 2026
 
 The [embedded database spike](embedded-db-findings.md) now supplies executable
@@ -278,9 +282,35 @@ acceptance checks before claiming faster or more reliable agent repairs. See the
 verification, limitations, and the proposed study. Librarian research informed
 the SDK choice; oracle review informed the evidence and stale-report safeguards.
 
+## Framework design synthesis — September 25, 2026
+
+The owner deferred further productivity experiments in favor of designing
+framework features and conventions. The earlier repair-study recommendation is
+not the current next task. Independent membership development supplied friction
+observations, not a controlled productivity result; its unpushed implementation
+remains in a separate checkout at this update.
+
+The [living spec](design-spec.md) records the subsequent discussion: ordinary
+transaction-owning actions with shared transport declarations; domain, adapter,
+and application boundaries; actor provenance; AI-oriented typed results and
+stable error codes; and the separation of action results, execution evidence,
+and optional durable invocation receipts. Three concrete failure scenarios
+explain why unknown effects must remain unknown and why transient failures do
+not automatically authorize retries.
+
+Principles are agreed direction, while example APIs, wire fields, and the exact
+Rust error representation remain proposed. In particular, Problem-style JSON is
+not the current `{code,message}` response format. The spec records rationale,
+alternatives, deferred features and evidence so other agents can critique and
+extend the design without treating sketches as implemented guarantees.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,
 observations, decision, and limitations. Keep superseded decisions visible
 rather than silently rewriting the reasoning. Separate preferences from measured
 results.
+
+Update the living spec's current status and rationale alongside new decisions;
+retain superseded reasoning here rather than maintaining competing current
+specs.

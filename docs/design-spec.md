@@ -32,7 +32,8 @@ agents may propose alternatives without presenting them as accepted.
 For external model review: S01–S03 explain the goals, S04–S08 the action and
 failure boundaries, S12 the static contracts, and S13 the proposed execution and
 evidence lifecycle. S14 defines the caller-loss recommendation and failure
-table. S10 distinguishes implementation from proposals. Use the
+table; S15 gives a concrete result, response and recovery reference contract.
+S10 distinguishes implementation from proposals. Use the
 [independent review brief](design-review-brief.md) for assignments, three review
 tracks, report format and synthesis instructions. S13 also supplies focused
 runtime-evidence questions; assess the design, not just the example syntax.
@@ -226,6 +227,8 @@ pub type ActionResult<T, R> = Result<T, ActionError<R>>;
 This supersedes retaining `MemberOutcome` as the preferred future design sketch,
 not the current code. A generic result type is not a generic action execution
 trait. The representation, failure taxonomy, and mapping mechanisms remain open.
+S15 refines this sketch to `ExecutionFailure<R>` so failed cleanup can preserve
+a typed rejection without returning a misleading normal rejection.
 
 Every public rejection needs a stable machine-readable identity, for example
 `memberships.last_owner`. Prose supplements it. Renaming a public error code is
@@ -1140,6 +1143,274 @@ reconciliation is required, or a small stage-aware transaction evidence design
 if the baseline suffices. Do not select an executor merely to make telemetry
 look complete. Implementation remains separate work.
 
+## S15 — Reference result and recovery contract for agents
+
+**Proposed, not implemented or a settled wire/API migration.** This reference
+applies S06–S14 to membership role changes. Oracle critique informed finalized
+rejection, cleanup preservation and the distinction between action failure and
+request-response failure. Types and JSON below are design sketches; the current
+API still returns `MemberChange` or `{code,message}`. No receipt, inspector,
+executor, automatic retry or new MCP mutation capability is introduced.
+
+### Action results preserve why execution stopped
+
+```rust
+// Conceptual single-transaction reference; not serializable wire DTOs.
+pub type ActionResult<T, R> = Result<T, ActionError<R>>;
+
+pub enum ActionError<R> {
+    Rejected(R),
+    Failed(ExecutionFailure<R>),
+}
+
+pub struct ExecutionFailure<R> {
+    primary: StopReason<R>,
+    cleanup: Cleanup,
+}
+
+enum StopReason<R> {
+    Rejected(R),
+    Execution { stage: Stage, kind: FailureKind },
+}
+
+enum Cleanup {
+    NotRequired,
+    RollbackAcknowledged,
+    Unconfirmed { stage: Stage, kind: FailureKind },
+}
+
+pub struct RoleChangeAcknowledged;
+```
+
+`Stage` and `FailureKind` stand for bounded diagnostic vocabularies, not driver
+messages. Initial stage candidates are connection, begin, body and commit;
+cleanup reports rollback separately. Application checkpoints explain which
+business rule ran without generating a stage for every source line. The exact
+failure taxonomy and driver mapping remain open. These types model one owned
+transaction, not arbitrary compensation or distributed transactions.
+
+Recommend committing a successful body and rolling back a stopped body. The
+transaction-owning function finalizes its result; no generic executor is needed.
+This differs from the current experiment, which commits `Ok(MemberOutcome)`
+including rejections. The proposed invariants are:
+
+- `Rejected(r)` is final only after this boundary's cleanup obligations are
+  satisfied, or none arose. It is not merely a body's intention to reject.
+- Rejection followed by failed rollback becomes `Failed` with
+  `primary=Rejected(r)` and `cleanup=Unconfirmed`. The original typed rejection
+  survives privately; its usual public rejection status does not survive.
+- An execution fault followed by successful rollback remains `Failed`, retaining
+  the primary stage/kind and `RollbackAcknowledged`. Cleanup must not replace
+  the primary reason via an unqualified `?`.
+- `NotRequired` is a positively established absence of cleanup obligations, not
+  a synonym for unobserved cleanup or a consumed transaction handle.
+- A dropped task or process may produce no `ActionResult`. An observer reports
+  missing evidence rather than fabricating a returned failure.
+- Success acknowledges transaction completion, including a same-role logical
+  no-op. It promises neither enduring current state nor zero SQL/database work.
+
+Keep construction at the owning boundary. Types/private fields cannot prove
+cleanup occurred. An internal body may return `Result<T, StopReason<R>>`, but a
+blanket conversion encouraging rejection propagation past cleanup is unsuitable.
+Converting rejection types must handle both top-level `Rejected` and a rejection
+inside `Failed.primary`. This is the cost of preserving typed causes instead of
+erasing them into strings; generic composition helpers remain deferred.
+
+Effects stay separate: failed cleanup does not erase independently established
+rejection-before-write evidence. Conversely, a rejection alone cannot prove that
+an arbitrary action performed no effects. A successful rollback covers only its
+transaction under the selected driver's contract.
+
+### Public responses describe the request, not every internal fact
+
+Recommend evaluating a small versioned tagged envelope. This is an alternative
+to S07's Problem-style sketch, not a decision to adopt both. A future migration
+must select the format and update rendering, export, clients and compatibility
+checks together. Machine decisions use literal tags/codes, never message prose.
+
+Candidate HTTP 200 success:
+
+```json
+{
+  "schema_version": 1,
+  "operation": "memberships.change_role",
+  "request_id": "req_6f23d890a1b24c55b147d920cbe47810",
+  "kind": "success",
+  "data": { "completion": "acknowledged" }
+}
+```
+
+Candidate HTTP 409 finalized rejection:
+
+```json
+{
+  "schema_version": 1,
+  "operation": "memberships.change_role",
+  "request_id": "req_70d3a890a1b24c55b147d920cbe47811",
+  "kind": "rejected",
+  "code": "memberships.last_owner",
+  "message": "The project must retain an owner."
+}
+```
+
+Candidate HTTP 500 public failure, including rejection plus failed cleanup:
+
+```json
+{
+  "schema_version": 1,
+  "operation": "memberships.change_role",
+  "request_id": "req_80d3a890a1b24c55b147d920cbe47812",
+  "kind": "failure",
+  "code": "iris.internal",
+  "message": "A normal response could not be produced."
+}
+```
+
+`failure` means a server-reported request failure, **not necessarily a failed
+action**. Post-action middleware can fail after business commit. The current
+[authentication boundary](../experiments/api-slice/server/src/auth/mod.rs)
+contains fallible work after `next.run`; this is a real boundary to account for,
+not a claim that every membership request triggers such a failure.
+
+Pre-action refusals have a distinct `kind=refused`, for example HTTP 403 with
+`code=http.csrf_refused`, using the same envelope fields. This means the named
+action was not dispatched for this request, not that middleware did no work. Do
+not infer refusal from HTTP status: domain forbidden and CSRF are distinct. Only
+responses whose producer knows the operation may assert its identity; unrouted
+or gateway errors need a separate contract or the unknown client path.
+
+Use generic `iris.unavailable` at 503 without effect certainty. The current
+[database error mapper](../experiments/api-slice/server/src/lib.rs) is not
+stage-aware. A future separately declared `memberships.write_not_started` code
+could expose positively established lock-before-begin evidence for this
+invocation's membership writes only. It would not establish authorization,
+absence of all request effects or permission to retry. That code and its
+disclosure policy are optional and unimplemented; generic 503 never implies it.
+
+### Privileged evidence is a separate authorized projection
+
+Candidate diagnostic for a last-owner rejection followed by failed rollback:
+
+```json
+{
+  "schema_version": 1,
+  "producer": { "build": "example-build" },
+  "operation": "memberships.change_role",
+  "request_id": "req_80d3a890a1b24c55b147d920cbe47812",
+  "observed_result": "failed",
+  "primary": { "kind": "rejected", "code": "memberships.last_owner" },
+  "cleanup": {
+    "observation": "unconfirmed",
+    "stage": "rollback",
+    "kind": "io"
+  },
+  "effect": {
+    "scope": "this_invocation.membership_mutation",
+    "assessment": "not_applied",
+    "basis": "rejection_before_mutation",
+    "observer": "application"
+  },
+  "collection": { "scope": "this_invocation", "coverage": "unknown" }
+}
+```
+
+This is a permitted interpretation only if the ordering was actually observed.
+The example uses S13's one-request/one-action identity reuse; fan-out requires
+separate invocation identity. Inspection enforces resource/field authorization;
+public error rendering does not serialize this object. No raw SQL, parameters,
+credentials, arbitrary rejection payloads or unrestricted error chains belong
+here. Missing producer/build association remains explicitly unknown. Even
+privileged observations are evidence, not proof the application is correct.
+
+### Client validation distinguishes server facts from local uncertainty
+
+The proposed client result has two outer cases:
+
+```text
+ValidatedServerResponse(Success | Rejected | Failure | PreActionRefusal)
+ClientUnknown(reason, local_attempt_id)
+```
+
+`ClientUnknown` reasons distinguish transport failure, unreadable/malformed
+body, unsupported version, unknown code and contract mismatch. It describes the
+client's observation, not a fabricated server failure. Its origin is client and
+the original invocation's outcome remains unknown. No raw body or guessed server
+request ID is required. A valid server `Failure` is known as a response while
+its action outcome/effects can still be unknown.
+
+The boundary owns request execution, body reading, parsing and validation,
+including thrown errors. Validate expected operation, supported schema version,
+status/tag/code combination and branch-specific payload. A 2xx with malformed
+success is unknown, not success. HTML, empty bodies where JSON is required, and
+unknown codes stay outside the known business union. Define additive-field
+compatibility when selecting the schema; do not cast arbitrary JSON to the
+generated TypeScript type.
+
+Wire, evidence and producer/build versions have different meanings. Generate
+local request identity at trusted ingress, including refusals; bound its format
+(candidate: `req_` plus 32 lowercase hex characters). Caller-supplied strings
+cannot become trusted local identity. Validation of a response schema is not
+authentication: ordinary transport/origin trust still applies. Handle possession
+does not grant inspection access, and response-only IDs do not survive response
+loss for the client. Client-local attempt identity cannot locate server work
+without an explicit binding. S14's pre-held recovery material remains separate.
+
+The current HTTP operation ID is `changeMemberRole`; the proposed domain name is
+`memberships.change_role`. Assembly must define their relationship once if both
+are retained, rather than creating independent catalogs with matching names
+assumed. None of these proposed envelope fields exist in the current exporter.
+
+### Recovery discovery supplies capabilities, not instructions to mutate
+
+Keep stable recovery constraints in the operation/rejection catalog, rather than
+embed a recovery program in every error. Discovery is not authority. Declare
+support and preconditions explicitly; absence of a declaration is no capability
+an agent may assume.
+
+| Capability           | Minimum declaration when supported                                                                                       | Limit                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Inspect evidence     | Authorized locator, required lookup material, scope and coverage semantics                                               | Observations can be missing; not a receipt                          |
+| Read current state   | Authorized read operation and resource inputs                                                                            | State now, not invocation causality or a concurrency fence          |
+| Replay by key        | Pre-held material, actor/operation/content binding, retention and pending/absent/expired semantics, replay authorization | Not a fresh submission; no exactly-once external-effect promise     |
+| Submit a new command | Existing operation, current authorization, preconditions and caller intent                                               | New attempt with new effects; never an implicit fallback for replay |
+
+For this reference, runtime inspection and keyed replay are **not implemented**;
+no new membership-read endpoint or executable MCP mutation is declared. An
+application may expose an authorized state read separately. A new submission
+uses the existing HTTP operation only within the caller's authority and intent.
+`memberships.another_owner_required` describes a necessary state for last-owner
+recovery, not permission to promote someone and not a sufficient fix. Neither
+`Failed`, HTTP 503, nor client unknown grants an automatic retry policy.
+
+### Scenario matrix and future checks
+
+All rows describe the proposal. Each should become an independently asserted
+case before a future implementation claims this contract; no such tests were
+executed for this design pass.
+
+| Scenario                                               | Result/evidence                                                                           | Agent conclusion or constraint                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Last owner, rollback acknowledged                      | `Rejected(LastOwner)`                                                                     | Explain prerequisite; no unchanged retry                               |
+| Last owner before writes, rollback fails               | `Failed`, original rejection retained; named mutation not applied if ordering established | Public failure, not 409; inspect only if supported and authorized      |
+| Writes then rejection, rollback unconfirmed            | `Failed`, rejection retained; effects unresolved                                          | Rejection alone does not establish no mutation                         |
+| SQL fault, rollback acknowledged                       | `Failed`, primary fault and cleanup retained                                              | This transaction rolled back; new attempt still needs authority/intent |
+| Lock failure before begin                              | Stage-aware failure, cleanup absent only if established                                   | Generic 503 supplies no not-started guarantee                          |
+| Same role, commit acknowledged                         | Success, logical no-op                                                                    | Completion, not lasting state or zero SQL activity                     |
+| Commit error or lost commit result                     | Failure if finalized; effects may remain unknown                                          | No universal rollback inference                                        |
+| Commit succeeds, middleware fails                      | Action success plus request failure                                                       | A valid public failure does not prove action failure                   |
+| Commit succeeds, response lost                         | Client unknown                                                                            | Readback cannot establish causality; no blind resend                   |
+| Lost self-demotion response, later forbidden           | Original unknown; later rejection                                                         | Keep both attempts separate                                            |
+| Another owner restores role before resend              | New invocation may mutate again                                                           | Setter syntax is not replay safety                                     |
+| CSRF refusal before dispatch                           | No named action invocation for this request                                               | Distinguish adapter refusal from domain forbidden                      |
+| HTML, unknown code/version, malformed or empty success | Client protocol unknown                                                                   | Never infer success from 2xx or parse message prose                    |
+| Task disappears during cleanup                         | Possibly no returned action result                                                        | Missing evidence proves neither rollback nor commit                    |
+
+Before implementation, choose wire format/migration and driver-specific failure
+mapping; verify cleanup and connection disposal; test public-versus-privileged
+disclosure with secret canaries; test the whole-request decoder and literal-code
+schemas. Keep expected scenarios independent of descriptor-generated fixtures.
+No receipt store or generic executor is necessary to specify these boundaries.
+
 ## References and design provenance
 
 The
@@ -1201,3 +1472,9 @@ contracts; upstream branches may change. Recheck them before copying an API.
   the original report, preferred ecosystem enum enumeration, and clarified the
   runtime client boundary. Updated membership delivery status after pulling its
   published implementation. No runtime changes or new verification claims.
+- **2026-09-25, result/recovery reference:** Added proposed S15 after oracle
+  consultation. Preserved typed primary rejection across cleanup failure,
+  distinguished finalized action results from public request failures and client
+  uncertainty, and specified recovery discovery limits. Recorded the post-action
+  middleware failure case against current source. Examples and validation
+  scenarios are design-only; no runtime or wire migration performed.

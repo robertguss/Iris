@@ -101,6 +101,10 @@ An HTTP operation index is not discovery of every domain function. Registration
 does not prove authorization or locking correctness and must not automatically
 expose mutations through MCP.
 
+S12 develops the proposed static contract: shared response-contract data for
+runtime rendering and documentation, with explicit Rust as the reference model.
+That consumer integration does not exist merely because DTOs derive schemas.
+
 ## S04 — Domain-owned behavior, adapter-owned protocols
 
 **Proposed authoring convention, consistent with accepted action boundaries.**
@@ -330,17 +334,18 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                             | Status and evidence                                                                                                               |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite/Turso comparison and feedback measurements                      | Implemented experiment; [findings](embedded-db-findings.md)                                                                       |
-| Axum APIs, two OpenAPI exporters, generated TS and React               | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                           |
-| Local OIDC/session authentication                                      | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)   |
-| Atomic invitation/outbox and local mail recovery                       | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                    |
-| CLI/MCP verification interface                                         | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                              |
-| Membership role/removal workflow                                       | Independent agent reports local implementation and passing checks; not pushed or transferred to this checkout at this spec update |
-| Domain layout and redesigned result model                              | Proposed; no framework API released                                                                                               |
-| Runtime evidence, durable receipts, idempotency, performance inspector | Design ideas, not implemented                                                                                                     |
-| Controlled AI repair/productivity comparison                           | Deferred by owner                                                                                                                 |
+| Capability                                                              | Status and evidence                                                                                                               |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                       |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                           |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)   |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                    |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                              |
+| Membership role/removal workflow                                        | Independent agent reports local implementation and passing checks; not pushed or transferred to this checkout at this spec update |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                               |
+| Rejection metadata, precise per-code schemas and shared contract export | Proposed in S12; no derive or runtime bridge implemented                                                                          |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                     |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                 |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
@@ -369,6 +374,238 @@ Do not interpret this agenda as approval to implement all items. Generic action
 traits, resource DSLs, broad macros, policy engines, universal repositories,
 automatic retries and production integrations remain deferred or undecided.
 
+## S12 — Static contract declarations for action authors
+
+**Proposed reference design; no implementation authorized by this section.**
+Recommend explicit Rust types and exhaustive mappings first. Keep a narrowly
+scoped metadata derive as an alternative, not a selected dependency or API. The
+goal is reliable machine-readable contracts with useful omission diagnostics,
+not the fewest lines of application code.
+
+### What is defined where
+
+| Definition                                                        | Owner                              | Consumers                                          |
+| ----------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------- |
+| Command, success and business rejection types                     | Domain                             | HTTP, jobs, CLI, action tests                      |
+| Stable rejection code, safe summary, rule and recovery constraint | Domain rejection metadata          | Adapters and permitted discovery                   |
+| Wire DTOs and conversion/validation                               | HTTP adapter                       | Request parsing and wire schemas                   |
+| HTTP status and permitted public error projection                 | HTTP adapter                       | Response renderer and contract exporter            |
+| Route, operation ID, success and middleware responses             | HTTP assembly                      | Router, OpenAPI and operation catalog              |
+| Invocation outcome, effect certainty, safe retry evidence         | Execution, not static declarations | Authorized diagnostics; outside this static design |
+
+"Define once" means once per semantic fact, not one giant declaration for every
+layer. HTTP string IDs and domain integer IDs intentionally differ. A static
+rule identifier does not prove the rule was evaluated during a particular
+invocation.
+
+### Explicit Rust reference: domain contract
+
+All Iris-specific types and functions below are illustrative. They are not
+compiling examples or the current membership implementation. The command and
+trusted actor remain separate; the action still implements its own transaction.
+
+```rust
+pub struct ChangeRole {
+    pub project_id: i64,
+    pub user_id: i64,
+    pub role: MemberRole,
+}
+
+// Success acknowledges completion, including a same-role no-op.
+// It does not pretend to be a canonical stored membership record.
+pub struct RoleChangeAcknowledged;
+
+pub enum ChangeRoleRejection {
+    Forbidden,
+    MemberNotFound,
+    LastOwner,
+}
+
+// Signature only; authorization, SQL and commit remain ordinary Rust.
+pub async fn change_role(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    input: ChangeRole,
+) -> ActionResult<RoleChangeAcknowledged, ChangeRoleRejection>;
+```
+
+Transport-neutral metadata has no HTTP status and no automatic retry flag:
+
+```rust
+pub enum RecoveryConstraint {
+    Unspecified,
+    RequiresStateChange { prerequisite: &'static str },
+}
+
+pub struct RejectionDescriptor {
+    pub code: &'static str,
+    pub summary: &'static str,
+    pub rule: Option<&'static str>,
+    pub recovery: RecoveryConstraint,
+}
+
+impl ChangeRoleRejection {
+    pub fn descriptor(&self) -> RejectionDescriptor {
+        match self {
+            Self::Forbidden => RejectionDescriptor {
+                code: "memberships.forbidden",
+                summary: "This operation is not permitted.",
+                rule: None,
+                recovery: RecoveryConstraint::Unspecified,
+            },
+            Self::MemberNotFound => RejectionDescriptor {
+                code: "memberships.member_not_found",
+                summary: "Member not found.",
+                rule: None,
+                recovery: RecoveryConstraint::Unspecified,
+            },
+            Self::LastOwner => RejectionDescriptor {
+                code: "memberships.last_owner",
+                summary: "The project must retain an owner.",
+                rule: Some("memberships.at_least_one_owner"),
+                recovery: RecoveryConstraint::RequiresStateChange {
+                    prerequisite: "memberships.another_owner_required",
+                },
+            },
+        }
+    }
+}
+```
+
+Adding a variant makes this wildcard-free match incomplete. Stable codes are
+explicit: renaming a Rust variant must not rename its public code. Summaries are
+display text, never parser input. `Unspecified` means no recovery conclusion,
+not "retryable" or "permanent". A prerequisite is necessary, not sufficient for
+success; it grants no permission to satisfy it automatically. This metadata does
+not assert `not_committed`, prescribe a retry count, or classify a live database
+failure. Those depend on execution evidence (S07–S08).
+
+### HTTP maps once, then rendering and export consume the mapping
+
+For the illustrative `POST /api/memberships/role` adapter:
+
+```rust
+fn rejection_contract(r: &ChangeRoleRejection) -> HttpRejectionContract {
+    let status = match r {
+        ChangeRoleRejection::Forbidden => StatusCode::FORBIDDEN,
+        ChangeRoleRejection::MemberNotFound => StatusCode::NOT_FOUND,
+        ChangeRoleRejection::LastOwner => StatusCode::CONFLICT,
+    };
+    HttpRejectionContract { status, descriptor: r.descriptor() }
+}
+```
+
+Runtime rendering consumes `rejection_contract(actual_rejection)`. Export
+enumerates permitted rejections and consumes that same function's data. This is
+the intended integration boundary, not another separately handwritten table of
+status/code strings. An alternative job/CLI adapter does not import HTTP.
+
+The full operation also declares success, invalid-request 400, authentication
+401, CSRF 403, and infrastructure 500/503 responses. Domain `Forbidden` and CSRF
+share status 403 but are different codes. Group alternatives per status rather
+than overwrite one with another. Success wire shape remains open; the example
+acknowledgment is not an API migration from the existing response.
+
+The 403/404 distinction assumes authorized disclosure of membership absence. If
+a policy instead conceals existence, apply that public projection consistently
+before rendering and export. Do not export an internal rule merely because it
+exists in the domain metadata. Public OpenAPI and privileged agent discovery may
+have different allowed views; sharing definitions does not bypass disclosure
+policy. Keep detailed invocation evidence separate.
+
+Existing serde/schema derives can supply serialization and DTO schemas. Current
+utoipa endpoint attributes do not automatically consume arbitrary Rust
+descriptor functions. A handwritten response-export bridge is a possible first
+integration; it still needs schema registration and per-status grouping.
+Selecting the exact library mechanism requires an implementation experiment, not
+a spec assertion.
+
+For machine clients, describe permitted errors as branches with a required
+literal `code`, rather than one unconstrained global error enum under every
+response. An example or discriminator label alone is not a literal-code
+constraint. If rules or recovery data appear on the wire, preserve their
+code-specific relationships in the schema. Check generated TypeScript narrowing
+against real responses. Schema annotations are not runtime validation: canonical
+positive 64-bit string IDs still need bounds and format checks at the adapter.
+
+Old clients need a safe unknown-code path. Keep an unrecognized response
+separate from the known typed union, rather than cast it to a known error, parse
+prose, or infer retryability. Adding an unconstrained `code: string` branch to
+the known union can undermine narrowing. Exact compatibility policy remains
+open.
+
+### Narrow derive alternative
+
+Instead of writing `descriptor()` and maintaining enumeration, the author could
+write metadata alongside each variant. Illustrative syntax for one variant:
+
+```rust
+#[derive(RejectionContract)] // Hypothetical; no such Iris macro exists.
+pub enum ChangeRoleRejection {
+    #[rejection(
+        code = "memberships.last_owner",
+        summary = "The project must retain an owner.",
+        rule = "memberships.at_least_one_owner",
+        recovery = requires_state_change(
+            prerequisite = "memberships.another_owner_required"
+        )
+    )]
+    LastOwner,
+    // Forbidden and MemberNotFound would each require explicit metadata too.
+}
+```
+
+The derive would generate only descriptors and enumeration. It would not infer
+codes from names, add HTTP status attributes to the domain, generate
+transactions, implement policies or expose executable MCP tools. Initially
+limiting it to unit variants avoids pretending arbitrary error payloads can be
+serialized safely. Payload-bearing rejections would need an explicit design and
+disclosure rules.
+
+| Work                                                  | Explicit reference                     | Narrow derive alternative                 |
+| ----------------------------------------------------- | -------------------------------------- | ----------------------------------------- |
+| Commands, action body, authorization and transactions | Author                                 | Author                                    |
+| Rejection meaning, stable code, summary and recovery  | Author supplies match data             | Author supplies attributes                |
+| Descriptor implementation                             | Author, compiler checks match coverage | Generated                                 |
+| Variant enumeration                                   | Author; omission risk                  | Generated from enum                       |
+| Wire conversion, public projection and HTTP mapping   | Author                                 | Author                                    |
+| DTO serialization/schema and client generation        | Existing ecosystem tools               | Same tools                                |
+| Shared runtime/export/catalog bridge                  | Future integration work                | Still required; derive does not supply it |
+
+The derive's concrete advantage is complete enumeration and missing-metadata
+diagnostics, not automatically better business correctness. Its cost is a new
+attribute language, compile work, expansion/debugging behavior, and maintained
+diagnostics. Revisit after the explicit reference exposes recurring friction.
+Require source-local errors and compile-fail cases for missing metadata, invalid
+recovery syntax, duplicate codes within the enum and unsupported shapes. Cross-
+operation collisions still need catalog checks and a deliberate code-reuse
+policy.
+
+### What verification can actually establish
+
+- **Compiler today, with explicit matches:** missing descriptor/status match
+  arms and type-invalid conversions. Avoid wildcard arms that hide new variants.
+- **Not compiler-proven:** completeness of a handwritten `ALL` list used for
+  export. A test iterating only `ALL` cannot discover variants omitted from it.
+  Independent expected-code fixtures and business cases help, but do not prove
+  coverage of every future variant. A derive could close the enumeration gap.
+- **Contract checks:** independently expected codes/statuses, actual response
+  schema validation, middleware responses, stable code compatibility, operation
+  ID uniqueness and consistent metadata when a code is intentionally shared. Do
+  not derive every expected result from the same descriptor under test.
+- **Client checks:** generated types narrow correctly on known codes; unknown
+  responses remain untrusted and do not trigger speculative recovery.
+- **Business tests and review:** the correct rejection occurs, permission is
+  enforced, concurrent last-owner mutations remain safe, and metadata is
+  truthful. Neither a derive nor an OpenAPI document proves these properties.
+
+This pass recommends explicit Rust as the reference specification, not an
+implementation commitment or a claim of fully single-source contracts today.
+Keep runtime telemetry and durable invocation receipts for a later design pass.
+Static discovery describes allowed operations and contracts; making an MCP
+mutation callable remains a separate explicit exposure and authorization
+decision.
+
 ## References and design provenance
 
 The
@@ -394,3 +631,9 @@ contracts; upstream branches may change. Recheck them before copying an API.
   authoring alternatives, domain boundaries, AI-oriented result/evidence/receipt
   separation, three failure scenarios and rationale. Marked productivity study
   deferred and kept illustrative APIs separate from implemented experiments.
+- **2026-09-25, static-contract design pass:** Added S12 with an explicit Rust
+  authoring example, narrow derive alternative, author/generated
+  responsibilities, disclosure boundaries and precise verification limits.
+  Oracle critique informed the enumeration caveat and shared-consumer boundary.
+  APIs and integration remain proposed; no runtime changes, macro implementation
+  or productivity study.

@@ -31,7 +31,8 @@ agents may propose alternatives without presenting them as accepted.
 
 For external model review: S01–S03 explain the goals, S04–S08 the action and
 failure boundaries, S12 the static contracts, and S13 the proposed execution and
-evidence lifecycle. S10 distinguishes implementation from proposals. Use the
+evidence lifecycle. S14 defines the caller-loss recommendation and failure
+table. S10 distinguishes implementation from proposals. Use the
 [independent review brief](design-review-brief.md) for assignments, three review
 tracks, report format and synthesis instructions. S13 also supplies focused
 runtime-evidence questions; assess the design, not just the example syntax.
@@ -263,7 +264,8 @@ confident default. Correlation IDs are neither idempotency keys nor commit
 proof.
 
 S13 proposes how to collect and inspect these observations without treating
-sampled telemetry as a durable receipt. S08's receipt facility remains deferred.
+sampled telemetry as a durable receipt. S14 separates caller-loss guarantees
+from execution ownership. S08's receipt facility remains deferred.
 
 The following Problem-style JSON is a proposal, **not the current wire format**:
 
@@ -351,29 +353,32 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                              | Status and evidence                                                                                                               |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                       |
-| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                           |
-| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)   |
-| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                    |
-| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                              |
-| Membership role/removal workflow                                        | Independent agent reports local implementation and passing checks; not pushed or transferred to this checkout at this spec update |
-| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                               |
-| Rejection metadata, precise per-code schemas and shared contract export | Proposed in S12; no derive or runtime bridge implemented                                                                          |
-| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                       |
-| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                     |
-| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                 |
+| Capability                                                              | Status and evidence                                                                                                             |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                     |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                         |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md) |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                  |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                            |
+| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below               |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                             |
+| Rejection metadata, precise per-code schemas and shared contract export | Proposed in S12; no derive or runtime bridge implemented                                                                        |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                     |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                   |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                               |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
 reported 38 workspace tests, 14 API tests, 5 MCP test groups and
-browser/contract checks passing in its own checkout. This is reported evidence,
-not an independent rerun here. Its real protocol test caught missing MCP enums
-after adding a CLI scenario; those entries were fixed there. Dependency setup,
-Cargo environment, duplicate exporter declarations and browser-fixture
-allowlists remain reported friction. These observations motivate shared
-definitions, not productivity claims.
+browser/contract checks passing in its own checkout. The implementation is now
+[pushed](https://github.com/robertguss/Iris/commit/3121dd6264fcc6861d5c355c72472288abdee7a1)
+and pulled into this checkout; the agent also reported successful
+[GitHub Verify](https://github.com/robertguss/Iris/actions/runs/36182606800).
+This is reported verification, not an independent rerun here. Its real protocol
+test caught missing MCP enums after adding a CLI scenario; those entries were
+fixed there. Dependency setup, Cargo environment, duplicate exporter
+declarations and browser-fixture allowlists remain reported friction. These
+observations motivate shared definitions, not productivity claims.
 
 ## S11 — Open design agenda
 
@@ -551,6 +556,27 @@ separate from the known typed union, rather than cast it to a known error, parse
 prose, or infer retryability. Adding an unconstrained `code: string` branch to
 the known union can undermine narrowing. Exact compatibility policy remains
 open.
+
+The decoder boundary must also cover request failure, malformed successful JSON,
+empty responses and non-JSON gateway errors. Wrapping only the value of
+`await client.POST(...)` misses exceptions thrown before decoding. Preserve
+transport/protocol observations separately from validated business outcomes;
+neither a decoding failure nor an unknown code proves no effects occurred. Do
+not expose raw response bodies as agent diagnostics by default.
+
+### Existing enumeration before an Iris derive
+
+Prefer an ecosystem enumeration derive plus exhaustive descriptor/status matches
+for unit rejection enums. `strum::VariantArray` is a candidate identified by the
+independent review and oracle assessment, not an added dependency. This closes
+the handwritten enumeration gap without an Iris attribute language. It still
+requires an explicit dependency/feature selection, schema registration, safe
+public projections and contract tests. Enumeration of payload discriminants
+would enumerate kinds, not every payload or its disclosure policy.
+
+The custom derive below remains a deferred alternative, not the default next
+step. Reconsider it only if existing derives and ordinary matches leave a
+demonstrated authoring or diagnostic problem.
 
 ### Narrow derive alternative
 
@@ -990,6 +1016,130 @@ when useful; do not turn every uncertainty into a platform subsystem. No
 implementation, production access, or productivity study is requested by this
 review brief.
 
+## S14 — Caller loss, execution ownership, and recovery
+
+**Recommended baseline; stronger guarantees and exact APIs remain proposed.**
+This section refines S07–S08 and S13 after the first independent review and
+oracle assessment. It does not install an executor, transaction helper, receipt
+store or retry policy. See the
+[review synthesis](reviews/opus55-all-01-synthesis.md) for dispositions and
+snapshot limits. Further independent reviews remain welcome.
+
+### Baseline: loss of contact permits uncertainty
+
+Recommend that ordinary actions promise truthful, scoped observations, not
+completion after caller loss. If a client has no validated terminal response or
+authorized durable receipt, it retains `outcome=unknown`. The server may have
+more evidence than the client; neither side invents the other's knowledge.
+Unknown is a useful machine result, not a generic error to retry away.
+
+Execution ownership and durable reconciliation are independent capabilities:
+
+| Capability                                     | What it adds                                                                                 | What it does not establish                                                           |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Baseline truthful uncertainty                  | Explicit limits on result/effect claims after contact is lost                                | Completion, rollback or safe retry                                                   |
+| Bounded server-owned execution                 | An admitted task can outlive its request waiter while the server retains ownership           | Survival of abort, panic or process death; delivery of a terminal record             |
+| Durable reconciliation for selected operations | A suitably committed record can identify an invocation's recorded result after response loss | Survival of uncommitted work, indefinite retention or exactly-once external delivery |
+
+A receipt does not require detached execution, and detached execution does not
+create a receipt. Keep request-associated execution as the minimal reference; do
+not promise a specific Axum disconnect/drop behavior without testing it. Add
+bounded server-owned execution only for a concrete operation requirement, with
+admission limits, task supervision, shutdown and cleanup policies. Long work
+that must survive process loss needs a separately designed durable job contract.
+S13 context propagation alone supplies none of these mechanisms.
+
+This recommendation accepts ambiguity rather than imposing persistence and
+supervision costs on every action. An application that requires a retrievable
+answer must opt into a stronger contract; Iris must not advertise the baseline
+as satisfying that requirement.
+
+### Lifecycle and effect table
+
+These are interpretation rules for future evidence, not records already emitted
+by the experiment. Database facts concern the named transaction only; they do
+not cover external calls, other connections, earlier attempts or buggy action
+code. Cleanup and connection reuse require driver-specific validation.
+
+| Observed event or failure window                                   | Permitted server-side conclusion                                                                           | Caller/agent recovery constraint                                                                                             |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Known write-lock acquisition failure before the transaction begins | This transaction's writes did not start; not a classification for every begin error                        | If a validated response establishes this fact, a new authorized attempt may use bounded backoff; otherwise retain unknown    |
+| Business rejection before mutation                                 | Named mutation was not applied, if that ordering is established; no proof the rule was evaluated correctly | Explain the rejection's prerequisite; unchanged repetition is not a repair                                                   |
+| SQL writes succeed, commit not yet acknowledged                    | Writes executed in an uncommitted transaction; final effect not established                                | Do not report successful completion or safe replay                                                                           |
+| Explicit rollback completes successfully                           | This transaction's writes were rolled back under the driver's contract                                     | Keep the original rejection/failure; retry still depends on authority and operation semantics                                |
+| Rollback requested but cleanup fails, times out or is dropped      | Cleanup is unconfirmed; independently established facts such as rejection-before-write still hold          | Preserve primary failure and cleanup failure separately; do not infer reusable connection or upgrade uncertainty to rollback |
+| Commit returns error, or its result is lost                        | No universal commit/rollback conclusion; classify only with engine-specific evidence                       | Reconcile under an existing receipt/idempotency contract, or retain unknown                                                  |
+| Commit succeeds, response delivery is lost                         | Server observed this transaction commit; client may have no such evidence                                  | State readback may establish desired state, not which invocation caused it                                                   |
+| Request waiter disappears while an action may be running           | Contact was lost, not necessarily execution; ownership policy determines who retains the future            | Cancellation request is not rollback or confirmed cancellation                                                               |
+| Process dies, restarts, or terminal evidence is missing            | Collector lacks a terminal observation; missing evidence does not locate the crash relative to commit      | A new process identity plus an absent record proves neither non-execution nor non-commit                                     |
+| SMTP acceptance observed, acknowledgment missing                   | External acceptance and durable outbox completion are distinct facts                                       | Retry may duplicate delivery; receipt of business commit is not a delivery receipt                                           |
+
+Stage classification belongs where begin/commit/rollback results are observed,
+not in a generic SQL-error-to-HTTP mapper. A future helper may centralize these
+facts but cannot certify business checks or forbid effects outside its scope. Do
+not replace an original failure with a rollback error through an unqualified
+`?`. Exact error composition and whether an unhealthy connection is discarded
+remain implementation questions, not claims about current behavior.
+
+### Agent recovery must use facts held before the response is lost
+
+For operations offering reconciliation, the client must hold the lookup/key
+material before the uncertain response. It may be client-generated or previously
+issued by the server. Validate size, namespace and request binding; a public
+handle grants neither authority nor proof of execution. It is separate from the
+server's locally generated invocation identity unless an explicit contract binds
+them. Baseline operations do not acquire receipts by adding a header.
+
+Describe recovery as separate capabilities, not a single `retryable` flag:
+authorized lookup, desired-state readback, replay under a bound idempotency key,
+and issuance of a new command have different semantics. Record the evidence
+required for each, including retention and authorization limits. Not found or
+expired receipts do not prove that an invocation never committed unless the
+receipt contract explicitly establishes that conclusion.
+
+Counterexamples agents and reviewers must preserve:
+
+- Alice's self-demotion commits and its response is lost. A new call receives
+  `Forbidden`. That rejection is about the new call, not proof the first failed.
+- Another owner restores Alice before a resend. Sending the same desired role
+  now performs a new mutation; an idempotent-looking setter is not proof that
+  automatic resend is appropriate after intervening changes.
+- An invitation expires between attempts. Reissuing can create a new token and
+  outbox job rather than replay the earlier issuance.
+- A read shows the desired state, then another writer changes it before retry.
+  Read-before-retry is not a concurrency fence. A later `changed` flag does not
+  identify the earlier invocation's effects.
+
+Until a receipt contract exists, report unresolved outcome rather than invent a
+lookup or automatically resend. Agents may explain what authorized evidence is
+available; they may not weaken policy or mutate state merely to diagnose it.
+
+### Focused validation before choosing implementation mechanisms
+
+These are future checks, not executed tests or productivity studies:
+
+1. Exercise begin failure, rejection-before-write, acknowledged rollback and
+   failed cleanup separately; preserve stage and both primary/cleanup causes.
+   Verify the connection's safe reuse or disposal under the chosen driver.
+2. Lose a response on both sides of commit. Assert client uncertainty even when
+   the server has a terminal result, and do not manufacture a terminal result
+   from absent logs after restart.
+3. Drop the waiter before mutation and during commit under each proposed
+   ownership policy. Verify only its stated continuation/cleanup guarantees.
+4. Replay the self-demotion, intervening role restoration and expired-invitation
+   sequences above. Reject any universal safe-resend inference.
+5. For a future receipt design, test atomicity, incompatible key reuse,
+   concurrent duplicate submissions, self-demotion access, revoked/unrelated
+   lookup, expiration and lost receipt-write acknowledgment.
+6. Exercise malformed/unknown/empty/non-JSON responses and network exceptions at
+   the client boundary. They must not become fabricated business outcomes or
+   automatic retries, and raw sensitive bodies must not leak into diagnostics.
+
+The next design step is an operation-specific receipt/replay contract if durable
+reconciliation is required, or a small stage-aware transaction evidence design
+if the baseline suffices. Do not select an executor merely to make telemetry
+look complete. Implementation remains separate work.
+
 ## References and design provenance
 
 The
@@ -1045,3 +1195,9 @@ contracts; upstream branches may change. Recheck them before copying an API.
   actual worker observation gaps without changing code. No dependencies,
   instrumentation, collectors, durable receipts or productivity experiments were
   added.
+- **2026-09-25, first review synthesis:** Added S14's caller-loss
+  recommendation, lifecycle/effect table, recovery counterexamples and future
+  validation gates. Recorded selective review dispositions separately, retained
+  the original report, preferred ecosystem enum enumeration, and clarified the
+  runtime client boundary. Updated membership delivery status after pulling its
+  published implementation. No runtime changes or new verification claims.

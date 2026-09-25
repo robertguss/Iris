@@ -31,8 +31,10 @@ agents may propose alternatives without presenting them as accepted.
 
 For external model review: S01–S03 explain the goals, S04–S08 the action and
 failure boundaries, S12 the static contracts, and S13 the proposed execution and
-evidence lifecycle. S10 distinguishes implementation from proposals. S13 ends
-with a review brief; assess the design, not just the example syntax.
+evidence lifecycle. S10 distinguishes implementation from proposals. Use the
+[independent review brief](design-review-brief.md) for assignments, three review
+tracks, report format and synthesis instructions. S13 also supplies focused
+runtime-evidence questions; assess the design, not just the example syntax.
 
 ## S01 — Purpose and constraints
 
@@ -949,6 +951,10 @@ Future acceptance criteria, **not executed tests in this design pass**:
    existence. Retention, query limits and multi-environment ID scope are tested.
 
 ### Brief for other LLM reviewers
+
+These questions focus on S13. For a whole-framework review, use the
+[independent review brief](design-review-brief.md), which supplies the shared
+assignment, authoring/security/AI-usability tracks, and findings format.
 
 Review this self-contained spec as a design for a personal API-first Rust
 framework assembled from existing crates, with React and AI-authored

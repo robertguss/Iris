@@ -46,6 +46,11 @@ distinguish agreed principles from proposed APIs and implemented experiments.
 Update it as the design evolves; the records below retain history and supporting
 evidence.
 
+For independent feedback, give reviewers the spec and the
+[design review brief](docs/design-review-brief.md). It contains copyable
+instructions, three review tracks, a shared report format, and a process for
+comparing recommendations without treating model agreement as proof.
+
 1. [Decisions and open questions](docs/decisions.md) — agreed direction versus
    provisional proposals, including choices that changed during discussion.
 2. [Research map](docs/research.md) — references, ideas to borrow, tradeoffs,

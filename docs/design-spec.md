@@ -29,6 +29,11 @@ questions explicit. Implemented status requires executable evidence, not only a
 code sketch or an agent's assertion. Changes to direction need owner agreement;
 agents may propose alternatives without presenting them as accepted.
 
+For external model review: S01–S03 explain the goals, S04–S08 the action and
+failure boundaries, S12 the static contracts, and S13 the proposed execution and
+evidence lifecycle. S10 distinguishes implementation from proposals. S13 ends
+with a review brief; assess the design, not just the example syntax.
+
 ## S01 — Purpose and constraints
 
 **Accepted direction.** Iris is a personal learning project: assemble an
@@ -161,10 +166,17 @@ registration. Exact APIs remain proposed.
 ## S05 — Identity, authority, transactions, and side effects
 
 **Accepted direction.** Identity says who called; it does not establish current
-permission. Obtain HTTP identity from validated sessions. Jobs retain trusted
-initiating identity and recheck authority on execution. CLI identity needs an
-explicit trusted resolution path; an arbitrary actor-ID flag is not
-authentication. System authority, if introduced, must be explicit, not a
+permission. Obtain HTTP identity from validated sessions. Deferred commands that
+perform new domain actions retain trusted initiating identity and recheck
+current authority on execution. Distinguish those commands from delivery of an
+already committed effect: S13 proposes narrow service authority and eligibility
+checks for outbox delivery, not revival of the initiating user's credentials.
+This clarifies the earlier overbroad statement that all jobs repeat actor
+authorization. The delivery/revocation policy remains an explicit product
+decision.
+
+CLI identity needs an explicit trusted resolution path; an arbitrary actor-ID
+flag is not authentication. System authority must be explicit, not a
 missing-actor bypass. Rust constructor visibility discourages accidents but is
 not a sandbox against other application code.
 
@@ -247,6 +259,9 @@ did not run. Reaching the commit stage does not prove commit succeeded. Preserve
 `unknown` across layers when certainty is unavailable; never substitute a
 confident default. Correlation IDs are neither idempotency keys nor commit
 proof.
+
+S13 proposes how to collect and inspect these observations without treating
+sampled telemetry as a durable receipt. S08's receipt facility remains deferred.
 
 The following Problem-style JSON is a proposal, **not the current wire format**:
 
@@ -344,6 +359,7 @@ boundaries; a tool allowlist is not a sandbox.
 | Membership role/removal workflow                                        | Independent agent reports local implementation and passing checks; not pushed or transferred to this checkout at this spec update |
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                               |
 | Rejection metadata, precise per-code schemas and shared contract export | Proposed in S12; no derive or runtime bridge implemented                                                                          |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                       |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                     |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                 |
 
@@ -600,11 +616,373 @@ policy.
   truthful. Neither a derive nor an OpenAPI document proves these properties.
 
 This pass recommends explicit Rust as the reference specification, not an
-implementation commitment or a claim of fully single-source contracts today.
-Keep runtime telemetry and durable invocation receipts for a later design pass.
-Static discovery describes allowed operations and contracts; making an MCP
-mutation callable remains a separate explicit exposure and authorization
-decision.
+implementation commitment or a claim of fully single-source contracts today. S13
+develops the runtime evidence proposal; durable invocation receipts remain
+deferred rather than becoming an implicit telemetry feature. Static discovery
+describes allowed operations and contracts; making an MCP mutation callable
+remains a separate explicit exposure and authorization decision.
+
+## S13 — Execution context and evidence lifecycle
+
+**Proposed for review, not implemented or a settled framework API.** This
+section connects S12's static declarations to observations of actual execution.
+It does not introduce a generic action executor, durable audit subsystem,
+production inspection service, or claim that telemetry establishes business
+correctness. Librarian research and oracle critique informed the proposal;
+reviewers should challenge the recommendations and failure cases below.
+
+### Ecosystem capabilities versus Iris responsibilities
+
+Use existing Rust `tracing` spans/events for in-process instrumentation and
+consider `tracing-opentelemetry` plus an OpenTelemetry SDK/exporter for
+distributed correlation. No versions, exporter, collector backend or dependency
+additions are selected. Check compatible releases before implementation.
+
+- `Instrument` enters a span when an async future is polled. Do not hold a
+  manual span-enter guard across `.await`; it can associate unrelated work with
+  the wrong span. Spawned tasks need deliberate context propagation.
+- `#[instrument]` captures arguments by default. Prefer `skip_all` and explicit
+  allowlisted fields at sensitive boundaries, but also review nested events,
+  return recording and formatted errors. `skip_all` alone is not redaction.
+- W3C trace propagation provides correlation; syntax validation does not
+  authenticate the sender. Parent context and links express relationships, not
+  authorization, transaction membership or durable completion.
+- Sampling, finite queues, export failures and process death can lose evidence.
+  Force-flush/shutdown are bounded best-effort operations, not a durable audit
+  guarantee. Tail sampling cannot recover data already dropped at the source.
+
+Iris still owns checkpoint meaning, safe fields, failure/effect interpretation,
+coverage reporting, source/build association, inspection authorization and the
+relationship between business records and telemetry. Do not build a tracing
+backend to replace ecosystem tools just to obtain those conventions.
+
+### Small explicit context, not a service container
+
+A conceptual extension of the action signature is:
+
+```rust
+// Proposed only. Actor and database remain separate explicit dependencies.
+change_role(conn, actor, input, &execution).await
+
+// Illustrative contents, not a public construction or persistence API:
+struct ExecutionContext {
+    invocation_id: InvocationId,
+    deadline: Option<Instant>,
+    cancellation: CancellationSignal,
+}
+```
+
+Context creation belongs at trusted invocation boundaries. An action that opts
+into this convention receives a normal borrowed context; no deadline and no
+cancellation request are ordinary values, not a reason for pervasive optional
+context parameters. Generate new invocation identity explicitly for a new
+invocation; do not silently copy identity into unrelated work.
+
+Do not put database handles, actor privileges, arbitrary request data,
+exporters, or a generic service registry in this context. Spans are
+instrumentation details, not business authority. The context itself neither
+starts transactions nor guarantees cancellation safety. Whether every public
+action eventually needs it remains open; the signature is not a current
+migration requirement.
+
+### Distinguish identifiers without creating one for every event
+
+| Identifier                | Meaning and proposed lifetime                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Operation name            | Stable declaration, e.g. `memberships.change_role`                                                           |
+| Local request ID          | One adapter interaction, including requests rejected before an action                                        |
+| Invocation ID             | One action execution; exists even if tracing is disabled                                                     |
+| Durable job identity      | Existing outbox row identity within its database/deployment scope; this experiment can reuse `invitation_id` |
+| Attempt                   | Committed claim counter paired with job identity; not proof that SMTP ran                                    |
+| Trace/span IDs            | Optional instrumentation and cross-service correlation                                                       |
+| Idempotency key / receipt | Separate S08 capability; neither request ID nor trace ID substitutes for it                                  |
+
+A strictly one-request/one-action adapter may reuse a generated value for
+request and invocation IDs while keeping their meanings distinct. Fan-out
+requires distinct invocations. There is no need for an additional lease UUID:
+the existing job identity and claim counter supply the attempt fence.
+Database-local integer IDs need trusted deployment/database scope when joining
+observations across restarts, disposable resets or multiple environments.
+
+Default recommendation at untrusted ingress: generate local correlation and a
+local trace root. An optional remote-context link is explicitly untrusted;
+continuing a remote parent requires a configured trusted-ingress policy. Never
+use caller-supplied correlation as actor identity, tenant authorization, or an
+unbounded sampling request. Drop baggage by default; any allowed keys require
+size, value, onward-propagation and disclosure rules. Do not place credentials
+or authority in baggage.
+
+### Evidence separates observation, effects, and collection coverage
+
+Keep three dimensions separate:
+
+1. **Observed action result:** success, rejection, failure, or no observed
+   terminal result. An ended/dropped span alone is not a successful action.
+2. **Scoped effect assessment:** what is known about a membership mutation,
+   invitation/enqueue commit, SMTP exchange, or fenced acknowledgment.
+3. **Collection coverage:** which records this collector retained or cannot
+   establish. This is not the outcome of the business operation.
+
+An effect statement needs a basis, scope and observing source. Illustrative
+inspection output, not a selected wire schema:
+
+```json
+{
+  "schema_version": 1,
+  "invocation_id": "inv_123",
+  "operation": "memberships.change_role",
+  "observation": {
+    "checkpoint": "membership.invariant_rejected",
+    "rule": "memberships.at_least_one_owner",
+    "observer": "application"
+  },
+  "effect": {
+    "scope": "membership_mutation",
+    "assessment": "not_applied",
+    "basis": "rejection_before_mutation"
+  },
+  "collection": {
+    "scope": "this_invocation",
+    "coverage": "unknown",
+    "reason": "terminal_record_unavailable"
+  }
+}
+```
+
+A retained checkpoint may support a narrow fact despite incomplete overall
+coverage. `observer=application` identifies the source, not independent proof.
+Evidence should carry schema and producer/build versions and safe source
+references when available, so an agent does not diagnose old behavior as current
+code. Missing or mismatched provenance stays explicit. Do not automatically
+export full paths or source excerpts.
+
+Avoid unqualified `complete=true`. A collector may know its aggregate queue
+overflowed without knowing which invocation lost records. Report that limited
+knowledge; do not fabricate per-invocation loss counts. Conversely, no observed
+drop does not prove completeness. Every completeness claim needs a bounded scope
+and collection boundary. Missing terminal records must not silently mean
+success, failure, rollback, or still-running.
+
+Commit success observed by the application is useful evidence, but a crash can
+occur before that event is emitted/exported. Trace presence is not a durable
+receipt. Durable domain state can corroborate some facts without reconstructing
+which invocation caused them. A same-role success may commit without changing
+the role; a terminal outbox `dead` row does not prove earlier SMTP attempts had
+no effect. Preserve these distinctions in summaries and automated advice.
+
+### Worked flow A: changing a membership role
+
+The independently implemented SQLite algorithm supplies the business sequence;
+the following runtime observations are proposed, not present instrumentation:
+
+1. HTTP establishes trusted identity and local correlation. Optional request and
+   action spans describe the work; the action gets its invocation context.
+2. After `BEGIN IMMEDIATE` succeeds, record acquisition of the write
+   transaction. A known lock-acquisition failure before this point supports
+   `not_started`.
+3. Inside the transaction, check current actor authority, load the target, and
+   enforce the owner invariant when necessary. Explicit business checkpoints
+   describe only checks actually executed. Do not disclose target existence to a
+   caller who failed authorization; owner count is privileged evidence.
+4. Last-owner rejection before mutation supports
+   `membership_mutation=not_applied`. Successful mutation SQL alone describes an
+   uncommitted change, not success.
+5. Record commit success only after the commit call returns success. A commit
+   error or dropped future does not justify a universal rollback assertion.
+6. A successful action and a successfully received HTTP response are separate
+   facts. Lost response leaves the client's outcome unknown, as in S08.
+
+Process death after commit but before emission leaves an evidence gap. Readback
+may reconcile desired state but cannot identify its cause without a suitable
+durable record. Rule checks and SQL statements stay action-owned; generic
+instrumentation cannot discover them by reading function signatures.
+
+### Worked flow B: invitation followed by outbox delivery
+
+Current code atomically persists the invitation and outbox payload. The worker
+commits a claim with a 30-second lease and incremented attempt, performs SMTP
+outside the transaction, then updates state with an attempt-and-lease fence. The
+limit is five claimed attempts, not proof of five actual transmissions.
+
+Proposed observations and correlation:
+
+1. After issuance commit returns, observe `invitation_and_enqueue_committed`.
+   Any future persisted enqueue correlation must be bounded and written with
+   that transaction. Missing trace context must not prevent business enqueueing.
+2. Start a new delivery-attempt invocation after claim commit, associated with
+   job identity and attempt number. Prefer a fresh attempt trace with a link to
+   enqueue context where available. Continuing the original trace is technically
+   valid, but long queues/retries have separate lifetimes and sampling needs.
+3. Never resurrect the HTTP deadline, cancellation signal or credentials. The
+   worker applies its own attempt budget and scoped service authority.
+4. Observe `smtp_acceptance_observed` only when SMTP returns success. A timeout
+   can mean acceptance is unknown, not definitely rejected. Acceptance is not
+   inbox delivery. Do not export recipient, token, body, or token-derived
+   Message-ID as correlation metadata.
+5. Observe completion independently: `completion_update_applied` means the
+   fenced database update returned true, with the recorded state (`sent`,
+   `pending`, or `dead`). False means this call applied no transition; it does
+   not alone reveal why. An error means resolution needs investigation, not a
+   fabricated state.
+
+Important failure windows:
+
+| Window                                          | Permitted conclusion                                                         |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| Crash after claim commit, before send           | Attempt consumed; no proof a send occurred                                   |
+| Timeout during SMTP exchange                    | Acceptance may be unknown; retries may duplicate                             |
+| SMTP accepted, then crash before acknowledgment | Possible duplicate on recovery; pending row does not establish no acceptance |
+| Lease expired/replaced; old worker sends        | Fence protects the database acknowledgment, not the SMTP side effect         |
+| Fenced completion returns false                 | No state transition by this completion call, regardless of SMTP observation  |
+| Terminal row inspected later                    | Current durable state, not a complete history of attempts                    |
+
+Current observation gaps: `send` collapses several outcomes into `Retry`; the
+worker's `tick` currently ignores the boolean returned by `complete`. A future
+evidence adapter must observe these distinctions before claiming them. This spec
+does not fix that code or claim those records exist.
+
+**Authority policy for review:** distinguish delivering committed intent from
+executing a new user command. Recommend preserving current semantics: revoking
+issuer ownership does not retract an already-issued notification. A service
+worker checks delivery eligibility, not the original owner's present authority.
+Acceptance/expiry suppress future claims; they do not cancel an in-flight send.
+If revocation must suppress delivery, define a separate explicit revocation
+rule. Stored initiating identity, if later added, is provenance rather than
+reusable credentials. The current outbox does not persist that initiating actor.
+
+### Cancellation, deadlines, and task ownership
+
+Cancellation is cooperative signaling at action-defined safe boundaries. Do not
+automatically race every SQL operation or commit against a cancellation token.
+Client disconnect, timeout and dropping a future do not establish rollback or
+absence of external effects. Ignoring a cancellation token does not keep a
+future alive if its owner drops it.
+
+Cleanup should have a separate bounded policy rather than immediately aborting
+because the caller's signal is set. A cleanup budget still cannot guarantee
+completion after task termination or process crash. If accepted commands must
+finish after disconnect, introduce explicit execution ownership as a separate
+design; this context does not supply a supervisor or durable job executor.
+
+Use monotonic time for local durations and deadlines. It cannot be persisted as
+a cross-process deadline. Workers create their own budget; business expiry uses
+the application's explicit durable clock semantics. Cross-host wall timestamps
+are presentation aids, not a total causal order. Links, local ordering and
+durable attempt counters provide only the relationships they actually establish.
+
+### Collection, privacy, and performance boundaries
+
+Recommend ordinary telemetry be bounded, best-effort, and fail-open relative to
+business execution. Exporter outages must not change authorization or business
+results. A required durable audit trail would need separate availability and
+transaction guarantees, not a silent change to this policy.
+
+| Collection option                         | Benefit                                         | Limitation / disposition                                                                           |
+| ----------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Bounded local ring buffer / local sink    | Low-friction future dev inspection              | Eviction and restart lose data; single-process scope; first candidate, not selected implementation |
+| OTLP to existing collector/backend        | Cross-process correlation and established tools | Extra operations, privacy and cost; sampling/export still lose data                                |
+| Transactional durable audit/receipt store | Stronger business-linked history where designed | Schema, retention, failure and authorization costs; separate deferred design                       |
+
+Choose limits explicitly before implementing a collector: field lengths, record
+sizes, events per invocation, queue capacity, retention/eviction, query pages
+and time windows. No numerical defaults are selected in this design pass. Expose
+collector health/drop/eviction information with its real scope. Bounded flush on
+shutdown reduces loss but does not establish durability. Inspection must
+disclose its own unavailable or degraded state without disrupting domain
+execution.
+
+Use safe operation/query identifiers, error categories and typed checkpoints. Do
+not capture raw SQL/parameters, HTTP bodies, cookies, headers wholesale,
+invitation tokens, email addresses/bodies, environment values or full error
+Debug chains. Existing token-bearing success results make indiscriminate return
+recording dangerous. Inspect nested instrumentation and use canary-secret tests
+before any production use; type derives do not provide a security boundary.
+
+Inspection is separately authenticated and scoped to permitted resources and
+fields. Possession of an invocation/trace handle grants no access. Do not reveal
+whether a forbidden record exists. Treat runtime strings as data, not
+instructions for an agent; no suggested shell commands or arbitrary SQL from
+event payloads. Public error responses should expose only safe correlation, not
+internal logs.
+
+Per-invocation IDs belong in bounded diagnostic records, not metric labels.
+Metrics use bounded operation/outcome/stage categories. Durations can separate
+lock wait, transaction work, SMTP and export overhead, but a slow span is an
+observation, not a proven root cause. Sampling biases and absent intervals must
+remain visible; do not add overlapping span durations as if they were serial.
+
+### Review decisions, alternatives, and validation criteria
+
+These are recommendations to challenge, not assertions of owner-approved APIs:
+
+- Keep invocation correlation independent of tracing. Alternative: reuse action
+  span identity, accepting that disabled tracing can remove the handle.
+- Keep context narrow and explicit. Alternative: purely ambient context, with
+  less signature noise but less visible propagation and cancellation ownership.
+- Prefer new attempt traces plus links. Alternative: one long trace, accepting
+  queue lifetimes, retention and sampling coupling; both are valid OTel models.
+- Preserve committed-notification service authority. Alternative: add explicit
+  revocation semantics; never silently reuse the initiating user's credentials.
+- Make ordinary telemetry lossy without blocking business execution.
+  Alternative: required durable audit, with explicit availability and
+  persistence costs.
+
+Future acceptance criteria, **not executed tests in this design pass**:
+
+1. Disabled/sampled/overflowing/unavailable telemetry preserves business
+   behavior and local invocation identity; coverage does not pretend all events
+   survived.
+2. Interleaved async actions retain correct span association. Forged propagation
+   and baggage cannot change identity, authority, inspection scope or
+   boundedness.
+3. Canary secrets in inputs, token-bearing results and nested errors do not
+   appear in exported fields, metrics, propagated context or inspection
+   responses.
+4. Lock failure, invariant rejection, commit ambiguity, dropped futures and lost
+   responses produce only the effect certainty supported by actual observations.
+5. Crash windows around enqueue, claim, SMTP and fenced completion retain
+   ambiguity; stale attempts cannot acknowledge a newer attempt, but diagnostics
+   still allow the possibility of duplicate external delivery.
+6. Eviction, exporter drops, process restart and schema/build mismatch do not
+   create fabricated causal history or per-invocation completeness claims.
+7. Revoked/unrelated inspectors cannot read records or distinguish forbidden
+   existence. Retention, query limits and multi-environment ID scope are tested.
+
+### Brief for other LLM reviewers
+
+Review this self-contained spec as a design for a personal API-first Rust
+framework assembled from existing crates, with React and AI-authored
+applications. The authoring model is ordinary transaction-owning actions plus
+shared transport contracts, not a resource DSL. The current CLI/MCP tool exposes
+controlled test evidence only. Runtime context, tracing, inspection and durable
+invocation receipts described here are proposals; do not assess them as deployed
+features.
+
+Evaluate S13 against S05–S08 and S12. In particular:
+
+- Identify any place a proposed observation overclaims commit, rollback,
+  delivery, retry safety or completeness. Give a concrete counterexample
+  interleaving.
+- Challenge the context and identifier budget. Which concepts can be removed
+  without losing useful agent feedback or confusing durable and ephemeral state?
+- Assess whether trusted-ingress, baggage, redaction and inspection
+  authorization prevent disclosure and false attribution; distinguish trust from
+  correlation.
+- Test the job-authority distinction against self-demotion, issuer revocation,
+  accepted/expired invitations and stale workers. Name product choices versus
+  bugs.
+- Compare the proposed ecosystem use with simpler existing capabilities. Flag
+  mechanisms that require original framework code or stronger database
+  guarantees.
+- Explain what evidence could actually help an agent distinguish failure cases,
+  and what still needs human intent or independent behavioral verification.
+
+Return findings with section ID, severity, assumption, failing sequence,
+smallest correction, tradeoff, and what would validate it. Separate confirmed
+contradictions from questions and optional enhancements. Suggest alternatives
+when useful; do not turn every uncertainty into a platform subsystem. No
+implementation, production access, or productivity study is requested by this
+review brief.
 
 ## References and design provenance
 
@@ -621,6 +999,24 @@ self-contained; agents should not need the entire conversation to follow it.
   explicit Rust controllers/model methods and transaction ownership.
 - [FastAPI response model example](https://github.com/fastapi/fastapi/blob/master/docs_src/response_model/tutorial003_py310.py):
   typed transport contracts, not automatic business concurrency guarantees.
+- [tracing async instrumentation](https://github.com/tokio-rs/tracing/blob/master/tracing/src/instrument.rs)
+  and
+  [span guards](https://github.com/tokio-rs/tracing/blob/master/tracing/src/span.rs):
+  per-poll instrumentation and why enter guards must not cross awaits.
+- [tracing attributes](https://github.com/tokio-rs/tracing/blob/master/tracing-attributes/src/lib.rs):
+  automatic argument capture and `skip_all` limitations.
+- [tracing-opentelemetry span extensions](https://github.com/tokio-rs/tracing-opentelemetry/blob/main/src/span_ext.rs):
+  distributed parents and cross-trace links.
+- [OpenTelemetry Rust propagation](https://github.com/open-telemetry/opentelemetry-rust/tree/main/opentelemetry-sdk/src/propagation),
+  [span processing](https://github.com/open-telemetry/opentelemetry-rust/blob/main/opentelemetry-sdk/src/trace/span_processor.rs),
+  and
+  [metrics](https://github.com/open-telemetry/opentelemetry-rust/blob/main/docs/metrics.md):
+  context extraction, sampling/export limitations and metric cardinality.
+- Current Iris
+  [delivery worker](../experiments/api-slice/server/src/delivery.rs) and
+  [outbox operations](../experiments/embedded-db/sqlite/src/outbox.rs):
+  inspected for S13; proposed evidence records do not yet exist in these
+  modules.
 
 External references explain influences, not dependencies or permanent API
 contracts; upstream branches may change. Recheck them before copying an API.
@@ -637,3 +1033,9 @@ contracts; upstream branches may change. Recheck them before copying an API.
   Oracle critique informed the enumeration caveat and shared-consumer boundary.
   APIs and integration remain proposed; no runtime changes, macro implementation
   or productivity study.
+- **2026-09-25, execution/evidence design pass:** Added S13, its two worked
+  flows, source references, alternatives and external-model review brief.
+  Clarified deferred-command versus committed-effect authority in S05. Captured
+  actual worker observation gaps without changing code. No dependencies,
+  instrumentation, collectors, durable receipts or productivity experiments were
+  added.

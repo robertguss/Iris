@@ -33,6 +33,7 @@ For external model review: S01–S03 explain the goals, S04–S08 the action and
 failure boundaries, S12 the static contracts, and S13 the proposed execution and
 evidence lifecycle. S14 defines the caller-loss recommendation and failure
 table; S15 gives a concrete result, response and recovery reference contract.
+S16 compares two authoring paths with one annotated membership vertical slice.
 S10 distinguishes implementation from proposals. Use the
 [independent review brief](design-review-brief.md) for assignments, three review
 tracks, report format and synthesis instructions. S13 also supplies focused
@@ -1411,6 +1412,325 @@ disclosure with secret canaries; test the whole-request decoder and literal-code
 schemas. Keep expected scenarios independent of descriptor-generated fixtures.
 No receipt store or generic executor is necessary to specify these boundaries.
 
+## S16 — Authoring one action and publishing its HTTP contract
+
+**Design recommendation, not implemented or an approved wire migration.** Keep
+ordinary transaction-owning functions; try a shared response mapping at the
+existing utoipa registration boundary before creating an Iris endpoint API. This
+narrows S03's preferred typed-registration direction: share semantic data first,
+add a typed registration wrapper only if the experiment demonstrates a useful
+check it cannot otherwise provide. S12 owns rejection metadata and S15 owns
+result/recovery semantics; this section connects them, not a third model.
+
+Source inspection used the
+[S15 baseline](https://github.com/robertguss/Iris/commit/d960fce9f84388da560864ffa978f391ccf65208).
+The [original review synthesis](reviews/opus55-all-01-synthesis.md) remains
+unchanged; this is a follow-up design, not another independent review or
+consensus. The
+[decision record](decisions.md#action-authoring-vertical-slice--september-25-2026)
+records alternatives and outstanding choices.
+
+### One author-owned action, regardless of registration choice
+
+Proposed home: `domains/memberships.rs`, with HTTP in `http/memberships.rs`
+following S04. The current files are instead
+[SQLite members](../experiments/embedded-db/sqlite/src/members.rs) and
+[HTTP members](../experiments/api-slice/server/src/members.rs). Current
+`ChangeMember` includes `actor_id` and optional role/removal, returns
+`MemberOutcome`, commits business rejections, and can replace a primary error
+with a rollback error. The following is a **pseudocode migration sketch**, not
+compilable Rust or a claim that those issues have been changed. The SQL ordering
+comes from current code; stage classification/cleanup handling is proposed.
+
+```rust
+// Application-owned types. Actor comes from trusted identity, never the body.
+struct ChangeRole { project_id: i64, user_id: i64, role: MemberRole }
+struct RoleChangeAcknowledged;
+enum ChangeRoleRejection { Forbidden, MemberNotFound, LastOwner }
+
+async fn change_role(
+    conn: &mut SqliteConnection, // No active transaction on entry.
+    actor: &Actor,
+    cmd: ChangeRole,
+) -> ActionResult<RoleChangeAcknowledged, ChangeRoleRejection> {
+    // Explicitly handle begin errors at this boundary; classify only facts known.
+    let mut tx = match conn.begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(e) => return begin_failure(e), // Proposed S15 classification, not API.
+    };
+    let body = async {
+        // All helpers here mean ordinary application SQL on this same tx.
+        if !is_current_owner(&mut tx, cmd.project_id, actor.user_id()).await? {
+            return Err(StopReason::Rejected(Forbidden));
+        }
+        let target = load_member(&mut tx, cmd.project_id, cmd.user_id).await?
+            .ok_or(StopReason::Rejected(MemberNotFound))?;
+        if target.role == Owner && cmd.role != Owner
+            && owner_count(&mut tx, cmd.project_id).await? == 1 {
+            return Err(StopReason::Rejected(LastOwner));
+        }
+        update_role(&mut tx, cmd.project_id, cmd.user_id, cmd.role).await?;
+        Ok(RoleChangeAcknowledged)
+    }.await; // Body SQL errors become StopReason::Execution at stage=body.
+    match body {
+        Ok(ack) => match tx.commit().await {
+            Ok(()) => Ok(ack),
+            Err(e) => commit_failure(e), // No universal rollback conclusion.
+        },
+        Err(primary) => match tx.rollback().await {
+            Ok(()) => finalize_stop(primary, Cleanup::RollbackAcknowledged),
+            Err(e) => failed_with_cleanup(primary, e), // Preserve BOTH causes.
+        },
+    }
+}
+```
+
+The sketch's classification/finalization names abbreviate S15 cases; they do not
+propose a generic transaction runner. Acknowledged rollback finalizes a business
+rejection, but an execution fault remains failure. Failed rollback always yields
+`Failed`, even with `primary=Rejected(LastOwner)`. Driver-specific commit-error
+cleanup/disposal remains unresolved; a consumed transaction is not proof of
+`NotRequired`. Dropped futures may return nothing. No `?` bypasses finalization
+outside the body. No HTTP registration can verify these properties.
+
+Owner checks precede target lookup to avoid unauthorized existence disclosure.
+SQLite's writer serialization covers checks and mutation; other engines and
+other mutation paths require their own proof/tests. Same-role success
+acknowledges commit, not a permanently current record. Actor construction
+belongs to trusted identity code, not a deserializable command or a registration
+default.
+
+### HTTP adapter: author conversion, shared rendering
+
+For both approaches the author supplies the ordinary handler below. All
+`contract`, `reply`, and envelope names are **proposed pseudocode**. Axum's
+`State`, `Json`, `JsonRejection` and `IntoResponse` are existing APIs; they do
+not implement the missing bridge.
+
+```rust
+async fn endpoint(State(state), actor: Actor, body: Result<Json<ChangeRoleRequest>, JsonRejection>) {
+    let request = parse_or_refuse(body)?;
+    // Wire string IDs -> canonical positive i64 with overflow check; role enum.
+    // Unknown fields rejected; identity is not accepted in the request.
+    let command = request.try_into_command()?;
+    let mut conn = connect_or_public_failure(&state.database).await?;
+    let result = change_role(&mut conn, &actor, command).await;
+    CHANGE_ROLE.reply(result) // Finalized rejection only; failures never unwrap it.
+}
+```
+
+An actual signature must carry trusted request identity into refusal/failure
+rendering as well. Connection failure is a request failure before action
+dispatch, not a fabricated action result. Iris supplies generic envelope
+rendering, literal-code schema construction, shared refusal/failure descriptors,
+and bounded diagnostic conventions. The author owns safe projections and what
+statuses mean. Public rendering never serializes `ExecutionFailure<R>` or its
+private rejection; diagnostic projection is separately authorized and
+allowlisted under S13/S15. No inspector is implemented by declaring this
+contract.
+
+Declare each semantic fact once, rather than requiring one giant macro:
+
+| Declaration / owner          | Single source and consumers in the proposed design                                                                                                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operation / application      | One pair: domain `memberships.change_role`, existing OpenAPI `changeMemberRole`; renderer, export extension and discovery consume it. Preserve the existing operation ID for client continuity.             |
+| Rejections / domain          | S12's enum and exhaustive descriptor match: stable codes, safe summaries, rule and recovery constraints. Unit enumeration uses the candidate `strum::VariantArray` derive, not a handwritten list.          |
+| Public projection / HTTP     | One exhaustive match yields status plus allowlisted descriptor view; runtime renderer and exporter consume it. For this unit enum there are no rejection payloads. Private rules need not enter OpenAPI.    |
+| Success / HTTP               | One projection maps acknowledgment to `{completion:"acknowledged"}`, with one 200 response declaration and schema. Do not echo requested IDs/role as stored state.                                          |
+| Shared HTTP responses / Iris | One versioned envelope/profile describes invalid request, authentication, CSRF and safe 500/503. Registration selects it; middleware and extractors must actually render it.                                |
+| Recovery / application       | Operation declares inspection, read and keyed replay unsupported for this slice; new submission requires current authority and intent. Last-owner prerequisite comes from its descriptor. No retry program. |
+
+The operation pair would be exported as OpenAPI `operationId=changeMemberRole`
+and an Iris extension containing the domain name, wire version and public
+recovery constraints. Extension syntax is not selected. Standard TypeScript
+generation must not be assumed to interpret it: the client boundary needs a
+small generated manifest from the same declaration or an explicitly tested
+extension consumer. Privileged metadata never goes in that public manifest.
+
+### A: ordinary functions with explicit registration
+
+Keep the existing `#[utoipa::path]` and
+`OpenApiRouter::routes(utoipa_axum::routes!(endpoint))` pattern. Let the
+attribute own method/path/request schema; remove independently authored response
+tables only when a response bridge replaces them. A domain-local `routes()`
+assembles the route and applies its response mapping to the collected operation
+before returning the router/document. The bridge must fail export if the target
+operation is absent, ambiguous or has the wrong identity; never silently skip
+it. The root registers that module once. No function trait, action object or
+executor.
+
+Keep the operation-name pair in the response declaration, not duplicated in an
+`operation_id` attribute. For this one-route module, the bridge selects its sole
+collected POST operation, assigns the public ID from that pair (replacing any
+inferred handler name), and attaches the domain-name extension. Assert the
+expected path/method independently in contract tests. A larger module needs an
+explicit association with its collected route metadata; do not introduce a
+second handwritten path catalog to call it single-source.
+
+The full bridge does not exist today. Its narrow job is to enumerate mapped
+rejections, add success and the selected middleware profile, register referenced
+schemas, group branches per status, and install responses on the existing
+OpenAPI operation. Runtime uses those same mappings. Request DTO schema derives
+remain ecosystem-owned. Route identity linkage remains a contract check rather
+than a compiler guarantee. Export/assembly must run even if the server starts
+without serving interactive API docs.
+
+### B: a small typed registration value on existing crates
+
+Alternative **invented API**, not valid utoipa/axum syntax:
+
+```rust
+let role_http: HttpOperation<ChangeRoleRequest, RoleChangeAcknowledged, ChangeRoleRejection> =
+    HttpOperation::post("/api/memberships/role")
+        .identity("memberships.change_role", "changeMemberRole")
+        .success(200, acknowledge_publicly)
+        .rejections(rejection_contract) // S12 exhaustive match, not another code list.
+        .boundary(browser_mutation_profile())
+        .recovery(no_inspect_read_or_replay());
+router.register(role_http, endpoint);
+```
+
+Here the value owns route identity as well as response data. A future handler
+return type such as `ContractReply<RoleHttp>` could connect the handler's output
+to this registration at compile time. Merely accepting an Axum `Handler` and a
+descriptor side by side does **not** establish that connection. Designing those
+type bounds, early-return handling and state/extractor compatibility is real
+Iris work, not something supplied by the sketch's generic parameters. Raw
+responses and middleware can still bypass it. Execution stays in the ordinary
+handler/action; registration must never start a transaction or supply authority.
+
+B can remove the path/identity lookup and reject mismatched reply types, but
+requires a maintained registration API and escape-hatch policy. A supplies a
+smaller first experiment with weaker assembly guarantees. Both still need the
+same response/schema bridge, disclosure review and behavioral tests. Neither
+discovers unregistered domain actions or exposes MCP mutations.
+
+### Full request contract, not just the handler result
+
+Use S15's candidate envelope for the experiment only; no existing endpoint is
+migrated by this document. Every JSON branch requires version, operation, local
+request ID and its literal tag; rejected/refused/failure branches require their
+literal code and safe message. Success requires its data schema.
+
+| Producer / condition                                         | Proposed status, kind and code                                                                                                    | Scope                                                                                         |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| JSON/media/body-limit rejection, invalid ID/role/extra field | 400 `refused`, `http.invalid_request`                                                                                             | Normalize caught extractor failures, including oversize bodies, to this profile; no dispatch. |
+| Missing trusted actor                                        | 401 `refused`, `http.unauthenticated`                                                                                             | No dispatch; session middleware may refuse CSRF first.                                        |
+| Origin/CSRF boundary                                         | 403 `refused`, `http.csrf_refused`                                                                                                | No dispatch; do not call this domain forbidden.                                               |
+| Finalized domain rejection                                   | 403 `rejected`, `memberships.forbidden`; 404 `rejected`, `memberships.member_not_found`; 409 `rejected`, `memberships.last_owner` | Only after required cleanup.                                                                  |
+| Acknowledged commit                                          | 200 `success`                                                                                                                     | `{completion:"acknowledged"}`; no action permanence claim.                                    |
+| Connection/action/session/response failure                   | 500 `failure`, `iris.internal`; 503 `failure`, `iris.unavailable` where classified                                                | May occur before dispatch or after commit; no retry/effect inference.                         |
+| Unmatched route/method, external gateway, connection loss    | Separate transport/routing contract; otherwise client unknown                                                                     | Do not invent this operation's envelope, code or server request ID.                           |
+
+403 has **one response object with a `oneOf` of two literal tag/code branches**,
+not last-write-wins registration. Codes permitted at 409 do not include every
+global error. Reject mismatched status/tag/code tuples. Current auth can fail
+after `next.run`; its normalization only handles some bodyless server errors.
+The proposed profile must include actual session-layer failures and outer
+normalization, not infer them from handler types. Bind operation identity at a
+route-aware boundary before fallible operation middleware; if unavailable, use
+the separate unclassified path. Do not label arbitrary 4xx as pre-dispatch.
+Timeout/rate-limit layers are not added here; adding one later requires an
+explicit profile update, effect policy and tests.
+
+For the candidate version 1, allow unknown additive object fields but require
+all declared fields and literal values. Unknown version/code, malformed 200,
+empty/HTML body or thrown fetch/body-read error produces `ClientUnknown`,
+outside the known server union. This additive-field policy is a recommendation
+to test, not current client behavior. Wrap request execution and validation, not
+only `openapi-fetch`'s resolved value. Generate TS with the existing
+`openapi-typescript` pipeline; choose/test a runtime OpenAPI 3.1-compatible
+schema validator separately. Types and schema examples do not perform
+validation.
+
+### Maintenance paths and honest feedback
+
+Paths below use the proposed S04 layout; current counterparts are the two
+`members.rs` files and `server/src/lib.rs`. Generated files are outputs, not
+additional places to hand-edit semantic facts.
+
+| Change                                                                                         | A: explicit registration + response bridge                                                                                                                                                                               | B: typed registration value                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Add a unit `ProjectArchived` rejection (hypothetical policy, not proposed membership behavior) | `domains/memberships.rs`: variant, body check, descriptor code/summary/recovery. `http/memberships.rs`: exhaustive status/public projection arm. Enumeration adds export branch automatically. No route edit.            | Same domain and projection edits; no registration edit because it refers to the rejection type. Typed registration does not remove these semantic decisions. |
+| Change LastOwner 409 to 422                                                                    | One HTTP mapping edit, then regenerate OpenAPI/TS/manifest; independently update reviewed compatibility expectations and client handling.                                                                                | Same. A status change is not caught by Rust's type checker.                                                                                                  |
+| Replace acknowledgment with required stored `role`                                             | Domain success/body must obtain stored state if that is the promise; HTTP projection/DTO/schema change; A's success declaration must reference the new type if renamed. Regenerate, then compile/check affected clients. | Same domain/wire work; tied success types can reject an outdated projector/registration, but cannot prove the value is stored state.                         |
+| Add/refine a middleware response                                                               | Change shared profile AND actual producer; regenerate affected operations and test through real middleware.                                                                                                              | Same; handler reply typing cannot enforce middleware coverage.                                                                                               |
+
+For comparison, **today** adding a rejection touches domain outcome/body,
+`members::apply`, global `ErrorCode`/`ApiError`, endpoint attributes if statuses
+change, and aide declarations in `lib.rs`, then both snapshots/generated
+clients. Even without a new status, the global `Problem` schema permits
+unrelated codes at that status. The proposed bridge removes that duplication,
+not business work. Do not keep two exporters as a permanent author obligation;
+leave the current comparison intact until a separately authorized migration.
+
+| Feedback layer          | What a later experiment must establish                                                                                                                                                                   | Remaining gap                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Rust compiler           | Exhaustive descriptor/projection matches; command/result types; derive enumerates unit variants. For B only, demonstrate a mismatched handler reply compile failure.                                     | Strings can collide; an action can return the wrong rejection or lie about cleanup. A's route link is not type-proven. |
+| Contract tests          | Exact independent allowed tuples; unique operation identities; 403 union retains both branches; references resolve; emitted responses validate; generated TS narrows; unknowns reject.                   | A generated fixture using the same mapping can reproduce its mistake. Schema validity is not authorization.            |
+| Behavioral tests        | Authority before disclosure; two-owner concurrent self-demotions leave an owner; same-role success; primary plus rollback failure; middleware failure after commit; response loss never triggers resend. | Driver/task-loss coverage and other mutation paths remain engine-specific; no durable recovery.                        |
+| Disclosure review/tests | Public/private projection separation with secret canaries; missing evidence stays unknown; no raw bodies/error chains in client diagnostics.                                                             | A type or allowlist alone does not establish all nested instrumentation is safe.                                       |
+
+An agent encountering validated `memberships.last_owner` can explain the
+necessary prerequisite and stop. After lost response it retains a distinct
+unknown attempt, advertises no inspection/read/replay capability, and does not
+promote another member or resend. These are design examples, not an executed
+agent study or a claim of faster repairs.
+
+### Verified seams and the smallest later experiment
+
+Librarian source research for this pass verified:
+
+- [utoipa-axum 0.3.0 `routes!`](https://docs.rs/utoipa-axum/0.3.0/utoipa_axum/macro.routes.html)
+  consumes annotated handler paths, not arbitrary descriptor callbacks.
+  [Mutable document access / splitting](https://github.com/juhaku/utoipa/blob/utoipa-6.0.0/utoipa-axum/src/router.rs#L366-L390)
+  permits a response post-processor without replacing execution.
+- [utoipa 6.0.0 responses](https://github.com/juhaku/utoipa/blob/utoipa-6.0.0/utoipa/src/openapi/response.rs#L20-L77)
+  use a status-keyed map; insertion replaces a duplicate status, not a union.
+- [aide 0.15.1 response inference](https://docs.rs/aide/0.15.1/src/aide/operation.rs.html)
+  has input/output hooks, but
+  [layers](https://docs.rs/aide/0.15.1/src/aide/axum/mod.rs.html) do not infer
+  middleware responses. The current experiment explicitly disables response
+  inference; that does not establish that aide is inferior.
+- [strum 0.28.0 `VariantArray`](https://docs.rs/strum/0.28.0/strum/trait.VariantArray.html)
+  supplies enumeration; its derive supports unit variants. Payload-bearing
+  rejection projections remain a separate problem. No dependency was added.
+
+**Recommend A plus the narrow response bridge as the next experiment**,
+retaining utoipa as provisional primary. Do not build B until its stronger
+linkage pays for its new author-facing types. This is a recommendation, not
+implementation authorization. Smallest useful experiment after approval:
+
+1. One isolated membership route using the existing SQLx/Axum stack, S15 result
+   finalization and one chosen envelope. Keep the public demo unchanged.
+   Implement only the descriptor-to-runtime/OpenAPI seam and unit enumeration;
+   no registry, receipts, collector, executor or custom macro.
+2. Register through real `routes!`, attach response data to the collected
+   operation, and export using the existing exporter pattern. Validate actual
+   in-process HTTP responses through real identity/CSRF/extractor middleware,
+   not just calls to the renderer. Independently assert 403's two branches and
+   that a 409 body with an unrelated code fails schema validation.
+3. Run real Rust checks/tests, generate TypeScript from that document, compile
+   known-code narrowing and negative fixtures, then execute a whole-request
+   runtime decoder with real responses plus malformed 200, wrong operation,
+   unsupported version/code, HTML, empty body and fetch rejection. Validator
+   dialect/reference support is an acceptance condition, not an assumption.
+4. Make a temporary extra rejection and a response change, then deliberately
+   omit each required edit. Record which compiler/contract/client check fails
+   and where, including the route-link omission. Use independently written
+   business expectations and failure injection for cleanup/post-commit cases.
+   Remove the probes. No productivity benchmark or claim that generated tests
+   prove intent.
+
+Pass means the small bridge works with real dependency versions and catches its
+stated drift cases, not that Iris's future API is proven. If A leaves routine
+route/reply mismatches invisible until runtime, try B's smallest typed linkage
+against that same fixture. If the bridge cannot preserve literal-code schemas
+and per-status unions, revisit the library seam before adding abstraction. Wire
+migration, exact failure/disposal classification, and runtime validator
+selection remain open. This documentation pass ran no application tests and
+compiled none of the pseudocode.
+
 ## References and design provenance
 
 The
@@ -1478,3 +1798,8 @@ contracts; upstream branches may change. Recheck them before copying an API.
   uncertainty, and specified recovery discovery limits. Recorded the post-action
   middleware failure case against current source. Examples and validation
   scenarios are design-only; no runtime or wire migration performed.
+- **2026-09-25, action-authoring vertical slice:** Added S16 comparing explicit
+  ecosystem registration with a proposed typed wrapper, exact maintenance paths,
+  full HTTP/client boundaries and a bounded later integration experiment. Source
+  inspection and versioned librarian research informed the recommendation; no
+  new independent review, runtime implementation or application test run.

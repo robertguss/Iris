@@ -304,6 +304,56 @@ not the current `{code,message}` response format. The spec records rationale,
 alternatives, deferred features and evidence so other agents can critique and
 extend the design without treating sketches as implemented guarantees.
 
+## Action-authoring vertical slice — September 25, 2026
+
+**Proposed recommendation; documentation only.** The owner requested one
+`memberships.change_role` authoring/API design in a new thread, not framework
+implementation.
+[S16](design-spec.md#s16--authoring-one-action-and-publishing-its-http-contract)
+contains the annotated slice, alternatives, exact edit paths and later checks.
+Source inspection started at the pushed
+[S15 revision](https://github.com/robertguss/Iris/commit/d960fce9f84388da560864ffa978f391ccf65208).
+The [first review synthesis](reviews/opus55-all-01-synthesis.md) retains its
+original provenance; this follow-up is not an independent review. Work and
+versioned ecosystem research are in the
+[authoring thread](https://ampcode.com/threads/T-01a0da64-dc00-76cb-abb5-efba1af7a00d),
+following the
+[source discussion](https://ampcode.com/threads/T-01a0d13e-b20f-73ee-bed5-747eb2d3346c).
+
+Recommend ordinary transaction-owning functions and explicit utoipa registration
+with a narrow shared response bridge first. This refines S03's preference for
+typed registration without changing its execution boundary. Runtime rendering
+and export should consume the same exhaustive mappings; operation identity,
+literal rejection codes, safe projections and recovery constraints each have one
+semantic owner. Preserve existing `changeMemberRole` as the OpenAPI ID paired
+with the domain name. Trial S15's envelope in isolation, not as an implicit
+migration of the existing API.
+
+Alternative: a typed `HttpOperation` value could own routing metadata and
+enforce handler/reply compatibility. It still needs the same schema/response
+bridge and cannot prove middleware coverage, transaction correctness or
+permission. Defer that author-facing API until a real compilation experiment
+shows its added checks justify maintaining it. Retaining today's duplicate
+response tables is the zero-integration baseline, but leaves recurring drift and
+overly broad error schemas. Replacing utoipa with aide is not justified by this
+source research; middleware still needs explicit contracts and same-status
+branches need merging.
+
+The smallest later experiment is one isolated real Rust membership route,
+descriptor-driven runtime/OpenAPI responses, generated TS narrowing and an
+executed whole-request validator. Probe an added rejection and changed response
+with deliberately omitted edits; assert failures independently of generated
+fixtures. Include CSRF/domain-forbidden 403 branches, malformed success, cleanup
+failure and post-commit request failure. No experiment was run in this design
+pass.
+
+Open: owner agreement on this narrower first step, envelope compatibility and
+migration, driver-specific failure/cleanup classification, and runtime validator
+selection. Proposed additive-field tolerance does not permit unknown codes or
+versions. Receipts, generic executors, resource DSLs, custom macros, runtime
+inspectors, automatic retries and productivity studies remain deferred. No
+runtime, dependency, public wire or deployment changes accompany this record.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

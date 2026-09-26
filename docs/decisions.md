@@ -354,6 +354,54 @@ versions. Receipts, generic executors, resource DSLs, custom macros, runtime
 inspectors, automatic retries and productivity studies remain deferred. No
 runtime, dependency, public wire or deployment changes accompany this record.
 
+## Bounded S16 integration — September 26, 2026
+
+**Implemented experiment, not a public API migration.** The owner authorized the
+small alternative-A experiment after the preceding design pass. The
+[execution record](../experiments/api-slice/s16.md) includes commands, the
+verification matrix, all omitted-edit diagnostics and limitations. The
+[implementation thread](https://ampcode.com/threads/T-01a0dda8-c086-70ba-89e1-2fba483156d3)
+contains librarian research and the requested pre-implementation oracle review.
+
+Ordinary transaction-owning functions plus explicit utoipa registration work for
+this bounded route. One exhaustive public mapping drives rendering and export;
+strum 0.28.0 supplies unit enumeration. The shared 403 response preserves CSRF
+refusal separately from finalized domain forbidden. Existing demo routers, wire
+contracts, aide/utoipa comparison and React consumer remain unchanged. The only
+shared renderer change adds nonserialized error provenance consumed by the
+isolated boundary, avoiding inference from status or arbitrary error bodies.
+
+Select Ajv 8.20.0's draft-2020-12 entry point for this experiment, with strict
+schema checking and no payload mutation. Keep openapi-typescript 7.13.0 for
+static generation. Real exported references, per-status alternatives, additive
+fields and the extension's recovery capabilities are exercised. Unknown code,
+version, operation, malformed success, empty/HTML bodies and request/body-read
+exceptions remain outside the server union. No automatic retry is offered.
+
+Evidence: ten focused Rust tests and 44 whole-request client cases pass. All 16
+selected omitted-edit probes are detected and removed from the disposable source
+copy. The compiler finds missing enum/mapping/projector edits; independent
+contracts find business/route/status/profile errors; regenerated TypeScript
+finds the stale 409 consumer after a temporary 422 change. Wrong route paths
+still compile. These results support the narrow bridge, not stronger compiler
+linkage or a claim that a typed wrapper is now necessary. They measure no
+productivity.
+
+The session-store SQL failure after commit is decisive: a valid public 500 can
+coexist with a committed role change. Explicit rollback after a real body error
+is distinguished from statement rollback using a FAIL-trigger control. Primary
+rejection/execution and cleanup causes survive separately, but rollback-failure
+observations are injected into finalization rather than actual driver I/O
+faults. Real busy-begin and deferred-FK commit failures retain conservative
+cleanup uncertainty. No general safe-disposal, pool-reuse, caller-loss or
+cross-engine claim follows. Receipts, executors, inspectors, custom macros and B
+remain deferred; wire migration and larger-module linkage remain open.
+
+Combined API/SQLite verification passed 43 tests with one existing Mailpit test
+ignored. Both previous contract snapshots/clients, web build/breaking-change
+check, Clippy and formatting passed. No push, PR, deployment or shared-state
+change was part of this experiment.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

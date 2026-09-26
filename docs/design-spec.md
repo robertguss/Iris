@@ -1,6 +1,6 @@
 # Iris living design specification
 
-Last updated: September 25, 2026.
+Last updated: September 26, 2026.
 
 This is the current design entry point for Iris: what we want to build, the
 conventions we are considering, and most importantly why. It is a living spec,
@@ -366,7 +366,7 @@ boundaries; a tool allowlist is not a sandbox.
 | CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                            |
 | Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below               |
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                             |
-| Rejection metadata, precise per-code schemas and shared contract export | Proposed in S12; no derive or runtime bridge implemented                                                                        |
+| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration          |
 | Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                     |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                   |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                               |
@@ -403,11 +403,13 @@ automatic retries and production integrations remain deferred or undecided.
 
 ## S12 — Static contract declarations for action authors
 
-**Proposed reference design; no implementation authorized by this section.**
-Recommend explicit Rust types and exhaustive mappings first. Keep a narrowly
-scoped metadata derive as an alternative, not a selected dependency or API. The
-goal is reliable machine-readable contracts with useful omission diagnostics,
-not the fewest lines of application code.
+**Proposed reference design; no implementation authorized by this section.** The
+separately authorized S16 experiment now tests a bounded subset with ecosystem
+enumeration and a runtime/export bridge; see its dated evidence below. Recommend
+explicit Rust types and exhaustive mappings first. Keep a narrowly scoped
+metadata derive as an alternative, not a selected dependency or API. The goal is
+reliable machine-readable contracts with useful omission diagnostics, not the
+fewest lines of application code.
 
 ### What is defined where
 
@@ -1146,12 +1148,15 @@ look complete. Implementation remains separate work.
 
 ## S15 — Reference result and recovery contract for agents
 
-**Proposed, not implemented or a settled wire/API migration.** This reference
-applies S06–S14 to membership role changes. Oracle critique informed finalized
-rejection, cleanup preservation and the distinction between action failure and
-request-response failure. Types and JSON below are design sketches; the current
-API still returns `MemberChange` or `{code,message}`. No receipt, inspector,
-executor, automatic retry or new MCP mutation capability is introduced.
+**Proposed general contract; partially tested, not a wire/API migration.** This
+reference is now exercised in part by the isolated S16 experiment; the general
+contract and sketches below remain proposals, not changes to the existing API.
+It applies S06–S14 to membership role changes. Oracle critique informed
+finalized rejection, cleanup preservation and the distinction between action
+failure and request-response failure. Types and JSON below are design sketches;
+the current API still returns `MemberChange` or `{code,message}`. No receipt,
+inspector, executor, automatic retry or new MCP mutation capability is
+introduced.
 
 ### Action results preserve why execution stopped
 
@@ -1414,8 +1419,11 @@ No receipt store or generic executor is necessary to specify these boundaries.
 
 ## S16 — Authoring one action and publishing its HTTP contract
 
-**Design recommendation, not implemented or an approved wire migration.** Keep
-ordinary transaction-owning functions; try a shared response mapping at the
+**Bounded alternative-A experiment implemented; no approved wire migration.**
+The September 26 [execution record](../experiments/api-slice/s16.md) reports
+real SQLx/Axum, export, client and omission checks. The authoring sketches and
+alternative B below retain their design provenance; they are not released APIs.
+Keep ordinary transaction-owning functions; try a shared response mapping at the
 existing utoipa registration boundary before creating an Iris endpoint API. This
 narrows S03's preferred typed-registration direction: share semantic data first,
 add a typed registration wrapper only if the experiment demonstrates a useful
@@ -1567,13 +1575,14 @@ expected path/method independently in contract tests. A larger module needs an
 explicit association with its collected route metadata; do not introduce a
 second handwritten path catalog to call it single-source.
 
-The full bridge does not exist today. Its narrow job is to enumerate mapped
-rejections, add success and the selected middleware profile, register referenced
-schemas, group branches per status, and install responses on the existing
-OpenAPI operation. Runtime uses those same mappings. Request DTO schema derives
-remain ecosystem-owned. Route identity linkage remains a contract check rather
-than a compiler guarantee. Export/assembly must run even if the server starts
-without serving interactive API docs.
+The bridge did not exist at the design-pass baseline; the bounded implementation
+is recorded below. Its narrow job is to enumerate mapped rejections, add success
+and the selected middleware profile, register referenced schemas, group branches
+per status, and install responses on the existing OpenAPI operation. Runtime
+uses those same mappings. Request DTO schema derives remain ecosystem-owned.
+Route identity linkage remains a contract check rather than a compiler
+guarantee. Export/assembly must run even if the server starts without serving
+interactive API docs.
 
 ### B: a small typed registration value on existing crates
 
@@ -1731,6 +1740,50 @@ migration, exact failure/disposal classification, and runtime validator
 selection remain open. This documentation pass ran no application tests and
 compiled none of the pseudocode.
 
+### September 26 execution evidence and remaining choices
+
+The preceding recommendation and proposed gates describe the September 25 design
+pass. The later authorized experiment implements A in
+`experiments/api-slice/server/src/s16`, separately assembled from both existing
+demos. A small response bridge consumes exhaustive domain/HTTP mappings for
+runtime rendering and real utoipa export. Strum 0.28.0 enumerates unit variants;
+the generated 403 schema retains both literal branches. Ajv 8.20.0 validates the
+export's OpenAPI-3.1/JSON-Schema-2020-12 response schemas at a whole-request
+boundary; openapi-typescript supplies static narrowing, not validation.
+
+**Executed:** ten focused Rust tests, 44 runtime client cases, and 16 detected
+omission/drift probes with positive controls. Broader API/SQLite verification
+passed 43 tests with the existing Mailpit test ignored. Existing exporter/client
+snapshots, web build, Clippy and formatting passed. The
+[matrix and diagnostic record](../experiments/api-slice/s16.md) owns exact
+commands, expected facts and limits. Temporary policy/response edits were
+removed. Librarian research confirmed crate seams; oracle review refined
+acceptance criteria before implementation. Neither is an independent final code
+review.
+
+The evidence supports the smaller bridge: adding a unit rejection needs no
+handwritten enumeration or route edit. It also confirms A's limitation: Rust
+accepts wrong paths and changed statuses; independent contracts and regenerated
+client checks must catch drift. Raw responses can bypass the bridge. Do not call
+route/reply linkage compiler-enforced or introduce B solely to erase this
+caveat.
+
+The real post-commit session-save failure produced public 500 while readback
+confirmed the committed role. Failed cleanup preserves primary cause privately
+and renders failure, not finalized rejection. Cleanup-failure observations were
+injected at finalization, not real driver rollback I/O failures. Real SQLite
+begin/body/deferred-constraint commit errors were exercised; begin/commit
+cleanup stays conservatively unconfirmed. No `NotRequired`, safe-reuse,
+task-loss or cross-engine guarantee follows. Neither public failure nor client
+unknown grants resend authority. Recovery discovery declares inspect/read/replay
+unsupported.
+
+Open: wire migration, larger-module route association, richer failure
+vocabulary, driver disposal under other faults, bounded client body reads,
+process/future loss and portability. No receipt, executor, typed registration
+wrapper, custom macro, resource DSL, runtime inspector or productivity benchmark
+was added.
+
 ## References and design provenance
 
 The
@@ -1770,6 +1823,11 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-26, bounded S16 integration:** Implemented and verified alternative
+  A in an isolated route. Added the runtime/export bridge, generated TypeScript,
+  whole-request Ajv validation, behavioral/failure controls and omitted-edit
+  probes. Existing API unchanged. Recorded executable findings, injection limits
+  and remaining choices in the experiment matrix; no productivity claim.
 - **2026-09-25:** Created current synthesis from the design discussion. Captured
   authoring alternatives, domain boundaries, AI-oriented result/evidence/receipt
   separation, three failure scenarios and rationale. Marked productivity study

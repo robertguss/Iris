@@ -1,0 +1,587 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Iris isolated S16 experiment",
+    "description": "Utoipa's axum bindings for seamless integration for the two",
+    "contact": {
+      "name": "Juha Kukkonen",
+      "email": "juha7kukkonen@gmail.com"
+    },
+    "version": "1"
+  },
+  "paths": {
+    "/api/memberships/role": {
+      "post": {
+        "operationId": "changeMemberRole",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "data"
+                      ],
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SuccessData"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "success"
+                          ]
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.invalid_request"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.unauthenticated"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.forbidden"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.csrf_refused"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.member_not_found"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.last_owner"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "iris.internal"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "failure"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "S16 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "iris.unavailable"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "failure"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.change_role"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-iris": {
+          "operation": "memberships.change_role",
+          "prerequisites": {
+            "memberships.last_owner": "memberships.another_owner_required"
+          },
+          "recovery": {
+            "inspect": false,
+            "new_submission": "current authority and intent required",
+            "read": false,
+            "replay": false
+          },
+          "schema_version": 1
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChangeRoleRequest": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "user_id",
+          "role"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "user_id": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Completion": {
+        "type": "string",
+        "enum": [
+          "acknowledged"
+        ]
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "editor",
+          "viewer"
+        ]
+      },
+      "SuccessData": {
+        "type": "object",
+        "required": [
+          "completion"
+        ],
+        "properties": {
+          "completion": {
+            "$ref": "#/components/schemas/Completion"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BrowserSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-iris-session",
+        "description": "Same-origin session and X-Iris-Csrf required. Explicit HTTP-loopback test mode uses iris-session-dev."
+      }
+    }
+  }
+}

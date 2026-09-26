@@ -19,6 +19,7 @@ pub mod auth;
 pub mod delivery;
 mod invitations;
 mod members;
+pub mod s16;
 use invitations::{IssuedInvitation, issue_endpoint};
 
 #[derive(Clone)]
@@ -50,7 +51,7 @@ pub struct Acceptance {
     pub user_id: String,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema, schemars::JsonSchema)]
+#[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     InvalidRequest,
@@ -131,14 +132,17 @@ impl IntoResponse for ApiError {
                 "The database is busy. Try again shortly.",
             ),
         };
-        (
+        let mut response = (
             status,
             Json(Problem {
                 code: self.0,
                 message: message.into(),
             }),
         )
-            .into_response()
+            .into_response();
+        // Private provenance for the isolated S16 boundary; never serialized.
+        response.extensions_mut().insert(self.0);
+        response
     }
 }
 

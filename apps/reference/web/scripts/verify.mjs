@@ -46,8 +46,10 @@ try {
     documentPath,
     fixtures,
   ]);
+  run(process.execPath, [resolve(web, "src/present.test.ts")]);
+  run(resolve(web, "node_modules/.bin/vite"), ["build"], { cwd: web });
   console.log(
-    "PASS: reference client types, captured responses and runtime validation",
+    "PASS: reference client types, captured responses, runtime validation, presentation and build",
   );
 } finally {
   await rm(fixtures, { recursive: true, force: true });

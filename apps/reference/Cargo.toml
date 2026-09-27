@@ -19,10 +19,10 @@ time = { version = "0.3", features = ["serde"] }
 openidconnect = { version = "=4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 getrandom = "0.4"
 subtle = "2"
+tokio = { workspace = true, features = ["net"] }
+tempfile.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
-tempfile.workspace = true
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 jsonschema = { version = "=0.57.0", default-features = false }

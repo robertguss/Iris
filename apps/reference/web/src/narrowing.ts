@@ -1,6 +1,6 @@
 // Compile-time cases: generated types narrow each operation's responses by
 // status and code. Checked by `tsc`; never executed.
-import snapshot from "../../openapi.json";
+import snapshot from "../../openapi.json" with { type: "json" };
 import { client } from "./client.ts";
 import type { Known } from "./client.ts";
 

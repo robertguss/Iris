@@ -6,32 +6,32 @@ Observed September 27, 2026, by the outgoing driver.
 
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
   `robertguss/Iris`).
-- Branch: `s17-checkpoint-a`, tracking `origin/s17-checkpoint-a`. `main` is
-  unchanged at `9235c6e`, locally and on the remote.
-- Reviewed through `bdf8513`, this chunk's one step. This handoff is committed
-  after `bdf8513`.
-- Pushed through `0b50249`, which is `origin/s17-checkpoint-a` and the head of
-  pull request #1 (https://github.com/robertguss/Iris/pull/1). Not pushed:
-  `90caff5` (the previous handoff), `bdf8513`, and this handoff's commit. No
-  push was authorized this session.
-- PR #1 is open, ready for review, mergeable (`mergeStateStatus` `CLEAN`), and
-  not merged. CI run 36348053700 passed on its head. GitHub Actions has not run
-  `90caff5` or `bdf8513`.
+- Branch: `s17-checkpoint-a`, tracking `origin/s17-checkpoint-a`.
+- Reviewed through `8594777`. This chunk changed no repository file; this
+  handoff is committed after `8594777`.
+- Pushed through `8594777`: `main`, `origin/main` and `origin/s17-checkpoint-a`
+  are all at `8594777`. This handoff's commit is local only, so
+  `s17-checkpoint-a` is one commit ahead of `main` and of its upstream. No push
+  of it was authorized.
+- PR #1 (https://github.com/robertguss/Iris/pull/1) is merged: `main` was
+  fast-forwarded from `9235c6e` to `8594777` (29 commits, no merge commit), and
+  GitHub marked the PR `MERGED` at 21:25:02 UTC with merge commit `8594777`.
+- Verify passed on `8594777` both as the pull request (run 36351093637) and on
+  `main` (run 36351648014), each on the first attempt.
 - The working tree was clean apart from this handoff before its commit.
 
-Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
+Re-check HEAD, the working tree and the remote (`git status`, `git log -3`,
 `git ls-remote origin`, `gh pr view 1`) before relying on any of this.
 
 ## 2. Read these first
 
-- `docs/decisions.md`: "Proposed architecture, not yet selected" (its status
-  notes are this chunk's work), "Open decisions", then the last three entries:
-  "Reference application current-state read", "Documentation hygiene" and
-  "Architecture table status".
+- `docs/decisions.md`: "Proposed architecture, not yet selected" (with its
+  status notes), "Open decisions", then the last three entries: "Reference
+  application current-state read", "Documentation hygiene" and "Architecture
+  table status".
 - `docs/design-spec.md`: "How to interpret and maintain this spec", S10, S11,
   then S17: "Operation sequence" (its follow-up row), "Ownership boundaries"
   (the "Deferred to a lifecycle pass" bullet) and "Owner decisions".
-- PR #1's description: the "Merging (not yet authorized)" section.
 - `apps/reference/README.md`: commands, operations, verification matrix, probes
   and limits.
 - `docs/design-review-brief.md`: how independent design reviews are run, if the
@@ -40,113 +40,104 @@ Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 
 ## 3. Context
 
-The owner answered the previous handoff's two questions, one at a time, each
-from options the driver offered:
+The owner answered three questions this session, one at a time, each from
+options the driver offered:
 
-- **Next chunk:** "Architecture table hygiene". The option read: update the
-  stale "Proposed architecture, not yet selected" table in `docs/decisions.md`
-  (Axum, SQLx/SQLite and utoipa have since been used); documentation only, like
-  the last chunk.
-- **PR #1:** "Not yet". The option read: keep PR #1 open and unmerged; the table
-  fix goes on this branch, and the owner decides the merge once, over the final
-  revision, after this chunk. That decision is now due (section 9). Putting the
-  new commits on PR #1 needs a push, which needs its own go-ahead.
+- **Unpushed commits and PR #1:** "Push, then merge". The option read: push the
+  three commits, watch CI, then merge PR #1 into `main`, fast-forward only as
+  the PR recommends.
+- **`HANDOFF.md` on `main`:** "Keep it on main". The option read: fast-forward
+  `main` to `8594777` exactly as pushed, so `main` carries `HANDOFF.md`, which
+  later handoffs keep overwriting.
+- **Next chunk:** "Merge only". The option read: stop after the push and merge,
+  and choose the follow-up in a later session. So no follow-up is chosen yet
+  (section 9).
 
 How the chunk was shaped:
 
-- **Table notes:** the record keeps superseded reasoning visible, so the heading
-  and all eight rows are unchanged. Below the table, each row gains a
-  `_Status:_` bullet, in the style the open decisions received in `0b50249`. The
-  statuses separate settlements for the experiments or the reference application
-  from framework choices.
-- **Turso migration history:** `experiments/embedded-db/README.md:64-66` still
-  says Turso uses a "one-version migration". Since `2b1e820` the migrator
-  (`experiments/embedded-db/turso/src/lib.rs:20-42`) applies both shared
-  migrations. The oracle caught this at plan review. The table note states the
-  current fact; the frozen README was not edited.
-- **Spec untouched:** no design decision changed, so `docs/design-spec.md` has
-  no change-record entry for this pass. The oracle judged this consistent with
-  both documents' maintenance rules. The spec's "Last updated: September 26,
-  2026" line predates its September 27 change-record entries; it was out of
-  scope (section 6).
+- **Fast-forward, not a GitHub merge button:** "Rebase and merge" would create
+  new SHAs, which the design record cites; "Squash" and "Create a merge commit"
+  would change `main`'s linear history. The driver ran
+  `git merge --ff-only 8594777` on local `main`, then pushed the explicit SHA to
+  `refs/heads/main`. GitHub detected the PR's head on its base and marked the PR
+  merged by itself; nothing was closed by hand.
+- **PR body left stale, by agreement:** PR #1's description still has a "Merging
+  (not yet authorized)" heading, says the branch is "26 commits ahead" of `main`
+  (it was 29 at the merge), says the tracked `HANDOFF.md` is `fc3d17f`'s copy
+  and that a newer handoff "is not pushed yet" (the merged copy is `8594777`'s).
+  Its verification and head claims describe `0b50249`, not the merged head. The
+  oracle agreed at plan review that updating it was not needed for the merge;
+  any edit needs the owner and a reviewed text (section 6).
+- **Handoff stays local:** no push was authorized beyond the three commits, so
+  this handoff's commit exists only on the local `s17-checkpoint-a`.
 
 ## 4. Agreed chunk and acceptance
 
-- **Objective:** dated status notes for the eight rows of "Proposed
-  architecture, not yet selected" in `docs/decisions.md`, and a dated entry
-  recording the pass.
-- **Exclusions:**
-  - any code, contract, CI or generated change;
-  - `docs/design-spec.md`, and any edit in `experiments/`;
-  - `docs/research.md`, `docs/first-experiment.md`,
-    `docs/embedded-db-findings.md`;
-  - dated entries and the open decisions in `docs/decisions.md`;
-  - merging, approving or editing PR #1, and any push;
-  - the CI flake, invitations and the lifecycle pass.
-- **Stopping condition:** step 1 committed after sign-off, then this handoff.
-  The boundary did not move.
-- **Disposition:** `accepted`: step 1, `bdf8513`, `docs/decisions.md` only (74
-  lines added, none removed).
+- **Objective:** push `90caff5`, `bdf8513` and `8594777` to PR #1, get CI green
+  on that head, fast-forward `main` to `8594777`, confirm the PR is merged, and
+  watch `main`'s push run.
+- **Exclusions:** any repository file change in the step; any PR title, body,
+  comment or approval; GitHub's merge buttons; branch deletion (the remote and
+  local `s17-checkpoint-a` stay, as does local `docs/s17-reference-app`); CI
+  reruns; any follow-up chunk work; pushing this handoff.
+- **Stopping condition:** step 1 accepted after an evidence review, then this
+  handoff. The boundary did not move.
+- **Disposition:** `accepted`. Step 1 made no commit: its outcome is the remote
+  state in section 1.
 
 ## 5. Verification and review
 
-Environment: macOS, Prettier 3.9.9 through `bunx`, `gh` against GitHub. Driver
-evidence is in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/730b5501-295c-4a77-86e8-91f6df19f8c8/scratchpad/`
-(temporary; below, `scratchpad/`). No application suite was run: no code,
-contract or generated file changed, as agreed at plan review.
+Environment: macOS, `git` and `gh` against GitHub. Raw evidence is in
+`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/5f627447-348f-4cce-bab4-e70a69ceab52/scratchpad/`
+(temporary; below, `scratchpad/`), in `evidence/` numbered 01 to 06, with the
+review prompts beside it.
 
-| Claim             | Commit and evidence                                                                                                                                                                                                                                                           | Checked by                                                                        |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Rows unchanged    | `bdf8513`: `git diff --numstat` 74 added, 0 deleted; `git diff --word-diff=porcelain` has no deleted words (`scratchpad/diff-step1.patch`)                                                                                                                                    | Oracle: removing the two additions restores the base file byte for byte           |
-| Formatting        | `bunx prettier@3.9.9 --check --print-width 80 --prose-wrap always docs/decisions.md` passes; `git diff --check` clean                                                                                                                                                         | Oracle reran both                                                                 |
-| Links and anchors | `scratchpad/links.py docs/decisions.md`: 58 local links (38 before), 0 broken. On a `git archive` copy of the tree with the edited file, two seeded bad anchors were both reported                                                                                            | Oracle's own check: 58 links, 0 broken, both seeded anchors detected              |
-| Status claims     | Each traced to its cited record and to source: `Cargo.lock` pins (not written into the notes), no `sqlx::query!`-family macro in the repository, session-store pools exercised by demo and test setup, the Turso migrator, domain `MemberSummary` against its HTTP conversion | Oracle checked the final wording against the cited records and the implementation |
+| Claim                 | Evidence                                                                                                                                                                                                                                                             | Checked by                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Preconditions held    | `01-preconditions.txt`: HEAD `8594777` clean; remote topic `0b50249`; `main` and `origin/main` `9235c6e`, ancestors of HEAD; 29 commits, 0 merges. No branch protection or rulesets on `main`: the driver's and oracle's API checks at plan review, not in this file | Oracle: at plan review, and via reflog and range counts after                               |
+| Push                  | `02-push.txt`: `0b50249..8594777` to `s17-checkpoint-a` by explicit SHA; `gh` `headRefOid` `8594777`                                                                                                                                                                 | Oracle, live                                                                                |
+| CI green before merge | `03-pr-run.json`: run 36351093637, `pull_request`, head `8594777`, attempt 1, success; Socket checks pass (`03-pr-checks.txt`)                                                                                                                                       | Oracle: live records match; the synthetic merge checkout's tree equals `8594777`'s          |
+| Fast-forward merge    | `04-merge.txt`: `origin/main` re-checked at `9235c6e`; `--ff-only` to `8594777`; push `9235c6e..8594777` to `main`                                                                                                                                                   | Oracle, via reflog and `ls-remote`                                                          |
+| PR merged             | `05-confirm.txt`: all four remote refs at `8594777`; PR `MERGED`, merge commit `8594777`                                                                                                                                                                             | Oracle, live                                                                                |
+| CI green on `main`    | `06-main-run.json`: run 36351648014, `push`, `main`, head `8594777`, attempt 1, success                                                                                                                                                                              | Oracle: all 25 steps succeeded in both runs; compiler-error annotations are expected probes |
 
-Oracle verdicts and dispositions, all applied:
+No local test suite was run: no code changed, and CI ran the whole `verify`
+workflow on the merged revision.
 
-1. Chunk proposal and step 1 plan: changes requested.
-   - P2: the Turso note carried forward stale migration history ("one-version
-     migration", "later work did not use it"). Applied: the note says the custom
-     migrator was since extended to the shared second migration and lacks SQLx's
-     checksum and history tooling, and that the API slice, S16 and the reference
-     application use SQLite.
-   - P3: name the demonstrated boundary as domain/wire separation and explicit
-     projections, not a persistence-model convention, and say "Project-member
-     reads". Applied.
-   - P3: say "the API slice's original invitation actions", since the frozen API
-     now has four operations. Applied.
-   - Advice, followed: "Session-store pools"; keep the new dated entry; leave
-     the spec untouched. It judged the one-step boundary coherent.
-2. Plan re-review: sign-off; all three findings resolved.
-3. Step 1 diff: sign-off, no findings.
+Oracle verdicts:
+
+1. Chunk proposal and step 1 plan: sign-off, no findings. Advice, followed: keep
+   the local `--ff-only` merge but push `main` by explicit SHA; record run ID,
+   URL, event and workflow; a post-merge `main` failure would be recorded, not
+   repaired; leave the PR body untouched and record its staleness; keep raw
+   evidence.
+2. Step 1 evidence: sign-off, no findings.
 
 ## 6. Remaining work
 
-1. **The owner's decision on PR #1 (section 9):** whether to push `90caff5`,
-   `bdf8513` and this handoff to PR #1, whether to merge, how, and whether
-   `main` should carry `HANDOFF.md`.
-2. **The owner's choice of the next chunk (section 9).**
-3. **A follow-up design for invitation issuance and acceptance** (S17's
+1. **The owner's choice of the next chunk (section 9).**
+2. **A follow-up design for invitation issuance and acceptance** (S17's
    follow-up row).
-4. **A lifecycle design pass:** persistent storage, seed policy, journal mode,
+3. **A lifecycle design pass:** persistent storage, seed policy, journal mode,
    worker supervision, one development command.
-5. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
+4. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
    probes are carried by the reference application.
-6. **The agent-interface CI flake:** it has not recurred (runs 36345360713 and
-   36348053700 passed on the first attempt). If it does, diagnose the `members`
-   scenario (`concurrent_last_owner_and_authority` in
-   `experiments/embedded-db/sqlite/tests/members.rs`, run through
+5. **The agent-interface CI flake:** it has not recurred (runs 36345360713,
+   36348053700, 36351093637 and 36351648014 passed on the first attempt). If it
+   does, diagnose the `members` scenario (`concurrent_last_owner_and_authority`
+   in `experiments/embedded-db/sqlite/tests/members.rs`, run through
    `reproduce_scenario`). The experiment is frozen, so any fix needs the owner.
-7. **Documentation hygiene, carried forward:**
+6. **Documentation hygiene, carried forward:**
    - `docs/design-spec.md`'s "Last updated: September 26, 2026" line is older
      than its change record's September 27 entries.
    - `experiments/embedded-db/README.md:64-66` describes Turso's migration as
      one-version; the migrator applies two since `2b1e820`. The experiment is
      frozen, so an edit needs the owner.
-8. **Precompiled validators:** needed if a content security policy without
+   - PR #1's merged description is stale (section 3). Optional; editing it needs
+     the owner.
+7. **Precompiled validators:** needed if a content security policy without
    `unsafe-eval` is adopted.
-9. **Caller loss beyond the browser:** a real disconnect or cancellation during
+8. **Caller loss beyond the browser:** a real disconnect or cancellation during
    a mutation (S14's focused validation items 2 and 3) is still untested.
 
 ## 7. Next chunk
@@ -156,34 +147,26 @@ Oracle verdicts and dispositions, all applied:
 - **First action:** ask the owner the open questions in section 9, one at a
   time, in that order, and wait for each answer before asking the next. Then
   propose the chunk the answers authorize, in the first plan review.
-- **Acceptance:** set by those answers.
-  - If a push is authorized: push exactly the approved commits, confirm PR #1's
-    head through `gh`, and watch CI on it to completion. A push-only answer
-    stays push-only: it authorizes no merge.
-  - If a merge is authorized: merge exactly the approved revision, named by its
-    SHA, with the owner's chosen treatment of `HANDOFF.md` and as the owner
-    directs (the PR recommends fast-forward only while `main` is an ancestor),
-    then confirm `main` and the PR's state.
-  - If the invitations design is chosen: a design section in S17's style,
-    documentation only, reviewed through the design-review brief, authorizing no
-    implementation until the owner says so.
+- **Acceptance:** set by those answers. If the invitations design is chosen: a
+  design section in S17's style, documentation only, reviewed through the
+  design-review brief, authorizing no implementation until the owner says so.
+  Any push or pull request needs its own go-ahead.
 
 ## 8. Decisions and authorizations in force
 
 - **The seven S17 owner decisions** in S17's "Owner decisions".
 - **Authorized and complete:** the CI prerequisite, checkpoints A and B, the
-  mutations' current-state read, the documentation hygiene pass, preparing PR #1
-  (ready for review), and this architecture table pass. Commits go on
-  `s17-checkpoint-a`.
-- **PR #1:** stays open and unmerged. The owner decides the merge once, over the
-  final revision, now that this chunk is done.
-- **Pushes:** none authorized. The previous session's one push, through
-  `0b50249`, is spent; every push needs a fresh go-ahead.
-- **CI reruns:** rerunning a CI job or workflow needs the owner, even after an
-  authorized push whose run fails. Watching and recording a run that a push
-  triggers needs nothing further.
-- **Not authorized:** merging PR #1 or anything into `main`; invitations; the
-  lifecycle pass; retiring frozen experiments; editing `experiments/`.
+  mutations' current-state read, the documentation hygiene pass, the
+  architecture table pass, and pushing and fast-forward merging PR #1 with
+  `HANDOFF.md` kept on `main`.
+- **Pushes:** none authorized. This session's push to `s17-checkpoint-a` and
+  `main`, through `8594777`, is spent; every push needs a fresh go-ahead.
+- **CI reruns:** rerunning a CI job or workflow needs the owner. Watching and
+  recording a run that a push triggers needs nothing further.
+- **Not authorized:** any further push or merge into `main`; a new pull request;
+  deleting `s17-checkpoint-a` locally or on the remote; invitations; the
+  lifecycle pass; retiring frozen experiments; editing `experiments/`; editing
+  PR #1.
 - **Decided in earlier chunks:** the choices in the decision record's dated
   entries.
 - **Workflow:** the owner asked for oracle review before every commit. PR text
@@ -191,35 +174,38 @@ Oracle verdicts and dispositions, all applied:
 
 ## 9. Open questions for the user
 
-Ask one at a time, in this order: the answer to the first decides whether the
-next chunk's commits go on this branch or on a new one from `main`.
+Ask one at a time, in this order.
 
-- Should `90caff5`, `bdf8513` and this handoff be pushed to PR #1, and should PR
-  #1 then be merged into `main`, and if so, how, and with or without
-  `HANDOFF.md`? This blocks any push and the merge. The PR recommends
-  fast-forward only; its head is `0b50249`. Offer choices that keep apart
-  keeping the commits local, pushing only, and pushing then merging.
 - Which follow-up should come next: the invitations design, the lifecycle pass,
-  the remaining documentation hygiene (section 6, item 7), or something else?
+  the remaining documentation hygiene (section 6, item 6), or something else?
   This blocks the next chunk.
+- Where should the next chunk's commits go: on `s17-checkpoint-a` (which already
+  carries this handoff's local commit, one ahead of `main`), or on a new branch
+  from `main` (which this handoff commit would then have to join, be
+  cherry-picked onto, or be left behind)? And is a new pull request wanted? A
+  third option: a new branch at the local handoff commit, which is already one
+  commit above `main`; that keeps the handoff without cherry-picking or pushing.
+  This blocks the next chunk's plan review, as section 7 says.
 
 ## 10. Operational state
 
-- **Running processes:** none. No servers or browser sessions (checked: ports
-  4001, 3003 and 5175 free; `agent-browser session list` empty).
-- **PR #1:** open, ready for review, at `0b50249`. Don't merge it, or push to
-  its branch, without the owner's go-ahead.
+- **Running processes:** none. No servers or browser sessions were started this
+  session; both CI watches finished.
+- **PR #1:** merged at `8594777`. Don't edit it without the owner.
+- **Remote branches:** `main` and `s17-checkpoint-a`, both at `8594777`. Don't
+  delete `s17-checkpoint-a` without the owner.
 - **Local installs:** `experiments/agent-interface/node_modules` (gitignored) is
   still present from an earlier session.
-- **Local branches:** `docs/s17-reference-app` at `5ad417d` is an older branch;
-  leave it.
+- **Local branches:** `main` at `8594777`, tracking `origin/main`;
+  `docs/s17-reference-app` at `5ad417d` is an older branch; leave it.
 - **Retained evidence:** temporary, and possibly already deleted, under
   `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`:
-  - this session's `730b5501-295c-4a77-86e8-91f6df19f8c8/scratchpad/` (section
-    5: review prompts and replies, the diff, `links.py`, and `seed/`, a
-    `git archive` copy of the tree used for the link control);
-  - the previous session's `c354486e-9630-4d4b-9720-c4deb5e23ee7/scratchpad/`
-    (the CI record for run 36348053700, the PR text);
+  - this session's `5f627447-348f-4cce-bab4-e70a69ceab52/scratchpad/` (section
+    5: evidence, review prompts);
+  - the previous session's `730b5501-295c-4a77-86e8-91f6df19f8c8/scratchpad/`
+    (the architecture table review, `links.py`, `seed/`);
+  - `c354486e-9630-4d4b-9720-c4deb5e23ee7/scratchpad/` (the CI record for run
+    36348053700, the PR text);
   - `8700f9fe-cfa6-4749-b371-63bb1793592f/scratchpad/` (about 2 GB, mostly
     `step1/mutation-target`, a Cargo target safe to delete).
 
@@ -250,14 +236,14 @@ next chunk's commits go on this branch or on a new one from `main`.
   - TypeScript under `apps/reference/web/src` is Prettier-formatted, except
     `generated.ts`, which is never formatted. `style.css` keeps its compact,
     unformatted style.
-- **Link checking:** `links.py` (in this session's scratchpad) takes Markdown
-  paths relative to the repository root and applies GitHub-style slugs. A seeded
-  control needs a full copy of the tree (`git archive HEAD | tar -x -C <dir>`,
-  then the edited file copied over it); in a partial copy, links to files not
-  copied are reported as broken.
+- **Link checking:** `links.py` (in the `730b5501…` scratchpad, section 10)
+  takes Markdown paths relative to the repository root and applies GitHub-style
+  slugs. A seeded control needs a full copy of the tree
+  (`git archive HEAD | tar -x -C <dir>`, then the edited file copied over it);
+  in a partial copy, links to files not copied are reported as broken.
 - **Frozen guides can be stale:** check the source before citing an experiment
   guide's description of its own implementation (see the Turso migration in
-  section 3).
+  section 6).
 - **Reading oracle replies:** `herdr agent read` output can splice the echoed
   prompt's first line into the middle of the reply. Take the text after the last
   `Verdict:` line, and re-read if a finding looks cut.
@@ -338,8 +324,9 @@ next chunk's commits go on this branch or on a new one from `main`.
 - **`crates/iris`:** add to it only what two operations demonstrably share,
   naming both.
 - **History and pushes:** history on `main` is linear. Never push without the
-  owner's go-ahead. The branch has an upstream, so a bare `git push` would
-  update PR #1.
+  owner's go-ahead. `s17-checkpoint-a` tracks `origin/s17-checkpoint-a`, so a
+  bare `git push` would push this handoff's local commit to the merged PR's
+  branch; push only by explicit SHA and refspec.
 - **Panes:** the driver works in the left pane and the oracle in the right. The
   driver sends oracle prompts through a file.
 - **Scripted edits to wrapped Markdown:** Prettier's prose wrap moves line
@@ -364,6 +351,13 @@ next chunk's commits go on this branch or on a new one from `main`.
   whose tree equals the head's while `main` is an ancestor. Watch a run in the
   background with `gh run watch <id> --exit-status`, then record each step with
   `gh run view <id> --json headSha,attempt,conclusion,jobs`.
+- **Merging by fast-forward:** pushing the PR's head SHA to `refs/heads/main`
+  made GitHub mark PR #1 merged within seconds, with the head as its merge
+  commit. While a pull-request run was in progress, `gh pr view` reported
+  `mergeStateStatus` `UNSTABLE`. Here it reflected pending checks, but GitHub
+  uses it for any mergeable head whose commit status is not passing, failed
+  checks included; read the checks themselves. `git rev-parse --short` takes one
+  revision; with several it fails with "Needed a single revision".
 
 ## 12. Skills
 

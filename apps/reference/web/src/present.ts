@@ -1,7 +1,8 @@
-// What the page says about each mutation outcome. The switch is exhaustive
-// over both mutations' generated codes, so a new code is a compile-time
-// decision here.
-import type { Mutation, Result } from "./client.ts";
+// What the page says about each outcome. The switches are exhaustive over the
+// generated codes of both mutations and both reads, so a new code is a
+// compile-time decision here.
+import type { Mutation, Read, Result } from "./client.ts";
+import type { components } from "./generated.ts";
 import { api } from "./membership.ts";
 
 export type Presentation = {
@@ -91,6 +92,116 @@ export function present(
         tone: "unconfirmed",
         title: "Temporarily unavailable",
         detail: UNCONFIRMED,
+      };
+    default: {
+      const exhaustive: never = body;
+      return exhaustive;
+    }
+  }
+}
+
+/** A listed row: the declared ID, name and role, and nothing else. */
+export type Row = {
+  id: string;
+  name: string;
+  role: components["schemas"]["Role"];
+};
+export type ReadPresentation =
+  | {
+      tone: "listed";
+      title: string;
+      detail: string;
+      rows: Row[];
+      next: string | null;
+    }
+  | {
+      tone: "rejected" | "refused" | "unavailable";
+      title: string;
+      detail: string;
+    };
+
+const LISTED = {
+  listProjectMembers: { title: "Project members", noun: "members" },
+  listMyProjects: { title: "Your projects", noun: "projects" },
+};
+
+// A page is present state when read, not the whole collection (S17): every
+// sentence is scoped to this page, which may follow earlier ones. Absence from
+// it proves nothing about an earlier attempt (S14).
+function listing(op: Read, rows: Row[], next: string | null) {
+  const { title, noun } = LISTED[op];
+  const detail =
+    rows.length === 0
+      ? `No ${noun} on this page when it was read.` +
+        (next === null ? "" : ` More ${noun} existed then.`)
+      : next === null
+        ? `No further ${noun} existed when this page was read.`
+        : `More ${noun} existed when this page was read.`;
+  return { tone: "listed" as const, title, detail, rows, next };
+}
+
+// A read has no effect to report; repeating it is a new observation.
+const notLoaded = (op: Read) =>
+  `${op === "listProjectMembers" ? "Members" : "Projects"} were not loaded. No automatic retry was sent; loading them again is a new read.`;
+
+export function presentRead(
+  op: Read,
+  result: Result<"listProjectMembers"> | Result<"listMyProjects">,
+): ReadPresentation {
+  if (result.kind === "client_unknown")
+    return {
+      tone: "unavailable",
+      title: "No usable response",
+      detail: notLoaded(op),
+    };
+  const body = result.response.body;
+  if (body.kind === "success") {
+    // Named fields only: additive fields never reach the page.
+    const rows =
+      body.operation === "memberships.list"
+        ? body.data.items.map(({ user_id, display_name, role }) => ({
+            id: user_id,
+            name: display_name,
+            role,
+          }))
+        : body.data.items.map(({ project_id, name, role }) => ({
+            id: project_id,
+            name,
+            role,
+          }));
+    return listing(op, rows, body.data.next_cursor);
+  }
+  switch (body.code) {
+    // One response for an unknown project and a non-member (S17).
+    case "memberships.forbidden":
+      return {
+        tone: "rejected",
+        title: "Project not available",
+        detail: body.message,
+      };
+    case "http.invalid_request":
+      return {
+        tone: "refused",
+        title: "Invalid request",
+        detail: body.message,
+      };
+    case "http.unauthenticated":
+      return {
+        tone: "refused",
+        title: "Sign-in required",
+        detail: body.message,
+      };
+    case "iris.internal":
+      return {
+        tone: "unavailable",
+        title: "Server error",
+        detail: notLoaded(op),
+      };
+    case "iris.unavailable":
+      return {
+        tone: "unavailable",
+        title: "Temporarily unavailable",
+        detail: notLoaded(op),
       };
     default: {
       const exhaustive: never = body;

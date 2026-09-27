@@ -4,7 +4,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BODY_LIMIT, DOMAIN_OPERATIONS, MUTATIONS, client } from "./client.ts";
+import {
+  BODY_LIMIT,
+  DOMAIN_OPERATIONS,
+  MUTATIONS,
+  READS,
+  client,
+} from "./client.ts";
 import type { Document, Operation, Reason, Result } from "./client.ts";
 
 const [documentPath, fixtureDir] = process.argv.slice(2);
@@ -100,6 +106,12 @@ delete bodiless.paths[PATHS.removeMember].post.responses["409"].content;
 assert.throws(() => client(bodiless), /lacks a JSON schema/);
 
 for (const op of DOMAIN_OPERATIONS) assert.equal(api.path(op), PATHS[op]);
+// Mutations and reads partition the linked operations, so loops over either
+// list skip none.
+assert.deepEqual(
+  [...MUTATIONS, ...READS].sort(),
+  [...DOMAIN_OPERATIONS].sort(),
+);
 for (const op of MUTATIONS) {
   assert.deepEqual(api.recovery(op), {
     inspect: false,
@@ -193,8 +205,116 @@ for (const op of DOMAIN_OPERATIONS) {
   assert.deepEqual(tally, CAPTURED[op], `${op}: captured responses`);
 }
 
-// Hand-written envelopes for the two mutations; the reads' cases come with
-// their client.
+// Body handling is the same for every operation: the boundary reads the body
+// as sent, once, up to the limit, as strict UTF-8. Each case is tallied under
+// its operation; the tally is checked once every operation has run.
+const BODY_CASES: Record<Operation, number> = {
+  changeMemberRole: 13,
+  removeMember: 13,
+  listProjectMembers: 13,
+  listMyProjects: 13,
+};
+const bodyTally: Partial<Record<Operation, number>> = {};
+/** `success` is a valid 200 body; `message` a declared body with a message. */
+async function bodyCases(
+  op: Operation,
+  success: object,
+  [message, messageStatus]: readonly [object, number],
+) {
+  const run = (
+    request: () => Promise<Response>,
+    expected: "server" | Reason,
+  ) => {
+    bodyTally[op] = (bodyTally[op] ?? 0) + 1;
+    return check(op, request, expected);
+  };
+  for (const text of ["<html>secret-canary</html>", "", "{secret-canary"])
+    await run(async () => new Response(text, { status: 200 }), "non_json");
+  // Strict UTF-8: a lossy decode would turn this byte into a valid message.
+  const text = JSON.stringify({ ...message, message: "X" });
+  const invalid = encoder.encode(text);
+  invalid[text.indexOf('"X"') + 1] = 0xff;
+  await run(
+    async () => new Response(invalid, { status: messageStatus }),
+    "non_json",
+  );
+  await run(async () => {
+    throw new Error("secret-canary");
+  }, "request_failed");
+  await run(
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("secret-canary"));
+          },
+        }),
+      ),
+    "body_unreadable",
+  );
+  // The boundary reads the body as sent, or not at all: a locked, consumed or
+  // partly read body is unreadable, even when the remainder would validate.
+  await run(async () => {
+    const response = new Response(JSON.stringify(success));
+    response.body!.getReader();
+    return response;
+  }, "body_unreadable");
+  await run(async () => {
+    const response = new Response(JSON.stringify(success));
+    await response.text();
+    return response;
+  }, "body_unreadable");
+  await run(async () => {
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("<html>secret-canary</html>"));
+          controller.enqueue(encoder.encode(JSON.stringify(success)));
+          controller.close();
+        },
+      }),
+    );
+    const reader = response.body!.getReader();
+    await reader.read();
+    reader.releaseLock();
+    return response;
+  }, "body_unreadable");
+
+  // Bounded reads. A streamed body past the limit is cancelled early.
+  const CHUNK = 16 * 1024;
+  const over = padded(success, BODY_LIMIT + 4 * CHUNK);
+  const streamed = chunked(over, CHUNK);
+  await run(async () => new Response(streamed.stream), "body_oversize");
+  assert.ok(streamed.state.cancelled, "oversize stream cancelled");
+  assert.ok(
+    streamed.state.pulls < over.length / CHUNK,
+    "cancelled before the end",
+  );
+  const atLimit = chunked(padded(success, BODY_LIMIT), CHUNK);
+  await run(async () => new Response(atLimit.stream), "server");
+  assert.ok(!atLimit.state.cancelled);
+  // A declared length past the limit is refused without reading the body.
+  const declared = chunked(over, CHUNK, true);
+  await run(
+    async () =>
+      new Response(declared.stream, {
+        headers: { "content-length": String(BODY_LIMIT + 1) },
+      }),
+    "body_oversize",
+  );
+  assert.equal(declared.state.pulls, 0, "declared oversize body never pulled");
+  assert.ok(declared.state.cancelled, "declared oversize body cancelled");
+  const declaredAtLimit = chunked(padded(success, BODY_LIMIT), CHUNK);
+  await run(
+    async () =>
+      new Response(declaredAtLimit.stream, {
+        headers: { "content-length": String(BODY_LIMIT) },
+      }),
+    "server",
+  );
+}
+
+// Hand-written envelopes for the two mutations.
 for (const op of MUTATIONS) {
   const other = op === "changeMemberRole" ? "removeMember" : "changeMemberRole";
 
@@ -265,114 +385,8 @@ for (const op of MUTATIONS) {
     [success, 201],
   ] as const)
     await check(op, respond(body, status), "contract_mismatch");
-  for (const text of ["<html>secret-canary</html>", "", "{secret-canary"])
-    await check(
-      op,
-      async () => new Response(text, { status: 200 }),
-      "non_json",
-    );
-  // Strict UTF-8: a lossy decode would turn this byte into a valid message.
-  const text = JSON.stringify({ ...last, message: "X" });
-  const invalid = encoder.encode(text);
-  invalid[text.indexOf('"X"') + 1] = 0xff;
-  await check(
-    op,
-    async () => new Response(invalid, { status: 409 }),
-    "non_json",
-  );
-  await check(
-    op,
-    async () => {
-      throw new Error("secret-canary");
-    },
-    "request_failed",
-  );
-  await check(
-    op,
-    async () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.error(new Error("secret-canary"));
-          },
-        }),
-      ),
-    "body_unreadable",
-  );
-  // The boundary reads the body as sent, or not at all: a locked, consumed or
-  // partly read body is unreadable, even when the remainder would validate.
-  await check(
-    op,
-    async () => {
-      const response = new Response(JSON.stringify(success));
-      response.body!.getReader();
-      return response;
-    },
-    "body_unreadable",
-  );
-  await check(
-    op,
-    async () => {
-      const response = new Response(JSON.stringify(success));
-      await response.text();
-      return response;
-    },
-    "body_unreadable",
-  );
-  await check(
-    op,
-    async () => {
-      const response = new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode("<html>secret-canary</html>"));
-            controller.enqueue(encoder.encode(JSON.stringify(success)));
-            controller.close();
-          },
-        }),
-      );
-      const reader = response.body!.getReader();
-      await reader.read();
-      reader.releaseLock();
-      return response;
-    },
-    "body_unreadable",
-  );
 
-  // Bounded reads. A streamed body past the limit is cancelled early.
-  const CHUNK = 16 * 1024;
-  const over = padded(success, BODY_LIMIT + 4 * CHUNK);
-  const streamed = chunked(over, CHUNK);
-  await check(op, async () => new Response(streamed.stream), "body_oversize");
-  assert.ok(streamed.state.cancelled, "oversize stream cancelled");
-  assert.ok(
-    streamed.state.pulls < over.length / CHUNK,
-    "cancelled before the end",
-  );
-  const atLimit = chunked(padded(success, BODY_LIMIT), CHUNK);
-  await check(op, async () => new Response(atLimit.stream), "server");
-  assert.ok(!atLimit.state.cancelled);
-  // A declared length past the limit is refused without reading the body.
-  const declared = chunked(over, CHUNK, true);
-  await check(
-    op,
-    async () =>
-      new Response(declared.stream, {
-        headers: { "content-length": String(BODY_LIMIT + 1) },
-      }),
-    "body_oversize",
-  );
-  assert.equal(declared.state.pulls, 0, "declared oversize body never pulled");
-  assert.ok(declared.state.cancelled, "declared oversize body cancelled");
-  const declaredAtLimit = chunked(padded(success, BODY_LIMIT), CHUNK);
-  await check(
-    op,
-    async () =>
-      new Response(declaredAtLimit.stream, {
-        headers: { "content-length": String(BODY_LIMIT) },
-      }),
-    "server",
-  );
+  await bodyCases(op, success, [last, 409]);
 
   // A validated request failure can follow commit. Neither it nor response
   // loss supplies an action-effect conclusion or an automatic retry.
@@ -390,6 +404,122 @@ for (const op of MUTATIONS) {
     "server",
   );
 }
+
+// Hand-written envelopes for the two reads: pages of declared summaries, and
+// only the statuses each read declares.
+const ITEMS = {
+  listProjectMembers: [
+    { user_id: "11", display_name: "Alice Example", role: "owner" },
+    { user_id: "29", display_name: "Bob Example", role: "editor" },
+  ],
+  listMyProjects: [
+    { project_id: "41", name: "Launch plan", role: "owner" },
+    { project_id: "43", name: "Field notes", role: "editor" },
+  ],
+};
+for (const op of READS) {
+  const other =
+    op === "listProjectMembers" ? "listMyProjects" : "listProjectMembers";
+  const [first, second] = ITEMS[op];
+  const id = op === "listProjectMembers" ? "user_id" : "project_id";
+  const label = op === "listProjectMembers" ? "display_name" : "name";
+
+  const base = {
+    schema_version: 1,
+    operation: NAMES[op],
+    request_id: REQUEST_ID,
+  };
+  const page = (items: object[], next_cursor: unknown = "c1.29") => ({
+    ...base,
+    kind: "success",
+    data: { items, next_cursor },
+  });
+  const success = page([first, second]);
+  const envelope = (kind: string, code: string) => ({
+    ...base,
+    kind,
+    code,
+    message: "safe",
+  });
+  const invalid = envelope("refused", "http.invalid_request");
+
+  // Independent envelopes, including additive fields at every level.
+  for (const [body, status] of [
+    [success, 200],
+    [page([first, second], null), 200],
+    [page([], null), 200],
+    [
+      {
+        ...base,
+        kind: "success",
+        extra: true,
+        data: {
+          items: [{ ...first, extra: true }],
+          next_cursor: null,
+          extra: true,
+        },
+      },
+      200,
+    ],
+    [invalid, 400],
+    [envelope("refused", "http.unauthenticated"), 401],
+    [envelope("failure", "iris.internal"), 500],
+    [envelope("failure", "iris.unavailable"), 503],
+    ...(op === "listProjectMembers"
+      ? ([[envelope("rejected", "memberships.forbidden"), 403]] as const)
+      : []),
+  ] as const)
+    await check(op, respond(body, status), "server");
+
+  // Unsupported, malformed or undeclared responses stay unknown.
+  await check(
+    op,
+    respond({ ...success, schema_version: 2 }),
+    "unsupported_version",
+  );
+  const unlabelled = Object.fromEntries(
+    Object.entries(first).filter(([key]) => key !== label),
+  );
+  for (const body of [
+    { ...success, data: { items: [first] } },
+    page([first], 29),
+    page([unlabelled]),
+    page([{ ...first, role: "admin" }]),
+    page([{ ...first, [id]: 11 }]),
+    page([{ ...first, [id]: "011" }]),
+    page([ITEMS[other][0]]),
+    { ...success, data: { items: first, next_cursor: null } },
+    { ...success, operation: NAMES[other] },
+    { ...success, data: { completion: "acknowledged" } },
+    {
+      ...base,
+      operation: NAMES.changeMemberRole,
+      kind: "success",
+      data: { completion: "acknowledged" },
+    },
+    { ...success, request_id: "caller" },
+    null,
+    [],
+    {},
+  ])
+    await check(op, respond(body), "contract_mismatch");
+  for (const [body, status] of [
+    [envelope("refused", "http.csrf_refused"), 403],
+    [envelope("rejected", "memberships.member_not_found"), 404],
+    [envelope("rejected", "memberships.last_owner"), 409],
+    [envelope("rejected", "memberships.forbidden"), 400],
+    [{ ...invalid, operation: NAMES[other] }, 400],
+    [success, 201],
+    ...(op === "listMyProjects"
+      ? ([[envelope("rejected", "memberships.forbidden"), 403]] as const)
+      : []),
+  ] as const)
+    await check(op, respond(body, status), "contract_mismatch");
+
+  await bodyCases(op, success, [invalid, 400]);
+}
+
+assert.deepEqual(bodyTally, BODY_CASES, "body-handling coverage");
 console.log(
   `PASS: ${checks} whole-request runtime cases across ${DOMAIN_OPERATIONS.length} operations; one attempt each; no raw diagnostics`,
 );

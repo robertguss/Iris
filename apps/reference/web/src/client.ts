@@ -17,6 +17,9 @@ export type Operation = (typeof DOMAIN_OPERATIONS)[number];
 /** The operations that change state; reads have no request body. */
 export const MUTATIONS = ["changeMemberRole", "removeMember"] as const;
 export type Mutation = (typeof MUTATIONS)[number] & Operation;
+/** The operations that read present state. */
+export const READS = ["listProjectMembers", "listMyProjects"] as const;
+export type Read = (typeof READS)[number] & Operation;
 
 /** Each operation's method, written by hand and checked against the export. */
 const METHODS: Record<Operation, "get" | "post"> = {

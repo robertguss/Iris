@@ -6,215 +6,222 @@ Observed September 27, 2026, by the outgoing driver.
 
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
   `robertguss/Iris`).
-- Branch: `s17-checkpoint-a`, tracking `origin/s17-checkpoint-a`.
-- Reviewed through `8594777`. This chunk changed no repository file; this
-  handoff is committed after `8594777`.
-- Pushed through `8594777`: `main`, `origin/main` and `origin/s17-checkpoint-a`
-  are all at `8594777`. This handoff's commit is local only, so
-  `s17-checkpoint-a` is one commit ahead of `main` and of its upstream. No push
-  of it was authorized.
-- PR #1 (https://github.com/robertguss/Iris/pull/1) is merged: `main` was
-  fast-forwarded from `9235c6e` to `8594777` (29 commits, no merge commit), and
-  GitHub marked the PR `MERGED` at 21:25:02 UTC with merge commit `8594777`.
-- Verify passed on `8594777` both as the pull request (run 36351093637) and on
-  `main` (run 36351648014), each on the first attempt.
+- Branch: `lifecycle-design`, local only, with no upstream. It was created at
+  `8d2cfc7` (the previous handoff) at the owner's choice.
+- Reviewed through `4bf412a`. This handoff is committed after it.
+- Pushed through `8594777` only: `main`, `origin/main` and
+  `origin/s17-checkpoint-a` are at `8594777`. Local `s17-checkpoint-a` is at
+  `8d2cfc7`, one ahead of its upstream. `lifecycle-design` holds `8d2cfc7`,
+  `f83688e`, `4bf412a` and this handoff, none pushed. No push was authorized.
+- PR #1 is merged (`8594777`). No new pull request exists.
 - The working tree was clean apart from this handoff before its commit.
 
-Re-check HEAD, the working tree and the remote (`git status`, `git log -3`,
-`git ls-remote origin`, `gh pr view 1`) before relying on any of this.
+Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
+`git ls-remote origin`) before relying on any of this.
 
 ## 2. Read these first
 
-- `docs/decisions.md`: "Proposed architecture, not yet selected" (with its
-  status notes), "Open decisions", then the last three entries: "Reference
-  application current-state read", "Documentation hygiene" and "Architecture
-  table status".
-- `docs/design-spec.md`: "How to interpret and maintain this spec", S10, S11,
-  then S17: "Operation sequence" (its follow-up row), "Ownership boundaries"
-  (the "Deferred to a lifecycle pass" bullet) and "Owner decisions".
-- `apps/reference/README.md`: commands, operations, verification matrix, probes
-  and limits.
-- `docs/design-review-brief.md`: how independent design reviews are run, if the
-  next chunk is a design.
-- `.github/workflows/verify.yml`: what CI runs.
+- `docs/design-spec.md` S18 "Reference application lifecycle", in full: current
+  behavior, recommendations, acceptance checks, the ten owner choices, and the
+  review dispositions.
+- `docs/reviews/astra-s18-all-01.md`: the design review behind S18's revision.
+- `docs/decisions.md`: "Reference application lifecycle — September 27, 2026",
+  and "Open decisions".
+- `docs/design-spec.md`: "How to interpret and maintain this spec", S14 (caller
+  loss), S17 "Ownership boundaries" and "Operation sequence".
+- `apps/reference/README.md`: commands and limits.
+- `docs/design-review-brief.md`: if another design is reviewed.
 
 ## 3. Context
 
-The owner answered three questions this session, one at a time, each from
-options the driver offered:
+The owner answered two questions this session, one at a time, each from offered
+options:
 
-- **Unpushed commits and PR #1:** "Push, then merge". The option read: push the
-  three commits, watch CI, then merge PR #1 into `main`, fast-forward only as
-  the PR recommends.
-- **`HANDOFF.md` on `main`:** "Keep it on main". The option read: fast-forward
-  `main` to `8594777` exactly as pushed, so `main` carries `HANDOFF.md`, which
-  later handoffs keep overwriting.
-- **Next chunk:** "Merge only". The option read: stop after the push and merge,
-  and choose the follow-up in a later session. So no follow-up is chosen yet
-  (section 9).
+- **Next follow-up:** "Lifecycle pass" (over the invitations design and the
+  remaining documentation hygiene).
+- **Branch:** "New branch at 8d2cfc7": a new local branch from the handoff
+  commit, keeping the handoff without cherry-picking or pushing. A pull request
+  needs a separate go-ahead.
 
 How the chunk was shaped:
 
-- **Fast-forward, not a GitHub merge button:** "Rebase and merge" would create
-  new SHAs, which the design record cites; "Squash" and "Create a merge commit"
-  would change `main`'s linear history. The driver ran
-  `git merge --ff-only 8594777` on local `main`, then pushed the explicit SHA to
-  `refs/heads/main`. GitHub detected the PR's head on its base and marked the PR
-  merged by itself; nothing was closed by hand.
-- **PR body left stale, by agreement:** PR #1's description still has a "Merging
-  (not yet authorized)" heading, says the branch is "26 commits ahead" of `main`
-  (it was 29 at the merge), says the tracked `HANDOFF.md` is `fc3d17f`'s copy
-  and that a newer handoff "is not pushed yet" (the merged copy is `8594777`'s).
-  Its verification and head claims describe `0b50249`, not the merged head. The
-  oracle agreed at plan review that updating it was not needed for the merge;
-  any edit needs the owner and a reviewed text (section 6).
-- **Handoff stays local:** no push was authorized beyond the three commits, so
-  this handoff's commit exists only on the local `s17-checkpoint-a`.
+- **Design, not implementation:** S18 follows S17's pattern: status Proposed,
+  current behavior cited to source at `8d2cfc7`, recommendations that are the
+  driver's, acceptance checks for a later implementation, and owner choices in a
+  table. Nothing in S18 is accepted direction until the owner decides it.
+- **Same reviewer twice:** the oracle reviewed the plan and diffs and also did
+  the brief-style design review (all three tracks). At plan review it judged
+  that acceptable if disclosed; S18 and the report both disclose it. A fresh
+  independent reviewer remains optional.
+- **Evidence probes stayed outside the checkout:** the driver's journal-mode
+  probe (Python SQLite 3.53.4, not the application's libsqlite3-sys 0.37.0
+  build) and the oracle's probes (hard-link publication, reset with a live
+  connection, WAL sidecars, tempfile after SIGTERM, Vite proxy selection). S18
+  states their limits.
 
 ## 4. Agreed chunk and acceptance
 
-- **Objective:** push `90caff5`, `bdf8513` and `8594777` to PR #1, get CI green
-  on that head, fast-forward `main` to `8594777`, confirm the PR is merged, and
-  watch `main`'s push run.
-- **Exclusions:** any repository file change in the step; any PR title, body,
-  comment or approval; GitHub's merge buttons; branch deletion (the remote and
-  local `s17-checkpoint-a` stay, as does local `docs/s17-reference-app`); CI
-  reruns; any follow-up chunk work; pushing this handoff.
-- **Stopping condition:** step 1 accepted after an evidence review, then this
-  handoff. The boundary did not move.
-- **Disposition:** `accepted`. Step 1 made no commit: its outcome is the remote
-  state in section 1.
+- **Objective:** a documentation-only lifecycle design (S18) covering persistent
+  storage, seed policy, SQLite journal mode, worker supervision and one
+  development command; an independent-style design review preserved with
+  dispositions; this handoff.
+- **Exclusions:** any code, test, script, dependency, CI, migration or wire
+  change; any edit under `experiments/`; implementing any recommendation; push,
+  pull request, PR #1 edits, branch deletion, CI reruns; the invitations design
+  (only its worker constraints are noted); retiring frozen experiments.
+- **Stopping condition:** after step 2 and this handoff. The boundary did not
+  move.
+- **Disposition:** `accepted`.
+  - Step 1, `f83688e`: S18 draft, pointers in S10, S11 and S17, "Last updated"
+    corrected to September 27, change record, decision entry.
+  - Step 2, `4bf412a`: review preserved as `docs/reviews/astra-s18-all-01.md`,
+    S18 revised, "Review of the lifecycle proposal" subsection.
 
 ## 5. Verification and review
 
-Environment: macOS, `git` and `gh` against GitHub. Raw evidence is in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/5f627447-348f-4cce-bab4-e70a69ceab52/scratchpad/`
-(temporary; below, `scratchpad/`), in `evidence/` numbered 01 to 06, with the
-review prompts beside it.
+Environment: macOS; no application code changed, so no test suite was run and CI
+did not run (nothing pushed). Evidence is in
+`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/331764ef-8612-4d63-b584-c6072cd226d2/scratchpad/`
+(temporary; below, `scratchpad/`).
 
-| Claim                 | Evidence                                                                                                                                                                                                                                                             | Checked by                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Preconditions held    | `01-preconditions.txt`: HEAD `8594777` clean; remote topic `0b50249`; `main` and `origin/main` `9235c6e`, ancestors of HEAD; 29 commits, 0 merges. No branch protection or rulesets on `main`: the driver's and oracle's API checks at plan review, not in this file | Oracle: at plan review, and via reflog and range counts after                               |
-| Push                  | `02-push.txt`: `0b50249..8594777` to `s17-checkpoint-a` by explicit SHA; `gh` `headRefOid` `8594777`                                                                                                                                                                 | Oracle, live                                                                                |
-| CI green before merge | `03-pr-run.json`: run 36351093637, `pull_request`, head `8594777`, attempt 1, success; Socket checks pass (`03-pr-checks.txt`)                                                                                                                                       | Oracle: live records match; the synthetic merge checkout's tree equals `8594777`'s          |
-| Fast-forward merge    | `04-merge.txt`: `origin/main` re-checked at `9235c6e`; `--ff-only` to `8594777`; push `9235c6e..8594777` to `main`                                                                                                                                                   | Oracle, via reflog and `ls-remote`                                                          |
-| PR merged             | `05-confirm.txt`: all four remote refs at `8594777`; PR `MERGED`, merge commit `8594777`                                                                                                                                                                             | Oracle, live                                                                                |
-| CI green on `main`    | `06-main-run.json`: run 36351648014, `push`, `main`, head `8594777`, attempt 1, success                                                                                                                                                                              | Oracle: all 25 steps succeeded in both runs; compiler-error annotations are expected probes |
-
-No local test suite was run: no code changed, and CI ran the whole `verify`
-workflow on the merged revision.
+| Claim                     | Evidence                                                                                                                                                                                                                                                             | Checked by                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Formatting                | `prettier@3.9.9 --check --print-width 80 --prose-wrap always` on the changed Markdown, clean at each step                                                                                                                                                            | Oracle, independently, each review                             |
+| Links                     | `links.py` on the changed files: 148, then 152, then 155 local links, 0 broken (`scratchpad/evidence/02-links.txt`, `04-links-rereview.txt`, `06-links-step2.txt`); a seeded control on a `git archive` copy reported all six seeded breaks (`03-links-control.txt`) | Oracle reran the link check; inspected, not reran, the control |
+| Journal-mode probe        | `scratchpad/probe_journal.py`, output `evidence/01-journal-probe.txt`: rollback-journal writer fails after ~120 ms with a reader open; WAL commits                                                                                                                   | Driver-reported; the oracle ran its own WAL probes             |
+| Source citations          | Every `file:line` in S18 re-read against `8d2cfc7`; SQLx 0.9.0 option defaults from the local registry                                                                                                                                                               | Oracle inspected sources and pinned crates                     |
+| Review preserved verbatim | Body of `docs/reviews/astra-s18-all-01.md` byte-identical to the returned report (`evidence/05-astra-s18-all-01-original.md`) apart from the status note                                                                                                             | Oracle, independently                                          |
 
 Oracle verdicts:
 
-1. Chunk proposal and step 1 plan: sign-off, no findings. Advice, followed: keep
-   the local `--ff-only` merge but push `main` by explicit SHA; record run ID,
-   URL, event and workflow; a post-merge `main` failure would be recorded, not
-   repaired; leave the PR body untouched and record its staleness; keep raw
-   evidence.
-2. Step 1 evidence: sign-off, no findings.
+1. Chunk and step 1 plan: sign-off. One P3, accepted: read the worker's callers
+   (`main.rs`, `auth-demo.rs`).
+2. Step 1 diff: changes requested. Three P2s, all fixed: reset needs exclusive
+   ownership; lease expiry does not guarantee delivery; temporary directories
+   can survive a signal. Two P3s, fixed: narrow runtime-versus-test claims;
+   qualify the WAL comparison.
+3. Step 1 re-review: sign-off, no findings.
+4. Design review `astra-s18-all-01` (not a sign-off round): AS18-B-01 and
+   AS18-B-02 (significant), AS18-A-01 and AS18-C-01 (limited). All accepted;
+   S18's table records each disposition. None disputed, so none went to the
+   owner.
+5. Step 2 diff: sign-off, no findings.
 
 ## 6. Remaining work
 
-1. **The owner's choice of the next chunk (section 9).**
-2. **A follow-up design for invitation issuance and acceptance** (S17's
-   follow-up row).
-3. **A lifecycle design pass:** persistent storage, seed policy, journal mode,
-   worker supervision, one development command.
+1. **The owner's decisions on S18's ten choices (section 9).**
+2. **Authorization to implement S18,** once decided, probably in steps: storage
+   and initialization, reset and migrations, shutdown and session cleanup, then
+   the development command.
+3. **A follow-up design for invitation issuance and acceptance** (S17's
+   follow-up row), which must also settle worker restart policy and send
+   uncertainty per S18 recommendation 8.
 4. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
    probes are carried by the reference application.
-5. **The agent-interface CI flake:** it has not recurred (runs 36345360713,
-   36348053700, 36351093637 and 36351648014 passed on the first attempt). If it
-   does, diagnose the `members` scenario (`concurrent_last_owner_and_authority`
-   in `experiments/embedded-db/sqlite/tests/members.rs`, run through
-   `reproduce_scenario`). The experiment is frozen, so any fix needs the owner.
+5. **The agent-interface CI flake:** not recurred (runs 36345360713,
+   36348053700, 36351093637 and 36351648014 passed first time). If it does,
+   diagnose `concurrent_last_owner_and_authority` in
+   `experiments/embedded-db/sqlite/tests/members.rs`. Frozen; a fix needs the
+   owner.
 6. **Documentation hygiene, carried forward:**
-   - `docs/design-spec.md`'s "Last updated: September 26, 2026" line is older
-     than its change record's September 27 entries.
    - `experiments/embedded-db/README.md:64-66` describes Turso's migration as
-     one-version; the migrator applies two since `2b1e820`. The experiment is
-     frozen, so an edit needs the owner.
-   - PR #1's merged description is stale (section 3). Optional; editing it needs
-     the owner.
+     one-version; the migrator applies two since `2b1e820`. Frozen; needs the
+     owner.
+   - PR #1's merged description is stale. Optional; needs the owner.
+   - (Done this chunk: design-spec's "Last updated" date.)
 7. **Precompiled validators:** needed if a content security policy without
    `unsafe-eval` is adopted.
 8. **Caller loss beyond the browser:** a real disconnect or cancellation during
    a mutation (S14's focused validation items 2 and 3) is still untested.
+9. **Publishing `lifecycle-design`:** push and any pull request need the owner's
+   go-ahead.
 
 ## 7. Next chunk
 
 `proposed`. Nothing beyond this chunk is authorized.
 
-- **First action:** ask the owner the open questions in section 9, one at a
-  time, in that order, and wait for each answer before asking the next. Then
-  propose the chunk the answers authorize, in the first plan review.
-- **Acceptance:** set by those answers. If the invitations design is chosen: a
-  design section in S17's style, documentation only, reviewed through the
-  design-review brief, authorizing no implementation until the owner says so.
-  Any push or pull request needs its own go-ahead.
+- **First action:** ask the owner S18's choices (section 9), one at a time, in
+  table order, each with the recommended option first and the alternative
+  second. Record the answers in S18 ("Owner decisions" in S17's style) and the
+  decision record in a reviewed step. Then ask whether implementation is
+  authorized.
+- **Acceptance:** set by the answers. A decisions-only chunk is documentation;
+  an implementation chunk must meet S18's acceptance checks for the parts
+  authorized.
 
 ## 8. Decisions and authorizations in force
 
 - **The seven S17 owner decisions** in S17's "Owner decisions".
-- **Authorized and complete:** the CI prerequisite, checkpoints A and B, the
-  mutations' current-state read, the documentation hygiene pass, the
-  architecture table pass, and pushing and fast-forward merging PR #1 with
-  `HANDOFF.md` kept on `main`.
-- **Pushes:** none authorized. This session's push to `s17-checkpoint-a` and
-  `main`, through `8594777`, is spent; every push needs a fresh go-ahead.
-- **CI reruns:** rerunning a CI job or workflow needs the owner. Watching and
-  recording a run that a push triggers needs nothing further.
-- **Not authorized:** any further push or merge into `main`; a new pull request;
-  deleting `s17-checkpoint-a` locally or on the remote; invitations; the
-  lifecycle pass; retiring frozen experiments; editing `experiments/`; editing
-  PR #1.
-- **Decided in earlier chunks:** the choices in the decision record's dated
-  entries.
+- **This session:** the lifecycle pass as a design; the `lifecycle-design`
+  branch at `8d2cfc7`.
+- **Authorized and complete:** everything in the previous handoff's list, plus
+  this chunk's S18 design and review.
+- **Pushes:** none authorized; every push needs a fresh go-ahead.
+- **CI reruns:** need the owner.
+- **Not authorized:** implementing any of S18; any push or merge; a new pull
+  request; deleting `s17-checkpoint-a`, `lifecycle-design` or
+  `docs/s17-reference-app`; invitations; retiring frozen experiments; editing
+  `experiments/`; editing PR #1.
+- **Decided in earlier chunks:** the decision record's dated entries.
 - **Workflow:** the owner asked for oracle review before every commit. PR text
-  is reviewed before posting.
+  is reviewed before posting. Ask the owner one question per message.
 
 ## 9. Open questions for the user
 
-Ask one at a time, in this order.
+Ask one at a time, in this order (S18 "Lifecycle choices for the owner"). Each
+blocks the corresponding part of any S18 implementation, and together they block
+the next chunk:
 
-- Which follow-up should come next: the invitations design, the lifecycle pass,
-  the remaining documentation hygiene (section 6, item 6), or something else?
-  This blocks the next chunk.
-- Where should the next chunk's commits go: on `s17-checkpoint-a` (which already
-  carries this handoff's local commit, one ahead of `main`), or on a new branch
-  from `main` (which this handoff commit would then have to join, be
-  cherry-picked onto, or be left behind)? And is a new pull request wanted? A
-  third option: a new branch at the local handoff commit, which is already one
-  commit above `main`; that keeps the handoff without cherry-picking or pushing.
-  This blocks the next chunk's plan review, as section 7 says.
+1. Default for the development binary: disposable unless given a path, or
+   persistent by default?
+2. How the path is given: command-line argument, or an environment variable
+   stripped from the browser runner?
+3. Where the development command keeps data: gitignored `apps/reference/.dev/`,
+   or the per-user data directory?
+4. When seeds run: only during atomic initialization, or an explicit idempotent
+   seed command?
+5. Migration policy after persistence: append-only, or keep editing
+   `0001_initial.sql` and reset?
+6. Journal mode: rollback everywhere, checked at startup, or WAL for the
+   persistent database?
+7. Development command: a Node supervisor script (optionally an npm script), or
+   a process-runner dependency, Rust binary or Makefile?
+8. Session cleanup: a supervised periodic task once storage persists, or none
+   for now?
+9. Owners of a persistent database: one API at a time, or convergent concurrent
+   starts?
+10. Shutdown budget: an inner drain deadline inside the outer kill bound, or a
+    coarse stop that promises no drain?
+
+Then: is implementation authorized, and in which steps? Should
+`lifecycle-design` be pushed, and is a pull request wanted?
 
 ## 10. Operational state
 
-- **Running processes:** none. No servers or browser sessions were started this
-  session; both CI watches finished.
-- **PR #1:** merged at `8594777`. Don't edit it without the owner.
-- **Remote branches:** `main` and `s17-checkpoint-a`, both at `8594777`. Don't
-  delete `s17-checkpoint-a` without the owner.
-- **Local installs:** `experiments/agent-interface/node_modules` (gitignored) is
-  still present from an earlier session.
-- **Local branches:** `main` at `8594777`, tracking `origin/main`;
-  `docs/s17-reference-app` at `5ad417d` is an older branch; leave it.
-- **Retained evidence:** temporary, and possibly already deleted, under
-  `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`:
-  - this session's `5f627447-348f-4cce-bab4-e70a69ceab52/scratchpad/` (section
-    5: evidence, review prompts);
-  - the previous session's `730b5501-295c-4a77-86e8-91f6df19f8c8/scratchpad/`
-    (the architecture table review, `links.py`, `seed/`);
-  - `c354486e-9630-4d4b-9720-c4deb5e23ee7/scratchpad/` (the CI record for run
-    36348053700, the PR text);
-  - `8700f9fe-cfa6-4749-b371-63bb1793592f/scratchpad/` (about 2 GB, mostly
-    `step1/mutation-target`, a Cargo target safe to delete).
-
-  Any review directories the oracle created are under the system temp
-  directories.
-
+- **Running processes:** none started by the driver. The oracle ran scratch
+  probes only.
+- **Remote:** `main` and `s17-checkpoint-a` at `8594777`; PR #1 merged. Don't
+  edit or delete without the owner.
+- **Local branches:** `lifecycle-design` (this work, unpushed);
+  `s17-checkpoint-a` at `8d2cfc7`; `main` at `8594777`; `docs/s17-reference-app`
+  at `5ad417d` (older; leave it).
+- **Local installs:** `experiments/agent-interface/node_modules` and
+  `apps/reference/web/node_modules` (gitignored).
+- **Retained evidence (temporary, possibly already deleted):**
+  - this session's
+    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/331764ef-8612-4d63-b584-c6072cd226d2/scratchpad/`
+    (evidence 01–06, prompts, `probe_journal.py`, `links.py`, `s18.txt`,
+    `control/` — a full `git archive` copy for the link control, safe to
+    delete);
+  - the oracle's `/private/tmp/astra-s18-all-01-ew4q3nzy/` and
+    `/var/folders/f8/ft7ygqg92pj8qh0rwplbw2x80000gn/T/iris-s18-oracle-whe2dgpk/`;
+  - earlier sessions' scratchpads under
+    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`
+    (`5f627447…`, `730b5501…`, `c354486e…`, and `8700f9fe…`, about 2 GB, mostly
+    a Cargo target safe to delete).
 - **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
   `target/` and can leave a mutated artifact that a later run treats as current.
-  The experiment is frozen, so the risk is recorded rather than fixed.
+  Frozen; recorded rather than fixed.
 
 ## 11. Conventions and gotchas
 
@@ -236,11 +243,11 @@ Ask one at a time, in this order.
   - TypeScript under `apps/reference/web/src` is Prettier-formatted, except
     `generated.ts`, which is never formatted. `style.css` keeps its compact,
     unformatted style.
-- **Link checking:** `links.py` (in the `730b5501…` scratchpad, section 10)
-  takes Markdown paths relative to the repository root and applies GitHub-style
-  slugs. A seeded control needs a full copy of the tree
-  (`git archive HEAD | tar -x -C <dir>`, then the edited file copied over it);
-  in a partial copy, links to files not copied are reported as broken.
+- **Link checking:** `links.py` (in this session's scratchpad and the
+  `730b5501…` one, section 10) takes Markdown paths relative to the repository
+  root and applies GitHub-style slugs. A seeded control needs a full copy of the
+  tree (`git archive HEAD | tar -x -C <dir>`, then the edited file copied over
+  it); in a partial copy, links to files not copied are reported as broken.
 - **Frozen guides can be stale:** check the source before citing an experiment
   guide's description of its own implementation (see the Turso migration in
   section 6).
@@ -324,9 +331,8 @@ Ask one at a time, in this order.
 - **`crates/iris`:** add to it only what two operations demonstrably share,
   naming both.
 - **History and pushes:** history on `main` is linear. Never push without the
-  owner's go-ahead. `s17-checkpoint-a` tracks `origin/s17-checkpoint-a`, so a
-  bare `git push` would push this handoff's local commit to the merged PR's
-  branch; push only by explicit SHA and refspec.
+  owner's go-ahead. `s17-checkpoint-a` tracks `origin/s17-checkpoint-a`;
+  `lifecycle-design` has no upstream. Push only by explicit SHA and refspec.
 - **Panes:** the driver works in the left pane and the oracle in the right. The
   driver sends oracle prompts through a file.
 - **Scripted edits to wrapped Markdown:** Prettier's prose wrap moves line
@@ -358,6 +364,20 @@ Ask one at a time, in this order.
   uses it for any mergeable head whose commit status is not passing, failed
   checks included; read the checks themselves. `git rev-parse --short` takes one
   revision; with several it fails with "Needed a single revision".
+- **Oracle reviews that take long:** `herdr agent prompt --wait` can time out
+  (it did once at 580 s on the design review) while the oracle keeps working;
+  `herdr agent read` then refuses while the oracle is `working`. Run
+  `herdr agent wait <oracle> --timeout 580000`, then read. For long reports, ask
+  the oracle to write the report to a file and reply with its path.
+- **Preserving a review verbatim:** add only a status note after the H1, as
+  `docs/reviews/opus55-all-01.md` and `astra-s18-all-01.md` do, and check the
+  body with `diff` against the original after Prettier.
+- **Heading collisions:** S17 already has "Review of this proposal"; S18's is
+  "Review of the lifecycle proposal" so the anchors stay unique.
+- **Scripted section replacement:** S18 was drafted as unformatted text in a
+  scratch file and spliced between `## S18` and
+  `## References and design provenance`, then formatted. After the step 2 commit
+  that scratch source no longer matters; edit the committed section directly.
 
 ## 12. Skills
 

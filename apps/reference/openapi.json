@@ -131,14 +131,14 @@
         }
       }
     },
-    "/api/memberships/role": {
+    "/api/memberships/remove": {
       "post": {
-        "operationId": "changeMemberRole",
+        "operationId": "removeMember",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ChangeRoleRequest"
+                "$ref": "#/components/schemas/RemoveMemberRequest"
               }
             }
           },
@@ -146,7 +146,7 @@
         },
         "responses": {
           "200": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -162,7 +162,519 @@
                       ],
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/SuccessData"
+                          "$ref": "#/components/schemas/RemoveMemberSuccess"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "success"
+                          ]
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.invalid_request"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.unauthenticated"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.forbidden"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.csrf_refused"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.member_not_found"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.last_owner"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "iris.internal"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "failure"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "iris.unavailable"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "failure"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "memberships.remove_member"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-iris": {
+          "operation": "memberships.remove_member",
+          "prerequisites": {
+            "memberships.last_owner": "memberships.another_owner_required"
+          },
+          "recovery": {
+            "inspect": false,
+            "new_submission": "current authority and intent required",
+            "read": false,
+            "replay": false
+          },
+          "schema_version": 1
+        }
+      }
+    },
+    "/api/memberships/role": {
+      "post": {
+        "operationId": "changeMemberRole",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "data"
+                      ],
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ChangeRoleSuccess"
                         },
                         "kind": {
                           "type": "string",
@@ -194,7 +706,7 @@
             }
           },
           "400": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -249,7 +761,7 @@
             }
           },
           "401": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -304,7 +816,7 @@
             }
           },
           "403": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -403,7 +915,7 @@
             }
           },
           "404": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -458,7 +970,7 @@
             }
           },
           "409": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -513,7 +1025,7 @@
             }
           },
           "500": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -568,7 +1080,7 @@
             }
           },
           "503": {
-            "description": "S16 response",
+            "description": "Iris response",
             "content": {
               "application/json": {
                 "schema": {
@@ -670,6 +1182,17 @@
         },
         "additionalProperties": false
       },
+      "ChangeRoleSuccess": {
+        "type": "object",
+        "required": [
+          "completion"
+        ],
+        "properties": {
+          "completion": {
+            "$ref": "#/components/schemas/Completion"
+          }
+        }
+      },
       "Completion": {
         "type": "string",
         "enum": [
@@ -711,6 +1234,37 @@
           }
         }
       },
+      "RemoveMemberRequest": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "user_id"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "user_id": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemoveMemberSuccess": {
+        "type": "object",
+        "required": [
+          "completion"
+        ],
+        "properties": {
+          "completion": {
+            "$ref": "#/components/schemas/Completion"
+          }
+        }
+      },
       "Role": {
         "type": "string",
         "enum": [
@@ -733,17 +1287,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "SuccessData": {
-        "type": "object",
-        "required": [
-          "completion"
-        ],
-        "properties": {
-          "completion": {
-            "$ref": "#/components/schemas/Completion"
           }
         }
       }

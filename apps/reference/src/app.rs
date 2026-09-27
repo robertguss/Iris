@@ -84,34 +84,51 @@ fn collect_identity() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .split_for_parts()
 }
 
-pub fn identity_routes() -> Router<AppState> {
-    collect_identity().0
+struct Assembled {
+    identity: Router<AppState>,
+    operations: Vec<(Router<AppState>, http::Mount)>,
+    api: utoipa::openapi::OpenApi,
 }
 
-/// The application document; assembly runs without an identity provider.
-pub fn openapi() -> utoipa::openapi::OpenApi {
-    use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
-    let mut api = collect_identity().1;
-    api.merge(http::memberships::routes().1);
+/// The one checked assembly behind both the application and its export.
+/// Panics when a bridge, component, code or identifier is inconsistent.
+fn assemble() -> Assembled {
+    let (identity, mut api) = collect_identity();
     // No project license has been chosen; omit the inferred empty license.
     api.info.license = None;
     api.components
         .get_or_insert_with(Default::default)
-        .add_security_scheme(
-            "BrowserSession",
-            SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
-                "__Host-iris-session",
-                "Same-origin session and X-Iris-Csrf required. Explicit HTTP-loopback test mode uses iris-session-dev.",
-            ))),
-        );
-    api
+        .add_security_scheme("BrowserSession", identity::security_scheme());
+    let mut operations = Vec::new();
+    let mut entries = Vec::new();
+    for collected in http::memberships::collect() {
+        http::merge_checked(&mut api, collected.api);
+        entries.push(collected.entry);
+        operations.push((collected.router, collected.mount));
+    }
+    http::check_catalog(&api, &entries);
+    Assembled {
+        identity,
+        operations,
+        api,
+    }
 }
 
-/// Domain routes keep their envelope boundary outside the session layer.
+/// The application document; assembly runs without an identity provider.
+pub fn openapi() -> utoipa::openapi::OpenApi {
+    assemble().api
+}
+
+/// Each domain route keeps its envelope boundary outside its session layer.
 /// Unmatched routes fall back to a plain 404 outside every layer.
 pub fn app(auth: Auth) -> Router<AppState> {
-    auth.clone()
-        .layer(identity_routes())
-        .merge(http::memberships::authenticated(auth))
+    let assembled = assemble();
+    assembled
+        .operations
+        .into_iter()
+        .fold(
+            auth.clone().layer(assembled.identity),
+            |router, (operation, mount)| router.merge(mount(operation, auth.clone())),
+        )
         .fallback(|| async { StatusCode::NOT_FOUND })
 }

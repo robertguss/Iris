@@ -22,15 +22,17 @@ use tower_sessions::{
 
 struct Fixture {
     _dir: tempfile::TempDir,
-    provider: Child,
+    _provider: Provider,
     issuer: String,
     app: Router,
     store: Store,
 }
-impl Drop for Fixture {
+/// Owns the issuer from spawn, so a panic later in setup cannot leak it.
+struct Provider(Child);
+impl Drop for Provider {
     fn drop(&mut self) {
-        let _ = self.provider.kill();
-        let _ = self.provider.wait();
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
@@ -42,13 +44,15 @@ impl Fixture {
             "import {{startOidcProvider}} from '{}'; const p=await startOidcProvider({{port:0,redirectUri:'http://127.0.0.1:5173/api/auth/callback',testControls:true}}); console.log(p.issuer);",
             provider_path.display()
         );
-        let mut provider = Command::new("node")
-            .args(["--input-type=module", "-e", &script])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut provider = Provider(
+            Command::new("node")
+                .args(["--input-type=module", "-e", &script])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
         let mut issuer = String::new();
-        BufReader::new(provider.stdout.take().unwrap())
+        BufReader::new(provider.0.stdout.take().unwrap())
             .read_line(&mut issuer)
             .unwrap();
         let issuer = issuer.trim().to_owned();
@@ -86,7 +90,7 @@ impl Fixture {
         });
         Self {
             _dir: dir,
-            provider,
+            _provider: provider,
             issuer,
             app,
             store,
@@ -338,54 +342,59 @@ async fn session_login_csrf_logout_and_no_resurrection() {
         .unwrap();
     let mut bob = Browser::default();
     login(&f, &mut bob, "bob").await;
-    let (status, _, v) = send(
-        &f.app,
-        &mut bob,
-        "POST",
-        "/api/memberships/role",
-        change.clone(),
-        Some("http://127.0.0.1:5173"),
-        true,
-    )
-    .await;
-    assert_eq!(status, 403);
-    assert_eq!(v["code"], "memberships.forbidden");
-    for (origin, csrf) in [
-        (Some("http://127.0.0.1:5173"), false),
-        (Some("https://evil.example"), true),
+    for (path, body) in [
+        ("/api/memberships/role", change.clone()),
+        (
+            "/api/memberships/remove",
+            json!({"project_id":"41","user_id":"29"}),
+        ),
     ] {
+        let (status, _, v) = send(
+            &f.app,
+            &mut bob,
+            "POST",
+            path,
+            body.clone(),
+            Some("http://127.0.0.1:5173"),
+            true,
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(v["code"], "memberships.forbidden");
+        for (origin, csrf) in [
+            (Some("http://127.0.0.1:5173"), false),
+            (Some("https://evil.example"), true),
+        ] {
+            let (status, _, v) =
+                send(&f.app, &mut a, "POST", path, body.clone(), origin, csrf).await;
+            assert_eq!(status, 403);
+            assert_eq!(v["code"], "http.csrf_refused");
+        }
         let (status, _, v) = send(
             &f.app,
             &mut a,
             "POST",
-            "/api/memberships/role",
-            change.clone(),
-            origin,
-            csrf,
+            path,
+            body,
+            Some("http://127.0.0.1:5173"),
+            true,
         )
         .await;
-        assert_eq!(status, 403);
-        assert_eq!(v["code"], "http.csrf_refused");
+        assert_eq!(status, 200);
+        assert_eq!(v["kind"], "success");
+        assert_eq!(v["data"], json!({"completion":"acknowledged"}));
+        let role: Option<String> =
+            sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=41 AND user_id=29")
+                .fetch_optional(&f.store.pool)
+                .await
+                .unwrap();
+        let expected = if path.ends_with("role") {
+            Some("viewer")
+        } else {
+            None
+        };
+        assert_eq!(role.as_deref(), expected);
     }
-    let (status, _, v) = send(
-        &f.app,
-        &mut a,
-        "POST",
-        "/api/memberships/role",
-        change,
-        Some("http://127.0.0.1:5173"),
-        true,
-    )
-    .await;
-    assert_eq!(status, 200);
-    assert_eq!(v["kind"], "success");
-    assert_eq!(v["data"], json!({"completion":"acknowledged"}));
-    let role: String =
-        sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=41 AND user_id=29")
-            .fetch_one(&f.store.pool)
-            .await
-            .unwrap();
-    assert_eq!(role, "viewer");
     for (origin, csrf) in [
         (Some("http://127.0.0.1:5173"), false),
         (Some("https://evil.example"), true),

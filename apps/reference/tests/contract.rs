@@ -33,13 +33,19 @@ fn independent_inventory() {
         ("get", "/api/auth/callback", "callback"),
         ("post", "/api/auth/logout", "logout"),
         ("post", "/api/memberships/role", "changeMemberRole"),
+        ("post", "/api/memberships/remove", "removeMember"),
     ];
     expected.sort();
     assert_eq!(actual, expected);
-    let operation: Value =
-        serde_json::to_value(iris_reference::http::memberships::routes().1).unwrap();
-    assert_eq!(
-        doc["paths"]["/api/memberships/role"], operation["paths"]["/api/memberships/role"],
-        "merging must not alter the collected operation"
-    );
+    let collected = iris_reference::http::memberships::collect();
+    assert_eq!(collected.len(), 2);
+    for operation in collected {
+        let operation: Value = serde_json::to_value(operation.api).unwrap();
+        for (path, item) in operation["paths"].as_object().unwrap() {
+            assert_eq!(
+                &doc["paths"][path], item,
+                "merging must not alter the collected operation"
+            );
+        }
+    }
 }

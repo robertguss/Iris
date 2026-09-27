@@ -1,29 +1,26 @@
 //! HTTP adapter for membership operations, ported from the S16 experiment.
+use super::{
+    Collected, Mapping, Operation, Recovery, RequestId, Shared, boundary, parse_id, shared,
+    success_schemas,
+};
 use crate::{
     app::AppState,
     domains::memberships as action,
-    identity::{Actor, ApiError, Auth, ErrorCode},
+    identity::{Actor, ApiError},
 };
 use action::{Acknowledged, ActionError, FailureKind, Rejection, StopReason};
 use axum::{
-    Extension, Json, Router,
-    extract::{Request, State, rejection::JsonRejection},
-    http::{Method, StatusCode},
-    middleware::{self, Next},
-    response::{IntoResponse, Response},
+    Extension, Json,
+    extract::{State, rejection::JsonRejection},
+    http::Method,
+    response::Response,
 };
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use sqlx::SqliteConnection;
 use strum::VariantArray;
+use utoipa_axum::router::OpenApiRouter;
 
-const OPERATION: &str = "memberships.change_role";
-const PUBLIC_ID: &str = "changeMemberRole";
-const VERSION: u32 = 1;
-
-#[derive(Clone)]
-struct RequestId(String);
-
-#[derive(Clone, Copy, Deserialize, serde::Serialize, utoipa::ToSchema)]
+#[derive(Clone, Copy, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     Owner,
@@ -41,32 +38,41 @@ pub struct ChangeRoleRequest {
     pub role: Role,
 }
 
-/// Positive canonical decimal IDs only; the caller maps failure to its refusal.
-fn parse_id(value: &str) -> Result<i64, ()> {
-    let parsed = value
-        .parse::<i64>()
-        .ok()
-        .filter(|n| *n > 0 && n.to_string() == value);
-    parsed.ok_or(())
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveMemberRequest {
+    #[schema(pattern = "^[1-9][0-9]*$", max_length = 19)]
+    pub project_id: String,
+    #[schema(pattern = "^[1-9][0-9]*$", max_length = 19)]
+    pub user_id: String,
 }
 
-#[derive(Clone, Copy, strum::VariantArray)]
-enum Shared {
-    Invalid,
-    Unauthenticated,
-    Csrf,
-    Internal,
-    Unavailable,
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum Completion {
+    Acknowledged,
+}
+#[derive(Serialize, utoipa::ToSchema)]
+struct ChangeRoleSuccess {
+    completion: Completion,
+}
+#[derive(Serialize, utoipa::ToSchema)]
+struct RemoveMemberSuccess {
+    completion: Completion,
+}
+fn change_role_success(_: Acknowledged) -> ChangeRoleSuccess {
+    ChangeRoleSuccess {
+        completion: Completion::Acknowledged,
+    }
+}
+fn remove_member_success(_: Acknowledged) -> RemoveMemberSuccess {
+    RemoveMemberSuccess {
+        completion: Completion::Acknowledged,
+    }
 }
 
-struct Mapping {
-    status: u16,
-    kind: &'static str,
-    code: Option<&'static str>,
-    message: &'static str,
-}
-
-fn rejection(r: Rejection) -> Mapping {
+/// Both operations permit the same rejections, so they share one mapping.
+fn membership_rejection(r: Rejection) -> Mapping {
     let status = match r {
         Rejection::Forbidden => 403,
         Rejection::MemberNotFound => 404,
@@ -78,110 +84,64 @@ fn rejection(r: Rejection) -> Mapping {
         kind: "rejected",
         code: Some(descriptor.code),
         message: descriptor.summary,
+        rule: descriptor.rule,
+        prerequisite: descriptor.prerequisite,
     }
 }
 
-fn shared(s: Shared) -> Mapping {
-    let (status, kind, code, message) = match s {
-        Shared::Invalid => (
-            400,
-            "refused",
-            "http.invalid_request",
-            "Provide valid request fields.",
-        ),
-        Shared::Unauthenticated => (
-            401,
-            "refused",
-            "http.unauthenticated",
-            "Sign in to continue.",
-        ),
-        Shared::Csrf => (
-            403,
-            "refused",
-            "http.csrf_refused",
-            "Refresh the session and provide its CSRF token.",
-        ),
-        Shared::Internal => (
-            500,
-            "failure",
-            "iris.internal",
-            "A normal response could not be produced.",
-        ),
-        Shared::Unavailable => (
-            503,
-            "failure",
-            "iris.unavailable",
-            "The service is unavailable.",
-        ),
-    };
-    Mapping {
-        status,
-        kind,
-        code: Some(code),
-        message,
-    }
-}
+const ACKNOWLEDGED: Mapping = Mapping {
+    status: 200,
+    kind: "success",
+    code: None,
+    message: "Commit acknowledged",
+    rule: None,
+    prerequisite: None,
+};
 
-fn success() -> Mapping {
-    Mapping {
-        status: 200,
-        kind: "success",
-        code: None,
-        message: "Commit acknowledged",
-    }
-}
+const RESUBMIT_ONLY: Recovery = Recovery {
+    inspect: false,
+    read: false,
+    replay: false,
+    new_submission: "current authority and intent required",
+};
 
-#[derive(serde::Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-enum Completion {
-    Acknowledged,
-}
-#[derive(serde::Serialize, utoipa::ToSchema)]
-struct SuccessData {
-    completion: Completion,
-}
-fn project(_: Acknowledged) -> SuccessData {
-    SuccessData {
-        completion: Completion::Acknowledged,
-    }
-}
+pub(crate) static CHANGE_ROLE: Operation<Rejection> = Operation {
+    name: "memberships.change_role",
+    public_id: "changeMemberRole",
+    handler: "change_role_endpoint",
+    method: Method::POST,
+    success: ACKNOWLEDGED,
+    success_schema: "ChangeRoleSuccess",
+    rejections: Rejection::VARIANTS,
+    rejection: membership_rejection,
+    recovery: RESUBMIT_ONLY,
+};
 
-impl Mapping {
-    fn render(&self, id: &RequestId, data: Option<SuccessData>) -> Response {
-        let mut body = json!({"schema_version": VERSION, "operation": OPERATION, "request_id": id.0, "kind": self.kind});
-        if let Some(code) = self.code {
-            body["code"] = json!(code);
-            body["message"] = json!(self.message);
-        } else {
-            body["data"] = serde_json::to_value(data.expect("success projection")).unwrap();
-        }
-        (StatusCode::from_u16(self.status).unwrap(), Json(body)).into_response()
-    }
+pub(crate) static REMOVE_MEMBER: Operation<Rejection> = Operation {
+    name: "memberships.remove_member",
+    public_id: "removeMember",
+    handler: "remove_member_endpoint",
+    method: Method::POST,
+    success: ACKNOWLEDGED,
+    success_schema: "RemoveMemberSuccess",
+    rejections: Rejection::VARIANTS,
+    rejection: membership_rejection,
+    recovery: RESUBMIT_ONLY,
+};
 
-    fn schema(&self) -> Value {
-        let mut schema = json!({"type":"object", "required":["schema_version","operation","request_id","kind"], "properties": {
-            "schema_version":{"type":"integer","enum":[VERSION]},
-            "operation":{"type":"string","enum":[OPERATION]},
-            "request_id":{"type":"string","pattern":"^req_[0-9a-f]{32}$"},
-            "kind":{"type":"string","enum":[self.kind]}
-        }});
-        let required = schema["required"].as_array_mut().unwrap();
-        if let Some(code) = self.code {
-            required.extend([json!("code"), json!("message")]);
-            schema["properties"]["code"] = json!({"type":"string","enum":[code]});
-            schema["properties"]["message"] = json!({"type":"string"});
-        } else {
-            required.push(json!("data"));
-            schema["properties"]["data"] = json!({"$ref":"#/components/schemas/SuccessData"});
-        }
-        schema
-    }
-}
-
-fn reply(id: &RequestId, result: Result<Acknowledged, ActionError>) -> Response {
+fn reply<S: Serialize>(
+    op: &Operation<Rejection>,
+    id: &RequestId,
+    result: Result<Acknowledged, ActionError>,
+    project: fn(Acknowledged) -> S,
+) -> Response {
     match result {
-        Ok(ack) => success().render(id, Some(project(ack))),
-        Err(ActionError::Rejected(r)) => rejection(r).render(id, None),
+        Ok(ack) => op.render(
+            &op.success,
+            id,
+            Some(serde_json::to_value(project(ack)).unwrap()),
+        ),
+        Err(ActionError::Rejected(r)) => op.render(&(op.rejection)(r), id, None),
         Err(ActionError::Failed {
             primary:
                 StopReason::Execution {
@@ -189,9 +149,20 @@ fn reply(id: &RequestId, result: Result<Acknowledged, ActionError>) -> Response 
                     ..
                 },
             ..
-        }) => shared(Shared::Unavailable).render(id, None),
-        Err(ActionError::Failed { .. }) => shared(Shared::Internal).render(id, None),
+        }) => op.render(&shared(Shared::Unavailable), id, None),
+        Err(ActionError::Failed { .. }) => op.render(&shared(Shared::Internal), id, None),
     }
+}
+
+/// A fresh connection, or the shared failure for not opening one.
+async fn open(state: &AppState) -> Result<SqliteConnection, Shared> {
+    crate::app::connect(&state.database).await.map_err(|e| {
+        if crate::app::is_busy(&e) {
+            Shared::Unavailable
+        } else {
+            Shared::Internal
+        }
+    })
 }
 
 #[utoipa::path(post, path = "/api/memberships/role", request_body = ChangeRoleRequest, security(("BrowserSession" = [])))]
@@ -201,15 +172,16 @@ async fn change_role_endpoint(
     actor: Result<Actor, ApiError>,
     body: Result<Json<ChangeRoleRequest>, JsonRejection>,
 ) -> Response {
+    let op = &CHANGE_ROLE;
     let Ok(actor) = actor else {
-        return shared(Shared::Unauthenticated).render(&id, None);
+        return op.render(&shared(Shared::Unauthenticated), &id, None);
     };
     let Ok(Json(body)) = body else {
-        return shared(Shared::Invalid).render(&id, None);
+        return op.render(&shared(Shared::Invalid), &id, None);
     };
     let (Ok(project_id), Ok(user_id)) = (parse_id(&body.project_id), parse_id(&body.user_id))
     else {
-        return shared(Shared::Invalid).render(&id, None);
+        return op.render(&shared(Shared::Invalid), &id, None);
     };
     let input = action::ChangeRole {
         project_id,
@@ -220,135 +192,65 @@ async fn change_role_endpoint(
             Role::Viewer => action::MemberRole::Viewer,
         },
     };
-    let mut conn = match crate::app::connect(&state.database).await {
+    let mut conn = match open(&state).await {
         Ok(conn) => conn,
-        Err(e) => {
-            return shared(if crate::app::is_busy(&e) {
-                Shared::Unavailable
-            } else {
-                Shared::Internal
-            })
-            .render(&id, None);
-        }
+        Err(failure) => return op.render(&shared(failure), &id, None),
     };
-    reply(&id, action::change_role(&mut conn, &actor, input).await)
+    let result = action::change_role(&mut conn, &actor, input).await;
+    reply(op, &id, result, change_role_success)
 }
 
-/// Explicit ecosystem registration; assembly/export runs independently of docs serving.
-pub fn routes() -> (Router<AppState>, utoipa::openapi::OpenApi) {
-    let (router, mut api) = utoipa_axum::router::OpenApiRouter::new()
-        .routes(utoipa_axum::routes!(change_role_endpoint))
-        .split_for_parts();
-    bridge(&mut api);
-    (router, api)
+#[utoipa::path(post, path = "/api/memberships/remove", request_body = RemoveMemberRequest, security(("BrowserSession" = [])))]
+async fn remove_member_endpoint(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    actor: Result<Actor, ApiError>,
+    body: Result<Json<RemoveMemberRequest>, JsonRejection>,
+) -> Response {
+    let op = &REMOVE_MEMBER;
+    let Ok(actor) = actor else {
+        return op.render(&shared(Shared::Unauthenticated), &id, None);
+    };
+    let Ok(Json(body)) = body else {
+        return op.render(&shared(Shared::Invalid), &id, None);
+    };
+    let (Ok(project_id), Ok(user_id)) = (parse_id(&body.project_id), parse_id(&body.user_id))
+    else {
+        return op.render(&shared(Shared::Invalid), &id, None);
+    };
+    let input = action::RemoveMember {
+        project_id,
+        user_id,
+    };
+    let mut conn = match open(&state).await {
+        Ok(conn) => conn,
+        Err(failure) => return op.render(&shared(failure), &id, None),
+    };
+    let result = action::remove_member(&mut conn, &actor, input).await;
+    reply(op, &id, result, remove_member_success)
 }
 
-fn bridge(api: &mut utoipa::openapi::OpenApi) {
-    use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
-    use utoipa::{PartialSchema, ToSchema};
-    assert_eq!(
-        api.paths.paths.len(),
-        1,
-        "S16 requires exactly one collected path"
-    );
-    let item = api.paths.paths.values_mut().next().unwrap();
-    let value = serde_json::to_value(&*item).unwrap();
-    assert_eq!(
-        value
-            .as_object()
-            .unwrap()
-            .keys()
-            .filter(|k| [
-                "get", "post", "put", "patch", "delete", "head", "options", "trace"
-            ]
-            .contains(&k.as_str()))
-            .count(),
-        1,
-        "S16 requires exactly one operation"
-    );
-    let operation = item.post.as_mut().expect("S16 requires a collected POST");
-    assert_eq!(
-        operation.operation_id.as_deref(),
-        Some("change_role_endpoint"),
-        "S16 unexpected collected handler identity"
-    );
-    operation.operation_id = Some(PUBLIC_ID.into());
-    let mut groups = std::collections::BTreeMap::<String, Vec<Value>>::new();
-    let mappings = std::iter::once(success())
-        .chain(Rejection::VARIANTS.iter().copied().map(rejection))
-        .chain(Shared::VARIANTS.iter().copied().map(shared));
-    let mut codes = std::collections::HashSet::new();
-    for mapping in mappings {
-        if let Some(code) = mapping.code {
-            assert!(codes.insert(code), "duplicate public code");
-        }
-        groups
-            .entry(mapping.status.to_string())
-            .or_default()
-            .push(mapping.schema());
-    }
-    operation.responses = serde_json::from_value(json!(groups.into_iter().map(|(status, branches)| (status, json!({"description":"S16 response", "content":{"application/json":{"schema":{"oneOf":branches}}}}))).collect::<std::collections::BTreeMap<_,_>>())).unwrap();
-    operation.extensions = Some(serde_json::from_value(json!({"x-iris": {
-        "operation":OPERATION, "schema_version":VERSION,
-        "recovery":{"inspect":false,"read":false,"replay":false,"new_submission":"current authority and intent required"},
-        "prerequisites":Rejection::VARIANTS.iter().filter_map(|r| r.descriptor().prerequisite.map(|p| (r.descriptor().code,p))).collect::<std::collections::BTreeMap<_,_>>()
-    }})).unwrap());
-    let components = api.components.get_or_insert_with(Default::default);
-    components.add_security_scheme("BrowserSession", SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
-        "__Host-iris-session", "Same-origin session and X-Iris-Csrf required. Explicit HTTP-loopback test mode uses iris-session-dev."
-    ))));
-    components
-        .schemas
-        .insert("SuccessData".into(), SuccessData::schema());
-    let mut dependencies = Vec::new();
-    SuccessData::schemas(&mut dependencies);
-    components.schemas.extend(dependencies);
+/// Explicit ecosystem registration: each operation is collected alone.
+pub fn change_role() -> Collected {
+    super::collect(
+        &CHANGE_ROLE,
+        OpenApiRouter::new().routes(utoipa_axum::routes!(change_role_endpoint)),
+        success_schemas::<ChangeRoleSuccess>(),
+        |router, auth| boundary(auth.layer(router), &CHANGE_ROLE),
+    )
 }
 
-/// Apply only to this collected one-operation router. The method check keeps
-/// method-not-allowed outside this operation's contract.
-pub fn authenticated(auth: Auth) -> Router<AppState> {
-    boundary(auth.layer(routes().0))
+pub fn remove_member() -> Collected {
+    super::collect(
+        &REMOVE_MEMBER,
+        OpenApiRouter::new().routes(utoipa_axum::routes!(remove_member_endpoint)),
+        success_schemas::<RemoveMemberSuccess>(),
+        |router, auth| boundary(auth.layer(router), &REMOVE_MEMBER),
+    )
 }
 
-fn boundary(router: Router<AppState>) -> Router<AppState> {
-    router.route_layer(middleware::from_fn(
-        async |mut request: Request, next: Next| {
-            if request.method() != Method::POST {
-                return next.run(request).await;
-            }
-            let mut bytes = [0u8; 16];
-            if getrandom::fill(&mut bytes).is_err() {
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-            let id = RequestId(format!(
-                "req_{}",
-                bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
-            ));
-            request.extensions_mut().insert(id.clone());
-            let response = next.run(request).await;
-            let mapping = match response.extensions().get::<ErrorCode>() {
-                Some(ErrorCode::Csrf) => Some(Shared::Csrf),
-                Some(ErrorCode::Unauthorized) => Some(Shared::Unauthenticated),
-                Some(ErrorCode::Internal) => Some(Shared::Internal),
-                _ => None,
-            };
-            if let Some(mapping) = mapping {
-                let mut rendered = shared(mapping).render(&id, None);
-                // Preserve cookies/no-store, not the old body's length or MIME type.
-                for (name, value) in response.headers() {
-                    if name != axum::http::header::CONTENT_TYPE
-                        && name != axum::http::header::CONTENT_LENGTH
-                    {
-                        rendered.headers_mut().append(name, value.clone());
-                    }
-                }
-                rendered
-            } else {
-                response
-            }
-        },
-    ))
+pub fn collect() -> Vec<Collected> {
+    vec![change_role(), remove_member()]
 }
 
 #[cfg(test)]

@@ -24,6 +24,11 @@ pub struct ChangeRole {
     pub role: MemberRole,
 }
 
+pub struct RemoveMember {
+    pub project_id: i64,
+    pub user_id: i64,
+}
+
 #[derive(Debug)]
 pub struct Acknowledged;
 
@@ -133,12 +138,38 @@ fn finalize(primary: StopReason, rollback: Result<(), sqlx::Error>) -> ActionErr
     }
 }
 
-/// Owns one SQLite transaction. Callers must dispose of the fresh connection
-/// after failures; no safe-reuse or task-loss guarantee is made here.
 pub async fn change_role(
     conn: &mut SqliteConnection,
     actor: &Actor,
     input: ChangeRole,
+) -> Result<Acknowledged, ActionError> {
+    apply(
+        conn,
+        actor,
+        input.project_id,
+        input.user_id,
+        Some(input.role),
+    )
+    .await
+}
+
+pub async fn remove_member(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    input: RemoveMember,
+) -> Result<Acknowledged, ActionError> {
+    apply(conn, actor, input.project_id, input.user_id, None).await
+}
+
+/// Owns one SQLite transaction. Callers must dispose of the fresh connection
+/// after failures; no safe-reuse or task-loss guarantee is made here.
+/// `None` removes the membership; that encoding stays private.
+async fn apply(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    project_id: i64,
+    user_id: i64,
+    target: Option<MemberRole>,
 ) -> Result<Acknowledged, ActionError> {
     let mut tx = conn
         .begin_with("BEGIN IMMEDIATE")
@@ -151,18 +182,23 @@ pub async fn change_role(
         })?;
     let body: Result<(), StopReason> = async {
         let owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM memberships WHERE project_id=? AND user_id=? AND role='owner')")
-            .bind(input.project_id).bind(actor.0).fetch_one(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
+            .bind(project_id).bind(actor.0).fetch_one(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
         if !owner { return Err(StopReason::Rejected(Rejection::Forbidden)); }
         let role: Option<String> = sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=? AND user_id=?")
-            .bind(input.project_id).bind(input.user_id).fetch_optional(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
+            .bind(project_id).bind(user_id).fetch_optional(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
         let role = role.ok_or(StopReason::Rejected(Rejection::MemberNotFound))?;
-        if role == "owner" && input.role != MemberRole::Owner {
+        if role == "owner" && target != Some(MemberRole::Owner) {
             let owners: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM memberships WHERE project_id=? AND role='owner'")
-                .bind(input.project_id).fetch_one(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
+                .bind(project_id).fetch_one(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
             if owners == 1 { return Err(StopReason::Rejected(Rejection::LastOwner)); }
         }
-        sqlx::query("UPDATE memberships SET role=? WHERE project_id=? AND user_id=?")
-            .bind(input.role.as_str()).bind(input.project_id).bind(input.user_id).execute(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
+        if let Some(role) = target {
+            sqlx::query("UPDATE memberships SET role=? WHERE project_id=? AND user_id=?")
+                .bind(role.as_str()).bind(project_id).bind(user_id).execute(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
+        } else {
+            sqlx::query("DELETE FROM memberships WHERE project_id=? AND user_id=?")
+                .bind(project_id).bind(user_id).execute(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
+        }
         Ok(())
     }.await;
     match body {

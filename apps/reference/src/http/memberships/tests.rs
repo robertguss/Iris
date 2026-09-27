@@ -1,9 +1,17 @@
 use super::*;
 use crate::app::{MIGRATOR, connect, seed};
-use crate::identity::store::Store;
+use crate::identity::{Auth, ErrorCode, store::Store};
 use action::{ChangeRole, Cleanup, MemberRole, Stage};
-use axum::{body::Body, http::Request as HttpRequest};
+use axum::{
+    Router,
+    body::Body,
+    extract::Request,
+    http::{Request as HttpRequest, StatusCode},
+    middleware::{self, Next},
+    response::IntoResponse,
+};
 use http_body_util::BodyExt;
+use serde_json::{Value, json};
 use sqlx::Connection;
 use std::{
     io::{BufRead, BufReader},
@@ -15,17 +23,25 @@ use tower_sessions::{Session, SessionStore, session::Record};
 const PATH: &str = "/api/memberships/role";
 const ORIGIN: &str = "http://127.0.0.1:5173";
 
+/// S16's single mounted operation, now through its collected mount.
+fn authenticated(auth: Auth) -> Router<AppState> {
+    let collected = change_role();
+    (collected.mount)(collected.router, auth)
+}
+
 struct Fixture {
     _dir: tempfile::TempDir,
-    provider: Child,
+    _provider: Provider,
     state: AppState,
     auth: Auth,
     store: Store,
 }
-impl Drop for Fixture {
+/// Owns the issuer from spawn, so a panic later in setup cannot leak it.
+struct Provider(Child);
+impl Drop for Provider {
     fn drop(&mut self) {
-        let _ = self.provider.kill();
-        let _ = self.provider.wait();
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 impl Fixture {
@@ -36,13 +52,15 @@ impl Fixture {
                 .join("../../experiments/api-slice/checks/oidc-provider.mjs")
                 .display()
         );
-        let mut provider = Command::new("node")
-            .args(["--input-type=module", "-e", &script])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut provider = Provider(
+            Command::new("node")
+                .args(["--input-type=module", "-e", &script])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
         let mut issuer = String::new();
-        BufReader::new(provider.stdout.take().unwrap())
+        BufReader::new(provider.0.stdout.take().unwrap())
             .read_line(&mut issuer)
             .unwrap();
         let dir = tempfile::tempdir().unwrap();
@@ -78,7 +96,7 @@ impl Fixture {
         .unwrap();
         Self {
             _dir: dir,
-            provider,
+            _provider: provider,
             state: AppState {
                 database,
                 now: crate::app::unix_time,
@@ -136,7 +154,7 @@ async fn collect(response: Response) -> (u16, Value) {
     (status, value)
 }
 fn validate(status: u16, body: &Value) -> bool {
-    let doc = serde_json::to_value(routes().1).unwrap();
+    let doc = serde_json::to_value(change_role().api).unwrap();
     let mut schema =
         doc["paths"][PATH]["post"]["responses"][status.to_string()]["content"]["application/json"]
             ["schema"]
@@ -158,7 +176,7 @@ fn expect(response: &(u16, Value), status: u16, kind: &str, code: Option<&str>) 
 
 #[test]
 fn independent_contract() {
-    let doc = serde_json::to_value(routes().1).unwrap();
+    let doc = serde_json::to_value(change_role().api).unwrap();
     assert_eq!(doc["openapi"], "3.1.0");
     assert_eq!(
         doc["paths"].as_object().unwrap().keys().collect::<Vec<_>>(),
@@ -354,7 +372,7 @@ async fn session_save_failure_after_commit() {
     expect(&response, 200, "success", None);
     let reached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = reached.clone();
-    let inner = routes().0.layer(middleware::from_fn(
+    let inner = change_role().router.layer(middleware::from_fn(
         move |session: Session, req: Request, next: Next| {
             let flag = flag.clone();
             async move {
@@ -366,7 +384,7 @@ async fn session_save_failure_after_commit() {
             }
         },
     ));
-    let app = boundary(f.auth.clone().layer(inner)).with_state(f.state.clone());
+    let app = boundary(f.auth.clone().layer(inner), &CHANGE_ROLE).with_state(f.state.clone());
     let response = collect(
         app.oneshot(request(&alice, &body(29, "owner")))
             .await
@@ -440,7 +458,7 @@ async fn refusal_rewrite_preserves_cookie_headers() {
             response
         }),
     );
-    let response = boundary(router)
+    let response = boundary(router, &CHANGE_ROLE)
         .with_state(AppState {
             database: "unused".into(),
             now: crate::app::unix_time,
@@ -562,7 +580,7 @@ async fn unclassified_responses_stay_unclassified() {
                 }
             }),
         );
-        let response = boundary(router)
+        let response = boundary(router, &CHANGE_ROLE)
             .with_state(AppState {
                 database: "unused".into(),
                 now: crate::app::unix_time,
@@ -608,6 +626,7 @@ async fn failed_cleanup_never_projects_rejection() {
         },
     ] {
         let response = reply(
+            &CHANGE_ROLE,
             &RequestId("req_00000000000000000000000000000000".into()),
             Err(ActionError::Failed {
                 primary,
@@ -615,6 +634,7 @@ async fn failed_cleanup_never_projects_rejection() {
                     rollback_error: Some(FailureKind::Other),
                 },
             }),
+            change_role_success,
         );
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -671,4 +691,311 @@ async fn begin_and_commit_errors_do_not_claim_cleanup() {
     // covers this SQLite failure, not arbitrary commit ambiguity/task loss.
     conn.close().await.unwrap();
     assert_eq!(f.role(29).await, "editor");
+}
+
+const REMOVE: &str = "/api/memberships/remove";
+
+fn remove_request(cookie: &str, body: &str) -> HttpRequest<Body> {
+    let mut request = request(cookie, body);
+    *request.uri_mut() = REMOVE.parse().unwrap();
+    request
+}
+fn remove_body(user: i64) -> String {
+    json!({"project_id":"41", "user_id":user.to_string()}).to_string()
+}
+fn validate_remove(status: u16, body: &Value) -> bool {
+    let doc = serde_json::to_value(remove_member().api).unwrap();
+    let mut schema = doc["paths"][REMOVE]["post"]["responses"][status.to_string()]["content"]
+        ["application/json"]["schema"]
+        .clone();
+    schema["components"] = doc["components"].clone();
+    jsonschema::draft202012::new(&schema)
+        .unwrap()
+        .is_valid(body)
+}
+fn expect_remove(response: &(u16, Value), status: u16, kind: &str, code: Option<&str>) {
+    assert_eq!(response.0, status, "{response:?}");
+    assert_eq!(response.1["kind"], kind);
+    assert_eq!(response.1["operation"], "memberships.remove_member");
+    assert_eq!(response.1.get("code").and_then(Value::as_str), code);
+    assert!(
+        validate_remove(status, &response.1),
+        "schema rejected {response:?}"
+    );
+}
+async fn membership(f: &Fixture, user: i64) -> Option<String> {
+    sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=41 AND user_id=?")
+        .bind(user)
+        .fetch_optional(&f.store.pool)
+        .await
+        .unwrap()
+}
+
+#[test]
+fn remove_member_independent_contract() {
+    let doc = serde_json::to_value(remove_member().api).unwrap();
+    assert_eq!(
+        doc["paths"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        [REMOVE]
+    );
+    let op = &doc["paths"][REMOVE]["post"];
+    assert_eq!(op["operationId"], "removeMember");
+    assert_eq!(op["x-iris"]["operation"], "memberships.remove_member");
+    assert_eq!(op["x-iris"]["recovery"]["replay"], false);
+    assert_eq!(
+        op["x-iris"]["prerequisites"]["memberships.last_owner"],
+        "memberships.another_owner_required"
+    );
+    assert_eq!(
+        op["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/RemoveMemberRequest"
+    );
+    let mut actual = vec![];
+    for (status, response) in op["responses"].as_object().unwrap() {
+        for branch in response["content"]["application/json"]["schema"]["oneOf"]
+            .as_array()
+            .unwrap()
+        {
+            actual.push((
+                status.as_str(),
+                branch["properties"]["kind"]["enum"][0].as_str().unwrap(),
+                branch["properties"]["code"]["enum"][0]
+                    .as_str()
+                    .unwrap_or(""),
+            ));
+        }
+    }
+    let mut expected = vec![
+        ("200", "success", ""),
+        ("400", "refused", "http.invalid_request"),
+        ("401", "refused", "http.unauthenticated"),
+        ("403", "refused", "http.csrf_refused"),
+        ("403", "rejected", "memberships.forbidden"),
+        ("404", "rejected", "memberships.member_not_found"),
+        ("409", "rejected", "memberships.last_owner"),
+        ("500", "failure", "iris.internal"),
+        ("503", "failure", "iris.unavailable"),
+    ];
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
+    assert!(!doc.to_string().contains("memberships.at_least_one_owner"));
+    assert_eq!(
+        op["responses"]["200"]["content"]["application/json"]["schema"]["oneOf"][0]["properties"]["data"]
+            ["$ref"],
+        "#/components/schemas/RemoveMemberSuccess"
+    );
+}
+
+/// Written by hand: neither operation offers inspection, reads or replay.
+#[test]
+fn recovery_contract_is_resubmission_only() {
+    for (collected, path, name) in [
+        (change_role(), PATH, "memberships.change_role"),
+        (remove_member(), REMOVE, "memberships.remove_member"),
+    ] {
+        let doc = serde_json::to_value(collected.api).unwrap();
+        assert_eq!(
+            doc["paths"][path]["post"]["x-iris"],
+            json!({
+                "operation": name,
+                "schema_version": 1,
+                "recovery": {
+                    "inspect": false,
+                    "read": false,
+                    "replay": false,
+                    "new_submission": "current authority and intent required",
+                },
+                "prerequisites": {
+                    "memberships.last_owner": "memberships.another_owner_required",
+                },
+            })
+        );
+    }
+}
+
+#[test]
+fn operations_share_rejection_metadata() {
+    assert_eq!(CHANGE_ROLE.mappings(), REMOVE_MEMBER.mappings());
+    let codes = |collected: Collected| {
+        let doc = serde_json::to_value(collected.api).unwrap();
+        let mut codes = vec![];
+        for item in doc["paths"].as_object().unwrap().values() {
+            for response in item["post"]["responses"].as_object().unwrap().values() {
+                for branch in response["content"]["application/json"]["schema"]["oneOf"]
+                    .as_array()
+                    .unwrap()
+                {
+                    codes.push(branch["properties"]["code"].clone());
+                }
+            }
+        }
+        codes.sort_by_key(|c| c.to_string());
+        codes
+    };
+    assert_eq!(codes(change_role()), codes(remove_member()));
+}
+
+#[tokio::test]
+async fn remove_member_whole_request() {
+    let f = Fixture::new().await;
+    let alice = f.cookie(Some(11)).await;
+    let bob = f.cookie(Some(29)).await;
+    let anonymous = f.cookie(None).await;
+    let mut responses = vec![];
+    for (cookie, target, status, kind, code) in [
+        (&bob, 29, 403, "rejected", Some("memberships.forbidden")),
+        (
+            &alice,
+            999,
+            404,
+            "rejected",
+            Some("memberships.member_not_found"),
+        ),
+        (&alice, 11, 409, "rejected", Some("memberships.last_owner")),
+        (&anonymous, 29, 401, "refused", Some("http.unauthenticated")),
+    ] {
+        let response = collect(
+            f.app()
+                .oneshot(remove_request(cookie, &remove_body(target)))
+                .await
+                .unwrap(),
+        )
+        .await;
+        expect_remove(&response, status, kind, code);
+        responses.push(response);
+    }
+    for header in ["origin", "x-iris-csrf"] {
+        let mut req = remove_request(&alice, &remove_body(29));
+        req.headers_mut().remove(header);
+        let response = collect(f.app().oneshot(req).await.unwrap()).await;
+        expect_remove(&response, 403, "refused", Some("http.csrf_refused"));
+        responses.push(response);
+    }
+    let mut invalid = vec![
+        "{".to_owned(),
+        json!({"project_id":"41","user_id":"29","role":"viewer"}).to_string(),
+        json!({"project_id":"41","user_id":"29","actor_id":11}).to_string(),
+    ];
+    for id in ["0", "01", "-1", "9223372036854775808"] {
+        invalid.push(json!({"project_id":id,"user_id":"29"}).to_string());
+    }
+    for text in invalid {
+        let response = collect(
+            f.app()
+                .oneshot(remove_request(&alice, &text))
+                .await
+                .unwrap(),
+        )
+        .await;
+        expect_remove(&response, 400, "refused", Some("http.invalid_request"));
+        responses.push(response);
+    }
+    let mut req = remove_request(&alice, &remove_body(29));
+    req.headers_mut()
+        .insert("content-type", "text/plain".parse().unwrap());
+    let response = collect(f.app().oneshot(req).await.unwrap()).await;
+    expect_remove(&response, 400, "refused", Some("http.invalid_request"));
+    responses.push(response);
+    assert_eq!(
+        membership(&f, 29).await.as_deref(),
+        Some("editor"),
+        "refusals and rejections must not remove"
+    );
+    let mut conn = connect(&f.state.database).await.unwrap();
+    let tx = conn.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    let response = collect(
+        f.app()
+            .oneshot(remove_request(&alice, &remove_body(29)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    expect_remove(&response, 503, "failure", Some("iris.unavailable"));
+    responses.push(response);
+    tx.rollback().await.unwrap();
+    sqlx::raw_sql("CREATE TRIGGER remove_fault AFTER DELETE ON memberships BEGIN SELECT RAISE(FAIL,'sql-secret-canary'); END;").execute(&f.store.pool).await.unwrap();
+    let response = collect(
+        f.app()
+            .oneshot(remove_request(&alice, &remove_body(29)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    expect_remove(&response, 500, "failure", Some("iris.internal"));
+    responses.push(response);
+    assert_eq!(membership(&f, 29).await.as_deref(), Some("editor"));
+    sqlx::query("DROP TRIGGER remove_fault")
+        .execute(&f.store.pool)
+        .await
+        .unwrap();
+    let response = collect(
+        f.app()
+            .oneshot(remove_request(&alice, &remove_body(29)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    expect_remove(&response, 200, "success", None);
+    assert_eq!(response.1["data"], json!({"completion":"acknowledged"}));
+    responses.push(response);
+    assert_eq!(membership(&f, 29).await, None);
+    let ids = responses
+        .iter()
+        .map(|(_, v)| v["request_id"].as_str().unwrap())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), responses.len());
+}
+
+#[tokio::test]
+async fn concurrent_self_removals_leave_one_owner() {
+    let f = Fixture::new().await;
+    sqlx::query("UPDATE memberships SET role='owner' WHERE project_id=41 AND user_id=29")
+        .execute(&f.store.pool)
+        .await
+        .unwrap();
+    let mut first = connect(&f.state.database).await.unwrap();
+    let mut second = connect(&f.state.database).await.unwrap();
+    for conn in [&mut first, &mut second] {
+        sqlx::query("PRAGMA busy_timeout=5000")
+            .execute(conn)
+            .await
+            .unwrap();
+    }
+    let barrier = tokio::sync::Barrier::new(2);
+    let (a, b) = tokio::join!(
+        async {
+            barrier.wait().await;
+            action::remove_member(
+                &mut first,
+                &Actor(11),
+                action::RemoveMember {
+                    project_id: 41,
+                    user_id: 11,
+                },
+            )
+            .await
+        },
+        async {
+            barrier.wait().await;
+            action::remove_member(
+                &mut second,
+                &Actor(29),
+                action::RemoveMember {
+                    project_id: 41,
+                    user_id: 29,
+                },
+            )
+            .await
+        }
+    );
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    let error = if let Err(e) = a { e } else { b.unwrap_err() };
+    assert_eq!(error, ActionError::Rejected(Rejection::LastOwner));
+    let owners: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM memberships WHERE project_id=41 AND role='owner'")
+            .fetch_one(&f.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(owners, 1);
 }

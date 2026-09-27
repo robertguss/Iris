@@ -369,7 +369,7 @@ boundaries; a tool allowlist is not a sandbox.
 | Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below               |
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                             |
 | Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration          |
-| Reference application, multi-operation contracts and first reads        | Proposed in S17, open choices settled; not implemented                                                                          |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoint A and checkpoint B's server side implemented; B's client pending; [guide](../apps/reference/README.md)           |
 | Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                     |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                   |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                               |
@@ -1791,11 +1791,13 @@ was added.
 
 ## S17 — Reference application and first reads
 
-**Proposed; checkpoint A is an implemented experiment.** The owner settled its
-seven open choices on September 26, 2026, then authorized the CI prerequisite
-and checkpoint A; checkpoint B is not authorized. Checkpoint A's
-[server-side](#checkpoint-a-server-side-evidence) and
-[client](#checkpoint-a-client-evidence) evidence record what was built. This
+**Proposed; checkpoint A and checkpoint B's server side are implemented
+experiments.** The owner settled its seven open choices on September 26, 2026,
+then authorized the CI prerequisite and checkpoint A, and on September 27
+checkpoint B. Checkpoint A's [server-side](#checkpoint-a-server-side-evidence)
+and [client](#checkpoint-a-client-evidence) evidence, and checkpoint B's
+[server-side](#checkpoint-b-server-side-evidence) evidence, record what was
+built; checkpoint B stays partial until its client and browser acceptance. This
 section was first written as a proposal authorizing no implementation,
 dependency, CI or wire change. It was drafted after independent assessments of
 `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through Codex), then
@@ -1823,9 +1825,10 @@ cases) and `probe:s16`. The
 [decision record](decisions.md#reference-application-and-first-reads--september-26-2026)
 lists the commands. The owner then authorized the prerequisite: the CI workflow
 now runs `verify:s16` and `probe:s16`, whose commands passed locally under Node
-26.8.1. No GitHub Actions run has executed them yet; the workflow runs on pull
-requests and pushes to `main`
-([record](decisions.md#s16-checks-in-ci--september-26-2026)).
+26.8.1 ([record](decisions.md#s16-checks-in-ci--september-26-2026)). The
+workflow runs on pull requests and pushes to `main`; its first observed run, on
+draft pull request #1 at `a0c25ff`, passed every step
+([record](decisions.md#reference-application-checkpoint-b-server-side--september-27-2026)).
 
 ### Ownership boundaries
 
@@ -1914,8 +1917,9 @@ Generalize S16 alternative A without a second handwritten path catalog:
    HEAD as its GET operation: same status and headers, no body, covered by tests
    rather than a separate OpenAPI declaration. Other unmatched routes and
    methods stay outside operation contracts, as in S16. This slice avoids two
-   operations on one path. _Status:_ POST method gating implemented; GET/HEAD
-   behavior and tests remain checkpoint B.
+   operations on one path. _Status:_ implemented: POST method gating, and for
+   both reads a GET boundary that also establishes request context for HEAD,
+   with tests ([evidence](#checkpoint-b-server-side-evidence)).
 
 `change_role` and `remove_member` share one rejection type because their
 permitted sets coincide (S12; review finding O55-A-03). The owner chose this
@@ -1958,7 +1962,8 @@ After checkpoint B, `change_role` and `remove_member` may declare
 state only: absence from a page or a traversal does not prove removal, and a 403
 after a lost self-removal response does not resolve that earlier invocation
 (S14). Read operations declare no recovery capabilities; repeating a read is a
-new observation, not a replay.
+new observation, not a replay. _Status:_ both reads omit `recovery` from
+`x-iris`; the mutations do not yet declare a current-state read.
 
 ### Read conventions
 
@@ -2021,8 +2026,9 @@ contracts. Query parameters are validated by the server adapter, not the client
 boundary. Body reads are bounded, so an oversize body becomes `ClientUnknown`.
 Measure the bundle and startup cost of runtime validation. Generated TypeScript
 remains static assistance, not validation. _Status:_ implemented for checkpoint
-A's two operations ([evidence](#checkpoint-a-client-evidence)); my projects and
-members wait for checkpoint B.
+A's two operations ([evidence](#checkpoint-a-client-evidence)). The boundary
+also accepts both reads and validates their captured responses; my projects and
+members wait for checkpoint B's client.
 
 ### Acceptance checks
 
@@ -2123,14 +2129,14 @@ records the choices and limits.
 
 | Acceptance row | Status                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prerequisite   | Workflow runs `verify:s16` and `probe:s16`; commands pass locally; no GitHub Actions run observed                                                                                                                                                                                                                                                                                                                                        |
+| Prerequisite   | Workflow runs `verify:s16` and `probe:s16`; commands pass locally and passed on GitHub Actions at `a0c25ff`                                                                                                                                                                                                                                                                                                                              |
 | A              | Ported S16 Rust suites pass with unchanged expectations, except one marked-response case adapted from `Forbidden` (403) to `LoginFailed` (401) after the session enum narrowed; whole-request fixtures run against the assembled application. Exact status/kind/code tuples for both operations; shared-code metadata checked in memory and in the export; frozen experiments green. The S16 client cases are ported for both operations |
 | A probes       | Omitted second bridge, duplicate OpenAPI ID, conflicting shared-code metadata, wrong path and a same-named different component each fail; an identical shared component assembles; an omitted operation collection also fails                                                                                                                                                                                                            |
 | React (A)      | Implemented; see the [client evidence](#checkpoint-a-client-evidence): decoder cases for both operations, including oversize and unusable bodies; typed narrowing; unchanged session bootstrap; one browser workflow against the local issuer                                                                                                                                                                                            |
 
 Not established: the busy classification of a failed connection open is
-source-inspected rather than tested; runs used macOS with Node 24.20.0 and
-26.8.1 (CI pins 26.10.0), and no GitHub Actions run has been observed. No
+source-inspected rather than tested; local runs used macOS with Node 24.20.0 and
+26.8.1. GitHub Actions later passed at `a0c25ff` on Ubuntu with Node 26.10.0. No
 productivity claim follows.
 
 ### Checkpoint A client evidence
@@ -2177,10 +2183,70 @@ records the choices and limits.
   cold or about 10 ms warm in Node 24.20.0. Ajv compiles with `new Function`, so
   a strict content security policy would need precompiled validators.
 
-Not established: browser runs used macOS and headless Chrome 154 only, and no
-GitHub Actions run has been observed. The workflow checks selected paths, not
-every code. No frozen experiment was retired: S16's client harness is now
-reproduced, but its other omission probes are not.
+Not established: local browser runs used macOS and headless Chrome 154; GitHub
+Actions ran the workflow once, on Ubuntu, at `a0c25ff`. The workflow checks
+selected paths, not every code. No frozen experiment was retired: S16's client
+harness is now reproduced, but its other omission probes are not.
+
+### Checkpoint B server-side evidence
+
+**Implemented experiment for the server side, September 27, 2026.** Checkpoint B
+stays partial: its client (read decoder, narrowing and presentation cases and
+the React member directory) and its browser workflow are the next chunk. Each
+step was plan- and diff-reviewed by Astra before commit. The
+[reference application guide](../apps/reference/README.md) owns the commands and
+measured results; the
+[decision record](decisions.md#reference-application-checkpoint-b-server-side--september-27-2026)
+records the choices and limits.
+
+- **Built:** `memberships.list` / `listProjectMembers`
+  (`GET /api/projects/{project_id}/members`) and `projects.list_mine` /
+  `listMyProjects` (`GET /api/projects`). Member listing first establishes that
+  the actor is a member, in any role, then selects the page; own-project listing
+  selects only the actor's memberships and declares no domain rejection.
+  `user_contacts` now exists in the consolidated migration, so email canaries
+  can show that no read discloses contacts.
+- **Read conventions as implemented:** `read::run` takes the fresh connection it
+  is given, enables `PRAGMA query_only`, runs the visibility check and the page
+  in one deferred transaction, then awaits `COMMIT` or `ROLLBACK` and classifies
+  cleanup with S15's vocabulary, which moved from `memberships` to `domains` so
+  mutations and reads share it. It drops the connection, so neither the setting
+  nor an unfinished transaction can reach a mutation. `ReadError` stays
+  application-owned.
+- **Pages:** `{items, next_cursor}`, with IDs as canonical decimal strings and
+  `next_cursor` always present, null when no further rows existed. `limit` is a
+  canonical decimal from 1 to 100, so `05` is refused, and defaults to 50.
+  Cursors are `c1.` followed by a key, at most 32 bytes, and carry position
+  only. Unknown or duplicate parameters and invalid values return 400, after
+  authentication.
+- **`crates/iris`:** a GET operation's boundary also establishes request context
+  for HEAD, which axum answers with GET's status and headers and no body, and
+  `Operation.recovery` is optional so reads omit `recovery` from `x-iris`. Both
+  reads use these; the mutations' export is unchanged.
+- **Deviations from the proposed shape:** reads take ownership of their
+  connection rather than borrowing it; `memberships.forbidden` has one
+  descriptor definition, used by both rejection types; the session scheme's
+  description now says CSRF applies to unsafe methods only.
+- **Client linkage:** the client boundary accepts the four `x-iris` operations
+  by a hand-written method map and decodes both reads' captured responses;
+  mutation-only code is typed as such. There is no read UI yet.
+
+| Acceptance row         | Status                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B authorization        | Unknown and non-member projects give the same 403 apart from `request_id`, headers included; owners, editors and viewers list alike; a member removed between pages gets 403 on the next; `list_mine` returns exactly each actor's memberships and roles, or `[]`; email canaries never appear; GET needs no CSRF token while POST still does |
+| B pagination and input | Forward traversal returns every row once in key order for both reads; the default of 50, 1 and 100 are accepted; foreign and forged cursors stay within the caller's rows; limit 0, 101, `05` or non-integer, malformed, overlong or wrong-version cursors, and unknown or duplicate parameters return 400; HEAD mirrors GET without a body   |
+| B cleanup              | A rejection and a page-query failure finalize with an acknowledged rollback, after which a writer commits; dropping a `read::run` future that holds SQLite's shared lock releases a writer it had blocked; `query_only` fails an attempted write, and the next mutation commits                                                               |
+| Probes                 | A widened runtime or exported GET limit bound, and each read's omitted visibility predicate, pass the compiler and fail a named independent test; checkpoint A's probes are unchanged                                                                                                                                                         |
+| React (B)              | Pending: both reads' captured responses decode; read-specific decoder, narrowing and presentation cases, the member directory and a browser workflow are the next chunk                                                                                                                                                                       |
+
+Not established: these steps ran on macOS with Node 24.20.0 and have not run on
+GitHub Actions. The 503 captures use the operation's own mount with an injected
+actor and no cookie, not an ordinary cookie-authenticated request. Cancellation
+is shown for the `read::run` future, not for an HTTP disconnect. `query_only`
+guards mistakes and is not a security boundary. The explicit 32-byte cursor
+check cannot change behavior while keys are canonical i64 values, so that bound
+is documented rather than observed. Only SQLite's default rollback-journal mode
+was exercised. No productivity claim follows.
 
 ## References and design provenance
 
@@ -2221,6 +2287,15 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, checkpoint B server side:** With the owner's authorization,
+  added `listProjectMembers` and `listMyProjects` to the reference application:
+  owned `query_only` read transactions finalized explicitly, keyset pages with a
+  versioned cursor, strict query parameters, HEAD served as GET, and reads
+  without recovery metadata. Extended the omission probes to a GET parameter
+  bound and both visibility predicates, recorded the evidence in S17, and noted
+  the first passing GitHub Actions run, for checkpoint A. The client accepts the
+  reads without read UI; checkpoint B stays partial. No frozen experiment was
+  retired.
 - **2026-09-27, checkpoint A client:** Added the reference client in
   `apps/reference/web`: a whole-request boundary for both operations with
   bounded single reads, typed narrowing, captured and independent decoder cases,

@@ -1,6 +1,6 @@
-// Checkpoint A omitted-edit probes. Each probe edits a disposable source copy,
-// never the checkout, and builds into that copy's own target directory so no
-// mutated artifact can outlive the run.
+// Checkpoint A and B omitted-edit probes. Each probe edits a disposable source
+// copy, never the checkout, and builds into that copy's own target directory so
+// no mutated artifact can outlive the run.
 import { execFileSync, spawnSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +11,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const temp = await mkdtemp(join(tmpdir(), "iris-reference-probes-"));
 const adapter = "apps/reference/src/http/memberships.rs";
 const cargo = ["--quiet", "--locked", "-p", "iris-reference"];
-let baseline;
+// Each touched file's original text, restored by `reset`.
+const baselines = new Map();
 
 function run(command, args) {
   return spawnSync(command, args, {
@@ -36,18 +37,26 @@ function expect(label, command, args, pattern, pass = false) {
   console.log(`${pass ? "CONTROL" : "CAUGHT"}: ${label}: ${evidence.trim()}`);
 }
 
-async function edit(from, to) {
-  const path = join(temp, adapter);
+async function edit(from, to, file = adapter) {
+  const path = join(temp, file);
   const text = await readFile(path, "utf8");
+  if (!baselines.has(file)) baselines.set(file, text);
   if (!text.includes(from) || text.indexOf(from) !== text.lastIndexOf(from)) {
-    throw new Error(`Probe anchor drift: ${adapter}: ${from}`);
+    throw new Error(`Probe anchor drift: ${file}: ${from}`);
   }
   await writeFile(path, text.replace(from, to));
 }
 
 async function reset() {
-  await writeFile(join(temp, adapter), baseline);
+  for (const [file, text] of baselines) await writeFile(join(temp, file), text);
+  baselines.clear();
 }
+
+// The named test must be among the failures (quiet libtest prints one
+// "---- <path> stdout ----" block per failure); another failure is not this
+// probe's signal.
+const failed = (name) => new RegExp(`^---- \\S*::${name} stdout ----$`, "m");
+const lib = (filter) => ["test", ...cargo, "--lib", filter];
 
 const contract = ["test", ...cargo, "--test", "contract"];
 
@@ -62,7 +71,6 @@ try {
     await mkdir(dirname(join(temp, file)), { recursive: true });
     await copyFile(join(root, file), join(temp, file));
   }
-  baseline = await readFile(join(temp, adapter), "utf8");
 
   await edit(
     `    iris::collect(
@@ -164,7 +172,51 @@ struct RemoveMemberSuccess {
   await edit(`        (remove_member(), mount_remove_member),\n`, "");
   expect("omitted operation collection", "cargo", contract, /assertion `left == right` failed/);
 
-  console.log("PASS: checkpoint A probes detected; disposable copy and its target removed on exit");
+  // Checkpoint B: a GET parameter bound and each read's visibility predicate.
+  // The compiler accepts every edit; an independent test catches it.
+  await reset();
+  await edit("(1..=100).contains(n)", "(1..=101).contains(n)", "apps/reference/src/http/mod.rs");
+  expect("runtime GET limit bound widened passes the compiler", "cargo", ["check", ...cargo], /^$/, true);
+  for (const name of ["list_members_input_refusals", "list_mine_input_refusals"]) {
+    expect(`runtime GET limit bound widened caught by ${name}`, "cargo", lib(name), failed(name));
+  }
+
+  await reset();
+  await edit(`#[param(pattern = "^(100|[1-9][0-9]?)$")]`, `#[param(pattern = "^(10[01]|[1-9][0-9]?)$")]`, "apps/reference/src/http/mod.rs");
+  expect("exported GET limit bound widened passes the compiler", "cargo", ["check", ...cargo], /^$/, true);
+  expect(
+    "exported GET limit bound widened caught by the hand-written parameters",
+    "cargo",
+    lib("list_members_independent_contract"),
+    failed("list_members_independent_contract"),
+  );
+  expect("exported GET limit bound widened caught by export drift", "cargo", contract, /reference contract drift/);
+
+  await reset();
+  await edit(
+    `"SELECT EXISTS(SELECT 1 FROM memberships WHERE project_id=? AND user_id=?)",`,
+    `"SELECT ? > 0 OR ? > 0",`,
+    "apps/reference/src/domains/memberships.rs",
+  );
+  expect("member listing without its visibility predicate passes the compiler", "cargo", ["check", ...cargo], /^$/, true);
+  expect(
+    "member listing without its visibility predicate caught by the authorization test",
+    "cargo",
+    lib("list_members_authorization"),
+    failed("list_members_authorization"),
+  );
+
+  await reset();
+  await edit("WHERE m.user_id=? AND m.project_id>?", "WHERE ? IS NOT NULL AND m.project_id>?", "apps/reference/src/domains/projects.rs");
+  expect("own-project listing without its actor filter passes the compiler", "cargo", ["check", ...cargo], /^$/, true);
+  expect(
+    "own-project listing without its actor filter caught by the authorization test",
+    "cargo",
+    lib("list_mine_authorization"),
+    failed("list_mine_authorization"),
+  );
+
+  console.log("PASS: checkpoint A and B probes detected; disposable copy and its target removed on exit");
 } finally {
   await rm(temp, { recursive: true, force: true });
 }

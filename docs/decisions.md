@@ -605,6 +605,83 @@ Limitations: macOS and one headless browser only; the browser workflow checks
 selected paths; Ajv's runtime compilation needs `unsafe-eval` under a strict
 content security policy; no GitHub Actions run. No productivity claim follows.
 
+## Reference application checkpoint B, server side — September 27, 2026
+
+**Implemented experiment; checkpoint B is partial.** On September 27, 2026, the
+owner authorized checkpoint B, and approved publishing `s17-checkpoint-a` and
+opening a pull request so the workflow would run on GitHub Actions, without a
+merge. Draft pull request #1 ran it at `a0c25ff`, with checkpoint A complete:
+every step passed on Ubuntu with Node 26.10.0 in 7 min 37 s, including the S16
+checks, the reference client verification (23 s) and the browser workflow (15
+s). This is the first observed run of those checks. Three further steps on the
+branch, each plan- and diff-reviewed by Astra before its commit, added
+checkpoint B's server side; they have not been pushed. The
+[S17 evidence](design-spec.md#checkpoint-b-server-side-evidence) summarizes the
+result, and the [guide](../apps/reference/README.md) owns the commands.
+
+Local results on macOS with Rust 1.98.1 and Node 24.20.0:
+
+```sh
+cargo test --workspace --locked                   # 106 passed; iris 13, iris-reference 45
+npm --prefix apps/reference/web run verify        # 143 runtime cases across 4 operations; build
+node apps/reference/scripts/probes.mjs            # 10 caught, 7 controls; 1 min 24 s cold
+node apps/reference/scripts/browser.mjs           # checkpoint A workflow; nine passes at 5b16132
+```
+
+Clippy with `-D warnings`, rustfmt, the dev-identity suite (24 passed, 1
+ignored), and the frozen web `verify` and `verify:s16` stayed green. With the
+reads' schemas the production bundle is 382.39 kB (112.55 kB gzip), and
+compiling four operations' validators took 17.5–21.0 ms (median 19.5 ms) across
+those nine browser runs.
+
+Decisions and the alternatives not taken:
+
+- This chunk covers checkpoint B's server side, as checkpoint A was split; the
+  previous handoff proposed all of B at once. Each export change still forces
+  client linkage, so the client accepts the reads without read UI.
+- Reads run through an application-owned `read::run` and `ReadError`, not
+  `crates/iris`, because cleanup classification stays with the application
+  (S17). A read owns its connection instead of borrowing it, so `query_only` and
+  an unfinished transaction cannot reach a mutation.
+- `crates/iris` changed only where both reads need it: HEAD on a GET operation,
+  and reads omitting `recovery` rather than declaring an explicit "none".
+- `user_contacts` joined the one consolidated migration instead of a second
+  migration, since every database is disposable.
+- `limit` is lexically strict (`05` is refused) and exported as a pattern. The
+  cursor is an unsigned, versioned `c1.` position; authority comes from the
+  actor, so signing adds nothing here.
+- Member listing has its own one-refusal rejection type that reuses the single
+  `memberships.forbidden` descriptor; own-project listing has an uninhabited
+  rejection type and declares no 403.
+- The mutations do not yet declare `listProjectMembers` as their current-state
+  read (S15 says "may"); that choice is left to the client chunk.
+
+Mutations seeded while building, each failing its intended check:
+
+- `crates/iris`: no HEAD rule; `recovery` forced into a read.
+- Read module: a rejection projected despite a failed rollback; `query_only`
+  off.
+- Member listing: visibility dropped or narrowed to owners; the page not scoped
+  to its project; the limit widened to 101 or accepting `05`; the cursor version
+  unchecked; the next position off by one; input checked before the session; no
+  HEAD rule at the application level; a changed forbidden descriptor; a read
+  failure reported as busy.
+- Own-project listing: the actor filter dropped; the key position ignored; the
+  order reversed; the role taken from another member's row; the limit parsed
+  without the shared rule; input checked before the session; a failure reported
+  as busy; a mismatched declared handler identity.
+
+One mutation survived as equivalent: raising the cursor's 32-byte bound cannot
+change behavior while keys are canonical i64 values, so the bound is documented
+rather than observed. The probe harness was also checked against itself: a probe
+whose edit changed nothing made it fail.
+
+Limitations: these steps ran on macOS only and have not run on GitHub Actions;
+the reads' 503 captures use an injected actor without a cookie; cancellation is
+shown for the read future, not an HTTP disconnect; only SQLite's
+rollback-journal mode was exercised; there is no read UI or browser acceptance
+yet. No frozen experiment was retired. No productivity claim follows.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

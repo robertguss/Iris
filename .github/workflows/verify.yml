@@ -54,8 +54,13 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix experiments/api-slice/web ci
 
-      - name: Verify web application and contract
-        run: npm --prefix experiments/api-slice/web run verify
+      - name: Verify web application, contracts and S16 slice
+        run: |
+          npm --prefix experiments/api-slice/web run verify
+          npm --prefix experiments/api-slice/web run verify:s16
+
+      - name: Probe S16 omitted edits
+        run: npm --prefix experiments/api-slice/web run probe:s16
 
       - name: Verify agent interface and real MCP scenarios
         run: |

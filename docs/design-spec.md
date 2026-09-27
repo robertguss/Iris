@@ -1817,8 +1817,11 @@ default workspace tests (48), the dev-identity API tests (24, one Mailpit test
 ignored), Clippy, rustfmt, web `verify`, `verify:s16` (10 Rust tests, 44 client
 cases) and `probe:s16`. The
 [decision record](decisions.md#reference-application-and-first-reads--september-26-2026)
-lists the commands. CI runs neither `verify:s16` nor `probe:s16`; adding both is
-a small, separately authorizable prerequisite.
+lists the commands. The owner then authorized the prerequisite: the CI workflow
+now runs `verify:s16` and `probe:s16`, whose commands passed locally under Node
+26.8.1. No GitHub Actions run has executed them yet; the workflow runs on pull
+requests and pushes to `main`
+([record](decisions.md#s16-checks-in-ci--september-26-2026)).
 
 ### Ownership boundaries
 
@@ -2107,6 +2110,10 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-26, S16 checks in CI:** With the owner's authorization, the CI
+  workflow runs `verify:s16` in its web verification step and `probe:s16` as its
+  own step. Both passed locally under Node 26.8.1; no GitHub Actions run has
+  executed them yet. No application, dependency or wire change.
 - **2026-09-26, S17 owner decisions:** The owner settled S17's seven open
   choices as recommended: uniform 403 existence hiding for reads, member lists
   visible to any member with display names, HEAD served as GET, shared rejection

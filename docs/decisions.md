@@ -455,6 +455,30 @@ invitation design, and naming and packaging. Persistence, seed policy, workers
 and a development command remain for a separate lifecycle pass. No runtime,
 dependency, CI or wire change accompanies this record.
 
+## S16 checks in CI — September 26, 2026
+
+**Implemented CI change; not yet observed on GitHub Actions.** The owner
+authorized the next chunk: the CI prerequisite, then S17 checkpoint A, on a
+branch from `docs/s17-reference-app`, without a push or a merge into `main`. The
+workflow's web verification step now runs `verify:s16` after `verify`, and a new
+step runs `probe:s16` before the agent-interface checks. Toolchain pins, caching
+and triggers are unchanged.
+
+Local run on macOS with Node 26.8.1 (CI pins 26.10.0) and npm 11.19.0 (CI pins
+10.9.9), using the exact step commands:
+
+```sh
+npm --prefix experiments/api-slice/web run verify      # passed, 7 s
+npm --prefix experiments/api-slice/web run verify:s16  # 10 Rust, 44 client cases, 6 s
+npm --prefix experiments/api-slice/web run probe:s16   # all 16 probes caught, 34 s
+```
+
+`verify:s16` also passed under Node 24.20.0. The timings were taken with a warm
+local `target/` and do not predict CI time. The workflow runs on pull requests
+and pushes to `main`, so pushing this branch alone would not trigger it; an
+observed Actions run remains outstanding. No application, dependency or wire
+change accompanies this record.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

@@ -2,7 +2,7 @@
 // validated against the export bundled at build time.
 import snapshot from "../../openapi.json" with { type: "json" };
 import { client } from "./client.ts";
-import type { Mutation, Read, Result } from "./client.ts";
+import type { Mutation, Read, Recovery, Result } from "./client.ts";
 import type { operations } from "./generated.ts";
 import { csrfToken } from "./session.ts";
 
@@ -72,4 +72,22 @@ export function read(
   return op === "listProjectMembers"
     ? api.execute(op, request)
     : api.execute(op, request);
+}
+
+/**
+ * The declared current-state read for an attempt, with each path input taken
+ * from the attempt's own request body through its binding; null when no read
+ * is declared. Sends nothing, and says nothing about the attempt.
+ */
+export function readback(
+  recovery: Recovery,
+  body: Record<string, string>,
+): { op: Read; path: Record<string, string> } | null {
+  if (!recovery.read) return null;
+  const path: Record<string, string> = {};
+  for (const [parameter, { request_body_field }] of Object.entries(
+    recovery.read.path_inputs,
+  ))
+    path[parameter] = body[request_body_field];
+  return { op: recovery.read.operation_id, path };
 }

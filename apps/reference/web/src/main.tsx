@@ -27,7 +27,8 @@ import type {
   Step,
 } from "./directory.ts";
 import type { components } from "./generated.ts";
-import { api, read, send } from "./membership.ts";
+import { api, read, readback, send } from "./membership.ts";
+import type { RequestBody } from "./membership.ts";
 import { present, presentRead } from "./present.ts";
 import type { Presentation, Row } from "./present.ts";
 import { logout, refreshSession, startLogin } from "./session.ts";
@@ -36,11 +37,14 @@ import "./style.css";
 
 type Role = components["schemas"]["Role"];
 /**
- * One attempt, recorded when sent. Its operation and target never follow the
- * form afterwards; only the next attempt or a session change replaces it.
+ * One attempt, recorded when sent. Its operation, request body and target
+ * never follow the form afterwards; only the next attempt or a session change
+ * replaces it. A read, including its declared readback, never changes it.
  */
-type Attempt = {
-  op: Mutation;
+type Attempt = (
+  | { op: "changeMemberRole"; body: RequestBody<"changeMemberRole"> }
+  | { op: "removeMember"; body: RequestBody<"removeMember"> }
+) & {
   project: { id: string; name: string };
   member: { id: string; name: string };
   outcome?: Presentation & { label: string; attempt?: string; body?: unknown };
@@ -211,8 +215,11 @@ function App() {
       return;
     inFlight.current = true;
     setPending(true);
+    const target = { project_id: project.id, user_id: member.id };
     const sent: Attempt = {
-      op: operation,
+      ...(operation === "changeMemberRole"
+        ? { op: operation, body: { ...target, role } }
+        : { op: operation, body: target }),
       project,
       member: { id: member.id, name: member.name },
     };
@@ -223,15 +230,8 @@ function App() {
     try {
       const result =
         sent.op === "changeMemberRole"
-          ? await send(sent.op, {
-              project_id: project.id,
-              user_id: member.id,
-              role,
-            })
-          : await send(sent.op, {
-              project_id: project.id,
-              user_id: member.id,
-            });
+          ? await send(sent.op, sent.body)
+          : await send(sent.op, sent.body);
       const presentation = present(sent.op, result);
       setAttempt({
         ...sent,
@@ -274,6 +274,13 @@ function App() {
     />
   );
   const endpoint = attempt?.op ?? operation;
+  // The attempt's declared current-state read, offered only while its outcome
+  // is unconfirmed: the first page of the attempt's own project, whatever the
+  // directory now shows.
+  const again =
+    attempt?.outcome?.tone === "unconfirmed"
+      ? readback(api.recovery(attempt.op), attempt.body)
+      : null;
   return (
     <main>
       <header>
@@ -543,6 +550,25 @@ function App() {
                     <p>{attempt.outcome.detail}</p>
                     {attempt.outcome.attempt && (
                       <p className="attempt">{attempt.outcome.attempt}</p>
+                    )}
+                    {again?.op === "listProjectMembers" && (
+                      <button
+                        type="button"
+                        className="readback"
+                        disabled={busy || !signed}
+                        onClick={() => {
+                          apply(
+                            openProject(
+                              current.current,
+                              again.path.project_id,
+                              attempt.project.name,
+                            ),
+                          );
+                          setConfirmed(false);
+                        }}
+                      >
+                        Read members of {attempt.project.name}
+                      </button>
                     )}
                   </div>
                   {attempt.outcome.body !== undefined && (

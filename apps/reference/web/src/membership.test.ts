@@ -2,7 +2,8 @@
 // no body and no CSRF header; mutations are one POST carrying the session's
 // CSRF token. Runs under Node with `fetch` stubbed.
 import assert from "node:assert/strict";
-import { read, send } from "./membership.ts";
+import type { Recovery } from "./client.ts";
+import { api, read, readback, send } from "./membership.ts";
 import { refreshSession } from "./session.ts";
 
 type Call = { url: string; init: RequestInit };
@@ -119,6 +120,35 @@ for (const cursor of ["c1.29", "c1.29&limit=100", "c1 +%2F"]) {
   assert.deepEqual(JSON.parse(String(init.body)), body);
   checks++;
 }
+// A readback takes each path input from the attempt's own request body,
+// through the declared bindings, and sends nothing itself.
+{
+  calls = [];
+  const target = { project_id: "41", user_id: "29" };
+  const members = { op: "listProjectMembers", path: { project_id: "41" } };
+  assert.deepEqual(
+    readback(api.recovery("changeMemberRole"), { ...target, role: "viewer" }),
+    members,
+  );
+  assert.deepEqual(readback(api.recovery("removeMember"), target), members);
+  const declared = api.recovery("removeMember");
+  const undeclared: Recovery = { ...declared, read: false };
+  assert.equal(readback(undeclared, target), null);
+  // A different binding is followed as declared, not replaced by a known field.
+  const other: Recovery = {
+    ...declared,
+    read: {
+      operation_id: "listProjectMembers",
+      path_inputs: { project_id: { request_body_field: "user_id" } },
+    },
+  };
+  assert.deepEqual(readback(other, target), {
+    op: "listProjectMembers",
+    path: { project_id: "29" },
+  });
+  assert.equal(calls.length, 0, "a readback sends nothing");
+  checks += 4;
+}
 console.log(
-  `PASS: ${checks} request constructions; reads are bodiless GETs without CSRF, one attempt each`,
+  `PASS: ${checks} request constructions and readbacks; reads are bodiless GETs without CSRF, one attempt each`,
 );

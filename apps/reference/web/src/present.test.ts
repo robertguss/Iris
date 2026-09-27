@@ -3,7 +3,8 @@
 // JSON import.
 import assert from "node:assert/strict";
 import { MUTATIONS, READS } from "./client.ts";
-import { present, presentRead } from "./present.ts";
+import type { Recovery } from "./client.ts";
+import { present, presentRead, unconfirmed } from "./present.ts";
 
 const NAMES = {
   changeMemberRole: "memberships.change_role",
@@ -44,8 +45,17 @@ const CASES = [
     "Temporarily unavailable",
   ],
 ] as const;
+// The exact wording of an unconfirmed outcome. Both mutations declare the
+// member list as their current-state read, so both point to it, scoped to a
+// page as read.
+const UNCONFIRMED =
+  "Outcome unconfirmed: the change may or may not have been applied. No automatic retry was sent; a new submission needs current authority and intent.";
+const READ_AGAIN =
+  "Reading the project’s members again is a new read. A returned page describes members when it was read and neither confirms nor rules out this attempt.";
 // Claims the page must never make about an unconfirmed outcome.
 const OVERCLAIMS = [
+  /resolv/i,
+  /(was|were) (applied|removed|changed)/i,
   /was applied/i,
   /not applied/i,
   /nothing (was )?changed/i,
@@ -99,7 +109,11 @@ for (const op of MUTATIONS) {
     assert.equal(shown.tone, tone, `${op} ${code}`);
     assert.equal(shown.title, title, `${op} ${code}`);
     if (tone === "unconfirmed") {
-      assert.match(shown.detail, /^Outcome unconfirmed/);
+      assert.equal(
+        shown.detail,
+        `${UNCONFIRMED} ${READ_AGAIN}`,
+        `${op} ${code}`,
+      );
       for (const claim of OVERCLAIMS) assert.doesNotMatch(shown.detail, claim);
     } else assert.ok(shown.detail.startsWith("Server message."));
     if (code === "memberships.last_owner")
@@ -119,11 +133,28 @@ for (const op of MUTATIONS) {
     });
     assert.equal(shown.tone, "unconfirmed");
     assert.equal(shown.title, "No usable response");
-    assert.match(shown.detail, /^Outcome unconfirmed/);
+    assert.equal(shown.detail, `${UNCONFIRMED} ${READ_AGAIN}`, reason);
     for (const claim of OVERCLAIMS) assert.doesNotMatch(shown.detail, claim);
     checks++;
   }
 }
+// The pointer follows the declaration: none without a read, and none for a
+// read the page has no wording for.
+const undeclared: Recovery = {
+  inspect: false,
+  read: false,
+  replay: false,
+  new_submission: "current authority and intent required",
+};
+assert.equal(unconfirmed(undeclared), UNCONFIRMED);
+assert.equal(
+  unconfirmed({
+    ...undeclared,
+    read: { operation_id: "listMyProjects", path_inputs: {} },
+  }),
+  UNCONFIRMED,
+);
+checks += 2;
 // Reads. A page is present state when read (S14, S17): its wording is scoped
 // to that page, and a listing shows only the declared fields.
 const READ_NAMES = {

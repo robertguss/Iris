@@ -29,8 +29,9 @@ h1 { font-family: system-ui, sans-serif; font-weight: 600; font-size: clamp(30px
 .rows li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #ece9ef; }
 .row-name { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .row-meta { display: block; font-size: 11px; color: #77717e; }
-.rows button, .page-controls button { background: #f7f6f9; border: 1px solid #e6e2ed; font-size: 11px; padding: 6px 10px; color: #61576f; flex-shrink: 0; }
-.rows button:hover, .page-controls button:hover { background: #ede8f5; }
+.rows button, .page-controls button, .status .readback { background: #f7f6f9; border: 1px solid #e6e2ed; font-size: 11px; padding: 6px 10px; color: #61576f; flex-shrink: 0; }
+.rows button:hover, .page-controls button:hover, .status .readback:hover { background: #ede8f5; }
+.status .readback { margin-top: 10px; }
 .rows button[aria-pressed="true"] { background: #655093; border-color: #655093; color: #fff; }
 .page-controls { display: flex; flex-wrap: wrap; gap: 7px; }
 .stale { font-size: 11px; color: #7a5412; background: #fff8ea; border: 1px solid #f0e0bd; border-radius: 6px; padding: 8px 10px; margin: 0 0 12px; }

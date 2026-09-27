@@ -1,7 +1,7 @@
 // What the page says about each outcome. The switches are exhaustive over the
 // generated codes of both mutations and both reads, so a new code is a
 // compile-time decision here.
-import type { Mutation, Read, Result } from "./client.ts";
+import type { Mutation, Read, Recovery, Result } from "./client.ts";
 import type { components } from "./generated.ts";
 import { api } from "./membership.ts";
 
@@ -12,10 +12,22 @@ export type Presentation = {
 };
 
 // A public 500 or 503, like a missing response, is no evidence either way
-// (S14): the page claims neither effect nor its absence, and offers no
-// readback, which this checkpoint does not have.
+// (S14): the page claims neither effect nor its absence.
 const UNCONFIRMED =
   "Outcome unconfirmed: the change may or may not have been applied. No automatic retry was sent; a new submission needs current authority and intent.";
+
+// A declared current-state read the page can offer, scoped to a page as read:
+// reading again resolves nothing about the attempt (S14).
+const READ_AGAIN: Partial<Record<Read, string>> = {
+  listProjectMembers:
+    "Reading the project’s members again is a new read. A returned page describes members when it was read and neither confirms nor rules out this attempt.",
+};
+
+/** An unconfirmed outcome, pointing to the declared read if the page knows it. */
+export function unconfirmed(recovery: Recovery): string {
+  const again = recovery.read && READ_AGAIN[recovery.read.operation_id];
+  return again ? `${UNCONFIRMED} ${again}` : UNCONFIRMED;
+}
 
 const PREREQUISITES: Record<string, string> = {
   "memberships.another_owner_required": "Another owner is required first.",
@@ -29,7 +41,7 @@ export function present(
     return {
       tone: "unconfirmed",
       title: "No usable response",
-      detail: UNCONFIRMED,
+      detail: unconfirmed(api.recovery(op)),
     };
   const body = result.response.body;
   if (body.kind === "success")
@@ -85,13 +97,13 @@ export function present(
       return {
         tone: "unconfirmed",
         title: "Server error",
-        detail: UNCONFIRMED,
+        detail: unconfirmed(api.recovery(op)),
       };
     case "iris.unavailable":
       return {
         tone: "unconfirmed",
         title: "Temporarily unavailable",
-        detail: UNCONFIRMED,
+        detail: unconfirmed(api.recovery(op)),
       };
     default: {
       const exhaustive: never = body;

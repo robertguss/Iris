@@ -21,19 +21,19 @@ use tower::ServiceExt;
 use tower_sessions::{Session, SessionStore, session::Record};
 
 const PATH: &str = "/api/memberships/role";
-const ORIGIN: &str = "http://127.0.0.1:5173";
+pub(super) const ORIGIN: &str = "http://127.0.0.1:5173";
 
 /// S16's single mounted operation, now through its collected mount.
 fn authenticated(auth: Auth) -> Router<AppState> {
     mount_change_role(change_role().router, auth)
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     _dir: tempfile::TempDir,
     _provider: Provider,
-    state: AppState,
-    auth: Auth,
-    store: Store,
+    pub(super) state: AppState,
+    pub(super) auth: Auth,
+    pub(super) store: Store,
 }
 /// Owns the issuer from spawn, so a panic later in setup cannot leak it.
 struct Provider(Child);
@@ -44,7 +44,7 @@ impl Drop for Provider {
     }
 }
 impl Fixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let script = format!(
             "import {{startOidcProvider}} from '{}'; const p=await startOidcProvider({{port:0,redirectUri:'{ORIGIN}/api/auth/callback',testControls:true}}); console.log(p.issuer);",
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -104,10 +104,10 @@ impl Fixture {
             store,
         }
     }
-    fn app(&self) -> Router {
+    pub(super) fn app(&self) -> Router {
         crate::app::app(self.auth.clone()).with_state(self.state.clone())
     }
-    async fn cookie(&self, user: Option<i64>) -> String {
+    pub(super) async fn cookie(&self, user: Option<i64>) -> String {
         let mut record = Record {
             id: Default::default(),
             data: [(
@@ -129,7 +129,7 @@ impl Fixture {
     }
 }
 
-fn request(cookie: &str, body: &str) -> HttpRequest<Body> {
+pub(super) fn request(cookie: &str, body: &str) -> HttpRequest<Body> {
     HttpRequest::builder()
         .method("POST")
         .uri(PATH)
@@ -141,10 +141,10 @@ fn request(cookie: &str, body: &str) -> HttpRequest<Body> {
         .body(Body::from(body.to_owned()))
         .unwrap()
 }
-fn body(user: i64, role: &str) -> String {
+pub(super) fn body(user: i64, role: &str) -> String {
     json!({"project_id":"41", "user_id":user.to_string(),"role":role}).to_string()
 }
-async fn collect(response: Response) -> (u16, Value) {
+pub(super) async fn collect(response: Response) -> (u16, Value) {
     let status = response.status().as_u16();
     assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -154,7 +154,7 @@ async fn collect(response: Response) -> (u16, Value) {
 }
 /// Writes real responses for the client harness when `IRIS_REFERENCE_FIXTURES`
 /// names a directory; one file per operation, so parallel tests never share one.
-fn capture(operation_id: &str, responses: &[(u16, Value)]) {
+pub(super) fn capture(operation_id: &str, responses: &[(u16, Value)]) {
     let Some(dir) = std::env::var_os("IRIS_REFERENCE_FIXTURES") else {
         return;
     };
@@ -712,12 +712,12 @@ async fn begin_and_commit_errors_do_not_claim_cleanup() {
 
 const REMOVE: &str = "/api/memberships/remove";
 
-fn remove_request(cookie: &str, body: &str) -> HttpRequest<Body> {
+pub(super) fn remove_request(cookie: &str, body: &str) -> HttpRequest<Body> {
     let mut request = request(cookie, body);
     *request.uri_mut() = REMOVE.parse().unwrap();
     request
 }
-fn remove_body(user: i64) -> String {
+pub(super) fn remove_body(user: i64) -> String {
     json!({"project_id":"41", "user_id":user.to_string()}).to_string()
 }
 fn validate_remove(status: u16, body: &Value) -> bool {

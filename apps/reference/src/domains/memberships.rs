@@ -1,4 +1,9 @@
-use crate::identity::Actor;
+use super::failure_kind;
+pub use super::{Cleanup, FailureKind, Stage};
+use crate::{
+    identity::Actor,
+    read::{self, Page, ReadError, Stop},
+};
 use sqlx::{Connection, SqliteConnection};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -16,6 +21,15 @@ impl MemberRole {
             Self::Viewer => "viewer",
         }
     }
+
+    fn parse(stored: &str) -> Option<Self> {
+        match stored {
+            "owner" => Some(Self::Owner),
+            "editor" => Some(Self::Editor),
+            "viewer" => Some(Self::Viewer),
+            _ => None,
+        }
+    }
 }
 
 pub struct ChangeRole {
@@ -29,6 +43,20 @@ pub struct RemoveMember {
     pub user_id: i64,
 }
 
+pub struct ListMembers {
+    pub project_id: i64,
+    pub limit: u32,
+    /// Position only: the page starts after this user ID.
+    pub after: Option<i64>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MemberSummary {
+    pub user_id: i64,
+    pub display_name: String,
+    pub role: MemberRole,
+}
+
 #[derive(Debug)]
 pub struct Acknowledged;
 
@@ -39,6 +67,13 @@ pub enum Rejection {
     LastOwner,
 }
 
+/// Listing permits only this refusal, so it has its own type (S17: types
+/// split where permitted sets differ).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::VariantArray)]
+pub enum ListMembersRejection {
+    Forbidden,
+}
+
 pub struct Descriptor {
     pub code: &'static str,
     pub summary: &'static str,
@@ -46,57 +81,46 @@ pub struct Descriptor {
     pub prerequisite: Option<&'static str>,
 }
 
+/// The one definition of `memberships.forbidden`, whichever type refuses.
+const FORBIDDEN: Descriptor = Descriptor {
+    code: "memberships.forbidden",
+    summary: "This operation is not permitted.",
+    rule: None,
+    prerequisite: None,
+};
+
 impl Rejection {
     pub fn descriptor(self) -> Descriptor {
-        let (code, summary, rule, prerequisite) = match self {
-            Self::Forbidden => (
-                "memberships.forbidden",
-                "This operation is not permitted.",
-                None,
-                None,
-            ),
-            Self::MemberNotFound => (
-                "memberships.member_not_found",
-                "Member not found.",
-                None,
-                None,
-            ),
-            Self::LastOwner => (
-                "memberships.last_owner",
-                "The project must retain an owner.",
-                Some("memberships.at_least_one_owner"),
-                Some("memberships.another_owner_required"),
-            ),
-        };
-        Descriptor {
-            code,
-            summary,
-            rule,
-            prerequisite,
+        match self {
+            Self::Forbidden => FORBIDDEN,
+            Self::MemberNotFound => Descriptor {
+                code: "memberships.member_not_found",
+                summary: "Member not found.",
+                rule: None,
+                prerequisite: None,
+            },
+            Self::LastOwner => Descriptor {
+                code: "memberships.last_owner",
+                summary: "The project must retain an owner.",
+                rule: Some("memberships.at_least_one_owner"),
+                prerequisite: Some("memberships.another_owner_required"),
+            },
+        }
+    }
+}
+
+impl ListMembersRejection {
+    pub fn descriptor(self) -> Descriptor {
+        match self {
+            Self::Forbidden => FORBIDDEN,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Stage {
-    Begin,
-    Body,
-    Commit,
-}
-#[derive(Debug, PartialEq, Eq)]
-pub enum FailureKind {
-    Busy,
-    Other,
-}
-#[derive(Debug, PartialEq, Eq)]
 pub enum StopReason {
     Rejected(Rejection),
     Execution { stage: Stage, kind: FailureKind },
-}
-#[derive(Debug, PartialEq, Eq)]
-pub enum Cleanup {
-    RollbackAcknowledged,
-    Unconfirmed { rollback_error: Option<FailureKind> },
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum ActionError {
@@ -111,14 +135,6 @@ fn execution(stage: Stage, error: sqlx::Error) -> StopReason {
     StopReason::Execution {
         stage,
         kind: failure_kind(&error),
-    }
-}
-
-fn failure_kind(error: &sqlx::Error) -> FailureKind {
-    if crate::app::is_busy(error) {
-        FailureKind::Busy
-    } else {
-        FailureKind::Other
     }
 }
 
@@ -216,6 +232,55 @@ async fn apply(
     }
 }
 
+/// Any member, in any role, may list; an unknown project and a non-member are
+/// refused alike. Visibility is re-checked for every page, in the same read
+/// transaction as the page itself.
+pub async fn list_members(
+    conn: SqliteConnection,
+    actor: &Actor,
+    query: ListMembers,
+) -> Result<Page<MemberSummary>, ReadError<ListMembersRejection>> {
+    read::run(conn, async |tx| {
+        let member: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM memberships WHERE project_id=? AND user_id=?)",
+        )
+        .bind(query.project_id)
+        .bind(actor.0)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| read::execution(Stage::Body, e))?;
+        if !member {
+            return Err(Stop::Rejected(ListMembersRejection::Forbidden));
+        }
+        let rows: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT m.user_id, u.display_name, m.role FROM memberships m JOIN users u ON u.id = m.user_id
+             WHERE m.project_id=? AND m.user_id>? ORDER BY m.user_id LIMIT ?",
+        )
+        .bind(query.project_id)
+        .bind(query.after.unwrap_or(0))
+        .bind(i64::from(query.limit) + 1)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| read::execution(Stage::Body, e))?;
+        let members = rows
+            .into_iter()
+            .map(|(user_id, display_name, role)| {
+                Some(MemberSummary {
+                    user_id,
+                    display_name,
+                    role: MemberRole::parse(&role)?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or(Stop::Execution {
+                stage: Stage::Body,
+                kind: FailureKind::Other,
+            })?;
+        Ok(Page::new(members, query.limit, |m| m.user_id))
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +321,42 @@ mod tests {
                 _ => unreachable!(),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn failed_page_query_rolls_back_and_releases_the_writer() {
+        let (_dir, path) = crate::read::tests::database().await;
+        let mut conn = crate::app::connect(&path).await.unwrap();
+        // Visibility reads only memberships, so the page query fails alone.
+        sqlx::query("ALTER TABLE users RENAME TO users_gone")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let listed = list_members(
+            crate::app::connect(&path).await.unwrap(),
+            &Actor(11),
+            ListMembers {
+                project_id: 41,
+                limit: 50,
+                after: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            listed,
+            Err(ReadError::Failed {
+                primary: Stop::Execution {
+                    stage: Stage::Body,
+                    kind: FailureKind::Other
+                },
+                cleanup: Cleanup::RollbackAcknowledged,
+            })
+        );
+        let mut tx = conn.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        sqlx::query("UPDATE projects SET name='Written' WHERE id=41")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
     }
 }

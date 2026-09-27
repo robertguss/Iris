@@ -1,7 +1,7 @@
-// What the page says for every declared outcome of both operations, written
+// What the page says for every declared outcome of both mutations, written
 // by hand. Runs under Node, which also exercises the bundled JSON import.
 import assert from "node:assert/strict";
-import { DOMAIN_OPERATIONS } from "./client.ts";
+import { MUTATIONS } from "./client.ts";
 import { present } from "./present.ts";
 
 const NAMES = {
@@ -60,7 +60,7 @@ const OVERCLAIMS = [
 
 type Input = Parameters<typeof present>[1];
 let checks = 0;
-for (const op of DOMAIN_OPERATIONS) {
+for (const op of MUTATIONS) {
   const base = {
     schema_version: 1,
     operation: NAMES[op],

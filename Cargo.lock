@@ -1801,8 +1801,11 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "getrandom 0.4.3",
+ "http-body-util",
  "serde_json",
  "strum 0.28.0",
+ "tokio",
+ "tower",
  "utoipa",
  "utoipa-axum",
 ]

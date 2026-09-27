@@ -12,6 +12,11 @@ CREATE TABLE memberships (
     role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'owner')),
     PRIMARY KEY (project_id, user_id)
 );
+-- Delivery-only contact data: no read or response discloses it.
+CREATE TABLE user_contacts (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+    email TEXT NOT NULL
+);
 CREATE TABLE iris_sessions (
     id TEXT PRIMARY KEY NOT NULL,
     data TEXT NOT NULL,

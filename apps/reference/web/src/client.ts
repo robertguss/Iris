@@ -7,8 +7,22 @@ import type { ValidateFunction } from "ajv/dist/2020.js";
 import type { operations } from "./generated.ts";
 
 /** Every operation the export marks with `x-iris`, and nothing else. */
-export const DOMAIN_OPERATIONS = ["changeMemberRole", "removeMember"] as const;
+export const DOMAIN_OPERATIONS = [
+  "changeMemberRole",
+  "removeMember",
+  "listProjectMembers",
+] as const;
 export type Operation = (typeof DOMAIN_OPERATIONS)[number];
+/** The operations that change state; reads have no request body. */
+export const MUTATIONS = ["changeMemberRole", "removeMember"] as const;
+export type Mutation = (typeof MUTATIONS)[number] & Operation;
+
+/** Each operation's method, written by hand and checked against the export. */
+const METHODS: Record<Operation, "get" | "post"> = {
+  changeMemberRole: "post",
+  removeMember: "post",
+  listProjectMembers: "get",
+};
 
 /** Response bodies are read up to this many bytes; declared bodies are far smaller. */
 export const BODY_LIMIT = 64 * 1024;
@@ -51,7 +65,8 @@ type Declared = {
   >;
   "x-iris"?: {
     schema_version: number;
-    recovery: object;
+    /** Absent for reads, which declare no recovery capabilities. */
+    recovery?: object;
     prerequisites?: Record<string, string>;
   };
 };
@@ -64,7 +79,7 @@ export type Document = {
 type Entry = {
   path: string;
   version: number;
-  recovery: object;
+  recovery: object | undefined;
   prerequisites: Record<string, string>;
   validators: Map<number, ValidateFunction>;
 };
@@ -79,8 +94,11 @@ export function client(document: Document) {
   );
   const ids = declared.map(({ operation }) => operation.operationId).sort();
   if (
-    declared.some(({ method }) => method !== "post") ||
-    ids.join() !== [...DOMAIN_OPERATIONS].sort().join()
+    ids.join() !== [...DOMAIN_OPERATIONS].sort().join() ||
+    declared.some(
+      ({ method, operation }) =>
+        METHODS[operation.operationId as Operation] !== method,
+    )
   )
     throw new Error("Reference operation linkage mismatch");
   const schema = (response: Declared["responses"][string]) => {

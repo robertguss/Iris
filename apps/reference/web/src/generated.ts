@@ -95,6 +95,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProjectMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -113,6 +129,18 @@ export interface components {
         ErrorCode: "csrf" | "login_failed" | "unauthorized" | "internal";
         LoginInfo: {
             authorization_url: string;
+        };
+        /** @description Present state when read, not a snapshot of the collection. */
+        MemberPage: {
+            items: components["schemas"]["MemberSummary"][];
+            /** @description Null when no further members existed when this page was read. */
+            next_cursor: string | null;
+        };
+        /** @description Never includes contact details. */
+        MemberSummary: {
+            display_name: string;
+            role: components["schemas"]["Role"];
+            user_id: string;
         };
         Problem: {
             code: components["schemas"]["ErrorCode"];
@@ -630,6 +658,142 @@ export interface operations {
                         message: string;
                         /** @enum {string} */
                         operation: "memberships.change_role";
+                        request_id: string;
+                        /** @enum {integer} */
+                        schema_version: 1;
+                    };
+                };
+            };
+        };
+    };
+    listProjectMembers: {
+        parameters: {
+            query?: {
+                /** @description Page size from 1 to 100, written without leading zeros; defaults to 50. */
+                limit?: string;
+                /** @description An earlier page's `next_cursor`, echoed verbatim. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Iris response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MemberPage"];
+                        /** @enum {string} */
+                        kind: "success";
+                        /** @enum {string} */
+                        operation: "memberships.list";
+                        request_id: string;
+                        /** @enum {integer} */
+                        schema_version: 1;
+                    };
+                };
+            };
+            /** @description Iris response */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "http.invalid_request";
+                        /** @enum {string} */
+                        kind: "refused";
+                        message: string;
+                        /** @enum {string} */
+                        operation: "memberships.list";
+                        request_id: string;
+                        /** @enum {integer} */
+                        schema_version: 1;
+                    };
+                };
+            };
+            /** @description Iris response */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "http.unauthenticated";
+                        /** @enum {string} */
+                        kind: "refused";
+                        message: string;
+                        /** @enum {string} */
+                        operation: "memberships.list";
+                        request_id: string;
+                        /** @enum {integer} */
+                        schema_version: 1;
+                    };
+                };
+            };
+            /** @description Iris response */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "memberships.forbidden";
+                        /** @enum {string} */
+                        kind: "rejected";
+                        message: string;
+                        /** @enum {string} */
+                        operation: "memberships.list";
+                        request_id: string;
+                        /** @enum {integer} */
+                        schema_version: 1;
+                    };
+                };
+            };
+            /** @description Iris response */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "iris.internal";
+                        /** @enum {string} */
+                        kind: "failure";
+                        message: string;
+                        /** @enum {string} */
+                        operation: "memberships.list";
+                        request_id: string;
+                        /** @enum {integer} */
+                        schema_version: 1;
+                    };
+                };
+            };
+            /** @description Iris response */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "iris.unavailable";
+                        /** @enum {string} */
+                        kind: "failure";
+                        message: string;
+                        /** @enum {string} */
+                        operation: "memberships.list";
                         request_id: string;
                         /** @enum {integer} */
                         schema_version: 1;

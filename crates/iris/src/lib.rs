@@ -121,7 +121,9 @@ pub struct Operation<R: 'static> {
     /// Every rejection variant, so the mapping below is exhaustive.
     pub rejections: &'static [R],
     pub rejection: fn(R) -> Mapping,
-    pub recovery: Recovery,
+    /// `None` for reads, which declare no recovery capabilities: repeating a
+    /// read is a new observation, not a replay.
+    pub recovery: Option<Recovery>,
 }
 
 impl<R: Copy> Operation<R> {
@@ -268,12 +270,22 @@ fn bridge<R: Copy>(api: &mut OpenApi, op: &Operation<R>, success: Vec<(String, R
             .push(op.schema(mapping));
     }
     operation.responses = serde_json::from_value(json!(groups.into_iter().map(|(status, branches)| (status, json!({"description":"Iris response", "content":{"application/json":{"schema":{"oneOf":branches}}}}))).collect::<BTreeMap<_,_>>())).unwrap();
-    let recovery = &op.recovery;
-    operation.extensions = Some(serde_json::from_value(json!({"x-iris": {
-        "operation":op.name, "schema_version":VERSION,
-        "recovery":{"inspect":recovery.inspect,"read":recovery.read,"replay":recovery.replay,"new_submission":recovery.new_submission},
-        "prerequisites":mappings.iter().filter_map(|m| m.code.zip(m.prerequisite)).collect::<BTreeMap<_,_>>()
-    }})).unwrap());
+    let mut iris = serde_json::Map::new();
+    iris.insert("operation".into(), json!(op.name));
+    iris.insert("schema_version".into(), json!(VERSION));
+    if let Some(recovery) = &op.recovery {
+        iris.insert("recovery".into(), json!({"inspect":recovery.inspect,"read":recovery.read,"replay":recovery.replay,"new_submission":recovery.new_submission}));
+    }
+    iris.insert(
+        "prerequisites".into(),
+        json!(
+            mappings
+                .iter()
+                .filter_map(|m| m.code.zip(m.prerequisite))
+                .collect::<BTreeMap<_, _>>()
+        ),
+    );
+    operation.extensions = Some(serde_json::from_value(json!({ "x-iris": iris })).unwrap());
     assert_eq!(
         success.first().map(|(name, _)| name.as_str()),
         Some(op.success_schema),
@@ -288,7 +300,9 @@ fn bridge<R: Copy>(api: &mut OpenApi, op: &Operation<R>, success: Vec<(String, R
 }
 
 /// Apply only to one collected operation's router. The method check keeps
-/// method-not-allowed outside this operation's contract. `classify` maps the
+/// method-not-allowed outside this operation's contract. Axum serves HEAD
+/// through a GET route, so a GET operation's boundary also covers HEAD: the
+/// same status and headers, with the body stripped by axum. `classify` maps the
 /// application's own refusal markers on inner responses to the shared profile.
 pub fn boundary<S: Clone + Send + Sync + 'static, R: Copy + Send + Sync>(
     router: Router<S>,
@@ -297,7 +311,8 @@ pub fn boundary<S: Clone + Send + Sync + 'static, R: Copy + Send + Sync>(
 ) -> Router<S> {
     router.route_layer(middleware::from_fn(
         move |mut request: Request, next: Next| async move {
-            if request.method() != op.method {
+            let head_as_get = op.method == Method::GET && request.method() == Method::HEAD;
+            if request.method() != op.method && !head_as_get {
                 return next.run(request).await;
             }
             let mut bytes = [0u8; 16];

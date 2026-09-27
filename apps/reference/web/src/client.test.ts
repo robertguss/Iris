@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BODY_LIMIT, DOMAIN_OPERATIONS, client } from "./client.ts";
+import { BODY_LIMIT, DOMAIN_OPERATIONS, MUTATIONS, client } from "./client.ts";
 import type { Document, Operation, Reason, Result } from "./client.ts";
 
 const [documentPath, fixtureDir] = process.argv.slice(2);
@@ -14,10 +14,12 @@ const api = client(document);
 const NAMES = {
   changeMemberRole: "memberships.change_role",
   removeMember: "memberships.remove_member",
+  listProjectMembers: "memberships.list",
 } as const;
 const PATHS = {
   changeMemberRole: "/api/memberships/role",
   removeMember: "/api/memberships/remove",
+  listProjectMembers: "/api/projects/{project_id}/members",
 } as const;
 // How many responses of each status, kind and code each Rust test captures.
 const SHARED = {
@@ -40,11 +42,21 @@ const CAPTURED: Record<Operation, Record<string, number>> = {
     "200 success": 1,
     "400 refused http.invalid_request": 8,
   },
+  listProjectMembers: {
+    "200 success": 2,
+    "400 refused http.invalid_request": 4,
+    "401 refused http.unauthenticated": 2,
+    "403 rejected memberships.forbidden": 2,
+    "500 failure iris.internal": 1,
+    "503 failure iris.unavailable": 1,
+  },
 };
 
-// Linkage: the boundary accepts exactly the two POST domain operations.
+// Linkage: the boundary accepts exactly the export's domain operations, each
+// with its hand-written method.
 const copy = () => structuredClone(document);
 const role = (doc: Document) => doc.paths[PATHS.changeMemberRole];
+const members = (doc: Document) => doc.paths[PATHS.listProjectMembers];
 const extra = copy();
 extra.paths["/api/extra"] = {
   post: { ...role(extra).post, operationId: "extraOperation" },
@@ -54,15 +66,21 @@ delete unmarked.paths[PATHS.removeMember].post["x-iris"];
 const method = copy();
 role(method).put = role(method).post;
 delete role(method).post;
-for (const doc of [extra, unmarked, method])
+const readAsPost = copy();
+members(readAsPost).post = members(readAsPost).get;
+delete members(readAsPost).get;
+const mutationAsGet = copy();
+role(mutationAsGet).get = role(mutationAsGet).post;
+delete role(mutationAsGet).post;
+for (const doc of [extra, unmarked, method, readAsPost, mutationAsGet])
   assert.throws(() => client(doc), /Reference operation linkage mismatch/);
 // Session responses may omit a body; a domain response may not.
 const bodiless = copy();
 delete bodiless.paths[PATHS.removeMember].post.responses["409"].content;
 assert.throws(() => client(bodiless), /lacks a JSON schema/);
 
-for (const op of DOMAIN_OPERATIONS) {
-  assert.equal(api.path(op), PATHS[op]);
+for (const op of DOMAIN_OPERATIONS) assert.equal(api.path(op), PATHS[op]);
+for (const op of MUTATIONS) {
   assert.deepEqual(api.recovery(op), {
     inspect: false,
     read: false,
@@ -73,6 +91,9 @@ for (const op of DOMAIN_OPERATIONS) {
     "memberships.last_owner": "memberships.another_owner_required",
   });
 }
+// Reads declare no recovery capabilities and have no prerequisites.
+assert.equal(api.recovery("listProjectMembers"), undefined);
+assert.deepEqual(api.prerequisites("listProjectMembers"), {});
 
 let checks = 0;
 const attempts = new Set<string>();
@@ -131,8 +152,6 @@ function chunked(bytes: Uint8Array, size: number, failIfPulled = false) {
 
 const REQUEST_ID = "req_0123456789abcdef0123456789abcdef";
 for (const op of DOMAIN_OPERATIONS) {
-  const other = op === "changeMemberRole" ? "removeMember" : "changeMemberRole";
-
   // Real responses from the assembled application.
   const fixtures = JSON.parse(
     readFileSync(join(fixtureDir, `${op}.json`), "utf8"),
@@ -150,6 +169,12 @@ for (const op of DOMAIN_OPERATIONS) {
     await check(op, respond(body, status), "server");
   }
   assert.deepEqual(tally, CAPTURED[op], `${op}: captured responses`);
+}
+
+// Hand-written envelopes for the two mutations; the reads' cases come with
+// their client.
+for (const op of MUTATIONS) {
+  const other = op === "changeMemberRole" ? "removeMember" : "changeMemberRole";
 
   // Independent envelopes, including additive fields.
   const base = {

@@ -1,6 +1,7 @@
-// What the page says about each outcome. The switch is exhaustive over both
-// operations' generated codes, so a new code is a compile-time decision here.
-import type { Operation, Result } from "./client.ts";
+// What the page says about each mutation outcome. The switch is exhaustive
+// over both mutations' generated codes, so a new code is a compile-time
+// decision here.
+import type { Mutation, Result } from "./client.ts";
 import { api } from "./membership.ts";
 
 export type Presentation = {
@@ -20,7 +21,7 @@ const PREREQUISITES: Record<string, string> = {
 };
 
 export function present(
-  op: Operation,
+  op: Mutation,
   result: Result<"changeMemberRole"> | Result<"removeMember">,
 ): Presentation {
   if (result.kind === "client_unknown")

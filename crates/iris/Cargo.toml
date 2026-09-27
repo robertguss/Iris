@@ -11,3 +11,8 @@ strum = { version = "=0.28.0", features = ["derive"] }
 utoipa = "=6.0.0"
 utoipa-axum = "=0.3.0"
 getrandom = "0.4"
+
+[dev-dependencies]
+tokio = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

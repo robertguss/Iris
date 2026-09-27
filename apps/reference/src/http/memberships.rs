@@ -1,14 +1,24 @@
 //! HTTP adapter for membership operations, ported from the S16 experiment.
-use super::{Mount, classify, parse_id};
+use super::{
+    Mount, PAGE_READ, PageQuery, classify, decode_cursor, encode_cursor, parse_id, parse_limit,
+    read_reply,
+};
 use crate::{
     app::AppState,
     domains::memberships as action,
     identity::{Actor, ApiError},
+    read::Page,
 };
-use action::{Acknowledged, ActionError, FailureKind, Rejection, StopReason};
+use action::{
+    Acknowledged, ActionError, Descriptor, FailureKind, ListMembersRejection, MemberRole,
+    Rejection, StopReason,
+};
 use axum::{
     Extension, Json, Router,
-    extract::{State, rejection::JsonRejection},
+    extract::{
+        Path, Query, State,
+        rejection::{JsonRejection, PathRejection, QueryRejection},
+    },
     http::Method,
     response::Response,
 };
@@ -69,14 +79,51 @@ fn remove_member_success(_: Acknowledged) -> RemoveMemberSuccess {
     }
 }
 
-/// Both operations permit the same rejections, so they share one mapping.
-fn membership_rejection(r: Rejection) -> Mapping {
-    let status = match r {
-        Rejection::Forbidden => 403,
-        Rejection::MemberNotFound => 404,
-        Rejection::LastOwner => 409,
-    };
-    let descriptor = r.descriptor();
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Path)]
+struct ProjectPath {
+    #[param(pattern = "^[1-9][0-9]*$", max_length = 19)]
+    project_id: String,
+}
+
+/// Never includes contact details.
+#[derive(Serialize, utoipa::ToSchema)]
+struct MemberSummary {
+    #[schema(pattern = "^[1-9][0-9]*$", max_length = 19)]
+    user_id: String,
+    display_name: String,
+    role: Role,
+}
+
+/// Present state when read, not a snapshot of the collection.
+#[derive(Serialize, utoipa::ToSchema)]
+struct MemberPage {
+    items: Vec<MemberSummary>,
+    /// Null when no further members existed when this page was read.
+    #[schema(required = true)]
+    next_cursor: Option<String>,
+}
+
+fn member_page(page: Page<action::MemberSummary>) -> MemberPage {
+    MemberPage {
+        items: page
+            .items
+            .into_iter()
+            .map(|member| MemberSummary {
+                user_id: member.user_id.to_string(),
+                display_name: member.display_name,
+                role: match member.role {
+                    MemberRole::Owner => Role::Owner,
+                    MemberRole::Editor => Role::Editor,
+                    MemberRole::Viewer => Role::Viewer,
+                },
+            })
+            .collect(),
+        next_cursor: page.next.map(encode_cursor),
+    }
+}
+
+fn rejected(status: u16, descriptor: Descriptor) -> Mapping {
     Mapping {
         status,
         kind: "rejected",
@@ -85,6 +132,24 @@ fn membership_rejection(r: Rejection) -> Mapping {
         rule: descriptor.rule,
         prerequisite: descriptor.prerequisite,
     }
+}
+
+/// Both operations permit the same rejections, so they share one mapping.
+fn membership_rejection(r: Rejection) -> Mapping {
+    let status = match r {
+        Rejection::Forbidden => 403,
+        Rejection::MemberNotFound => 404,
+        Rejection::LastOwner => 409,
+    };
+    rejected(status, r.descriptor())
+}
+
+/// An unknown project and a non-member get the same refusal.
+fn list_members_rejection(r: ListMembersRejection) -> Mapping {
+    let status = match r {
+        ListMembersRejection::Forbidden => 403,
+    };
+    rejected(status, r.descriptor())
 }
 
 const ACKNOWLEDGED: Mapping = Mapping {
@@ -112,7 +177,7 @@ pub(crate) static CHANGE_ROLE: Operation<Rejection> = Operation {
     success_schema: "ChangeRoleSuccess",
     rejections: Rejection::VARIANTS,
     rejection: membership_rejection,
-    recovery: RESUBMIT_ONLY,
+    recovery: Some(RESUBMIT_ONLY),
 };
 
 pub(crate) static REMOVE_MEMBER: Operation<Rejection> = Operation {
@@ -124,7 +189,19 @@ pub(crate) static REMOVE_MEMBER: Operation<Rejection> = Operation {
     success_schema: "RemoveMemberSuccess",
     rejections: Rejection::VARIANTS,
     rejection: membership_rejection,
-    recovery: RESUBMIT_ONLY,
+    recovery: Some(RESUBMIT_ONLY),
+};
+
+pub(crate) static LIST_MEMBERS: Operation<ListMembersRejection> = Operation {
+    name: "memberships.list",
+    public_id: "listProjectMembers",
+    handler: "list_members_endpoint",
+    method: Method::GET,
+    success: PAGE_READ,
+    success_schema: "MemberPage",
+    rejections: ListMembersRejection::VARIANTS,
+    rejection: list_members_rejection,
+    recovery: None,
 };
 
 fn reply<S: Serialize>(
@@ -228,6 +305,42 @@ async fn remove_member_endpoint(
     reply(op, &id, result, remove_member_success)
 }
 
+// Authentication first, then the path and query, then the read.
+#[utoipa::path(get, path = "/api/projects/{project_id}/members", params(ProjectPath, PageQuery), security(("BrowserSession" = [])))]
+async fn list_members_endpoint(
+    State(state): State<AppState>,
+    Extension(id): Extension<RequestId>,
+    actor: Result<Actor, ApiError>,
+    path: Result<Path<ProjectPath>, PathRejection>,
+    query: Result<Query<PageQuery>, QueryRejection>,
+) -> Response {
+    let op = &LIST_MEMBERS;
+    let Ok(actor) = actor else {
+        return op.render(&shared(Shared::Unauthenticated), &id, None);
+    };
+    let (Ok(Path(path)), Ok(Query(query))) = (path, query) else {
+        return op.render(&shared(Shared::Invalid), &id, None);
+    };
+    let (Ok(project_id), Ok(limit), Ok(after)) = (
+        parse_id(&path.project_id),
+        parse_limit(query.limit.as_deref()),
+        query.cursor.as_deref().map(decode_cursor).transpose(),
+    ) else {
+        return op.render(&shared(Shared::Invalid), &id, None);
+    };
+    let conn = match open(&state).await {
+        Ok(conn) => conn,
+        Err(failure) => return op.render(&shared(failure), &id, None),
+    };
+    let input = action::ListMembers {
+        project_id,
+        limit,
+        after,
+    };
+    let result = action::list_members(conn, &actor, input).await;
+    read_reply(op, &id, result.map(member_page))
+}
+
 /// Explicit ecosystem registration: each operation is collected alone.
 pub fn change_role() -> Collected<AppState> {
     iris::collect(
@@ -245,6 +358,14 @@ pub fn remove_member() -> Collected<AppState> {
     )
 }
 
+pub fn list_members() -> Collected<AppState> {
+    iris::collect(
+        &LIST_MEMBERS,
+        OpenApiRouter::new().routes(utoipa_axum::routes!(list_members_endpoint)),
+        success_schemas::<MemberPage>(),
+    )
+}
+
 fn mount_change_role(router: Router<AppState>, auth: crate::identity::Auth) -> Router<AppState> {
     iris::boundary(auth.layer(router), &CHANGE_ROLE, classify)
 }
@@ -253,14 +374,21 @@ fn mount_remove_member(router: Router<AppState>, auth: crate::identity::Auth) ->
     iris::boundary(auth.layer(router), &REMOVE_MEMBER, classify)
 }
 
+fn mount_list_members(router: Router<AppState>, auth: crate::identity::Auth) -> Router<AppState> {
+    iris::boundary(auth.layer(router), &LIST_MEMBERS, classify)
+}
+
 /// Each collected operation with the mount that layers its session stack
 /// and boundary.
 pub(crate) fn collect() -> Vec<(Collected<AppState>, Mount)> {
     vec![
         (change_role(), mount_change_role),
         (remove_member(), mount_remove_member),
+        (list_members(), mount_list_members),
     ]
 }
 
+#[cfg(test)]
+mod list_tests;
 #[cfg(test)]
 mod tests;

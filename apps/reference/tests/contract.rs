@@ -34,11 +34,16 @@ fn independent_inventory() {
         ("post", "/api/auth/logout", "logout"),
         ("post", "/api/memberships/role", "changeMemberRole"),
         ("post", "/api/memberships/remove", "removeMember"),
+        (
+            "get",
+            "/api/projects/{project_id}/members",
+            "listProjectMembers",
+        ),
     ];
     expected.sort();
     assert_eq!(actual, expected);
-    use iris_reference::http::memberships::{change_role, remove_member};
-    for operation in [change_role(), remove_member()] {
+    use iris_reference::http::memberships::{change_role, list_members, remove_member};
+    for operation in [change_role(), remove_member(), list_members()] {
         let operation: Value = serde_json::to_value(operation.api).unwrap();
         for (path, item) in operation["paths"].as_object().unwrap() {
             assert_eq!(

@@ -246,7 +246,7 @@ pub(crate) fn security_scheme() -> utoipa::openapi::security::SecurityScheme {
     use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
     SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
         "__Host-iris-session",
-        "Same-origin session and X-Iris-Csrf required. Explicit HTTP-loopback test mode uses iris-session-dev.",
+        "Same-origin session; unsafe methods also require X-Iris-Csrf. Explicit HTTP-loopback test mode uses iris-session-dev.",
     )))
 }
 

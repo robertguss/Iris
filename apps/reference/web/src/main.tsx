@@ -3,7 +3,7 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { createRoot } from "react-dom/client";
-import type { Operation } from "./client.ts";
+import type { Mutation } from "./client.ts";
 import type { components } from "./generated.ts";
 import { api, send } from "./membership.ts";
 import { present } from "./present.ts";
@@ -43,7 +43,7 @@ function App() {
       active = false;
     };
   }, []);
-  const [operation, setOperation] = useState<Operation>("changeMemberRole");
+  const [operation, setOperation] = useState<Mutation>("changeMemberRole");
   const [project, setProject] = useState("41");
   const [member, setMember] = useState("29");
   const [role, setRole] = useState<Role>("viewer");
@@ -199,7 +199,7 @@ function App() {
                 id="operation"
                 value={operation}
                 onChange={(e) => {
-                  setOperation(e.target.value as Operation);
+                  setOperation(e.target.value as Mutation);
                   reset();
                 }}
               >

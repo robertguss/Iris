@@ -402,6 +402,59 @@ ignored. Both previous contract snapshots/clients, web build/breaking-change
 check, Clippy and formatting passed. No push, PR, deployment or shared-state
 change was part of this experiment.
 
+## Reference application and first reads — September 26, 2026
+
+**Proposed recommendation; documentation only.** After S16, independent
+assessments of `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through
+Codex) found that the S15/S16 contract still has one instance, no domain read
+endpoint exists, and both demos use disposable databases. Claude's local rerun
+on macOS with Node 24 (CI pins 26) passed:
+
+```sh
+cargo test --workspace --locked                                # 48 passed
+cargo test --locked -p iris-api-spike --features dev-identity  # 24 passed, 1 ignored
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo fmt --all --check
+npm --prefix experiments/api-slice/web run verify
+npm --prefix experiments/api-slice/web run verify:s16  # 10 Rust, 44 client cases
+npm --prefix experiments/api-slice/web run probe:s16   # all probes detected
+```
+
+CI runs neither S16 web command; adding both is a separate prerequisite.
+
+[S17](design-spec.md#s17--reference-application-and-first-reads) recommends a
+fresh reference application in the S04 layout instead of extending the
+experiments, which become frozen evidence kept green in CI. Utoipa becomes
+primary. Framework code starts as one private, provisional `crates/iris` that
+receives only behavior two operations demonstrably share; transactions and
+cleanup classification stay application-owned. Checkpoint A ports `change_role`
+and adds `remove_member` as a control. Checkpoint B adds the first reads (my
+projects and project members, with explicit visibility SQL and keyset
+pagination) and a React member directory. Invitation issuance and acceptance
+follow in a separate design. Domain operations adopt the S16-tested subset of
+S15's envelope; the session endpoints keep their contracts.
+
+Astra's read-only review of the first draft found no blockers. Its four major
+findings were incorporated: silent component-schema loss when merging OpenAPI
+documents, HEAD dispatch to GET handlers, cleanup obligations of read
+transactions, and an over-broad client decoder scope. S17 records the full
+disposition.
+
+Alternatives considered: migrating the existing demos in place (keeps two live
+result models and a legacy React console), extracting a framework crate first
+(premature stabilization), and invitations before reads (defers the largest
+undesigned area). The owner then settled all seven open choices as recommended:
+a uniform 403 hides whether an inaccessible project exists; any member may list
+a project's members with display names, never email; HEAD is served as its GET
+operation; `change_role` and `remove_member` share a rejection type until their
+permitted sets diverge; unknown and duplicate query parameters are rejected;
+reads come before invitations; and frozen experiments stay in CI until the
+reference application covers their evidence, with each retirement recorded here.
+Still open: authorization to implement checkpoint A or the CI prerequisite, the
+invitation design, and naming and packaging. Persistence, seed policy, workers
+and a development command remain for a separate lifecycle pass. No runtime,
+dependency, CI or wire change accompanies this record.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

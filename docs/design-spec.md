@@ -34,10 +34,12 @@ failure boundaries, S12 the static contracts, and S13 the proposed execution and
 evidence lifecycle. S14 defines the caller-loss recommendation and failure
 table; S15 gives a concrete result, response and recovery reference contract.
 S16 compares two authoring paths with one annotated membership vertical slice.
-S10 distinguishes implementation from proposals. Use the
-[independent review brief](design-review-brief.md) for assignments, three review
-tracks, report format and synthesis instructions. S13 also supplies focused
-runtime-evidence questions; assess the design, not just the example syntax.
+S17 proposes the next bounded step: a reference application that generalizes S16
+across operations and adds the first reads. S10 distinguishes implementation
+from proposals. Use the [independent review brief](design-review-brief.md) for
+assignments, three review tracks, report format and synthesis instructions. S13
+also supplies focused runtime-evidence questions; assess the design, not just
+the example syntax.
 
 ## S01 — Purpose and constraints
 
@@ -367,6 +369,7 @@ boundaries; a tool allowlist is not a sandbox.
 | Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below               |
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                             |
 | Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration          |
+| Reference application, multi-operation contracts and first reads        | Proposed in S17, open choices settled; not implemented                                                                          |
 | Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                     |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                   |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                               |
@@ -389,6 +392,8 @@ observations motivate shared definitions, not productivity claims.
 - Exact result/rejection/failure types and stable error-code policy.
 - Safe public error schemas, existence hiding, and privileged inspection access.
 - Minimal route/contract registration using the selected ecosystem integration.
+- Read conventions: visibility predicates, pagination, GET contracts and field
+  disclosure. S17 proposes a first slice.
 - Actor construction, job identity and explicit system authority.
 - Database strategy and transaction composition when a concrete need appears.
 - Receipt persistence, replay authorization, retention and idempotency
@@ -1784,6 +1789,285 @@ process/future loss and portability. No receipt, executor, typed registration
 wrapper, custom macro, resource DSL, runtime inspector or productivity benchmark
 was added.
 
+## S17 — Reference application and first reads
+
+**Proposed; the owner settled its seven open choices on September 26, 2026.**
+This section recommends the next bounded build step. It authorizes no
+implementation, dependency, CI or wire change. It was drafted after independent
+assessments of `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through
+Codex), then revised after Astra's [review](#review-of-this-proposal). The
+[owner decisions](#owner-decisions) are recorded below; the assessments and the
+review are not owner decisions.
+
+### Why a reference application now
+
+The four legacy operations share older conventions (`{code,message}` errors and
+one global error enum), but the S15/S16 contract under active design has one
+instance: S16's bridge is verified for one route, and its assembly asserts a
+single collected path. All four domain operations are POST mutations. The only
+GET routes are `/api/openapi.json`, `/api/auth/session` and
+`/api/auth/callback`, so React cannot discover authorized domain state and
+remains an ID-based console. S13–S16 deepened failure and recovery semantics for
+one action; the larger remaining risk is breadth. A small reference application
+tests whether the S16 path generalizes across operations and supplies the first
+read conventions before any of it becomes framework API.
+
+A local rerun at `9235c6e` (macOS, Node 24 rather than the pinned 26) passed the
+default workspace tests (48), the dev-identity API tests (24, one Mailpit test
+ignored), Clippy, rustfmt, web `verify`, `verify:s16` (10 Rust tests, 44 client
+cases) and `probe:s16`. The
+[decision record](decisions.md#reference-application-and-first-reads--september-26-2026)
+lists the commands. CI runs neither `verify:s16` nor `probe:s16`; adding both is
+a small, separately authorizable prerequisite.
+
+### Ownership boundaries
+
+| Location                                                                                                     | Owns                                                                                                                                                                                                                       | Must not contain                                                                     |
+| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `apps/reference/`, S04 layout: `app.rs`, `identity.rs`, `domains/`, `http/`, `migrations/`, `tests/`, `web/` | Commands, rejection types and descriptors, transactions and cleanup classification, SQL and visibility predicates, wire DTOs and projections, operation declarations, session/OIDC code, seeds and bootstrap, React client | Code presented as a framework API                                                    |
+| `crates/iris/` (`publish = false`; name provisional)                                                         | Only behavior that two application operations demonstrably share. Likely candidates: envelope rendering, the per-operation response bridge, the shared refusal/failure profile, the request-ID boundary                    | Transactions, cleanup classification, authorization, SQL, domain types, session/OIDC |
+| `experiments/`                                                                                               | Frozen historical evidence, kept green in CI until the reference application carries equivalent evidence; each retirement is recorded in the decision record                                                               | New features, or migration to the new envelope                                       |
+
+**Extraction rule:** move code into `crates/iris` only when a second operation
+needs the same behavior, and name both operations when doing so. Two operations
+sharing SQLite mechanics does not establish a framework failure model, so S15
+result and cleanup types stay application-owned in this slice. The crate is
+private and provisional; presence there is not a stability promise, and
+packaging and naming remain open (S11).
+
+- **Registration:** utoipa is primary; aide remains only in the frozen
+  comparison. The reference application's build is the first single-exporter
+  baseline; measure it (D07) rather than infer it.
+- **Identity:** session/OIDC is the only identity path, using the existing local
+  issuer fixture for development and tests; the development identity header is
+  not ported. The session module is copied as application code, similar to
+  authentication generated into an application; whether Iris later provides it
+  is open. Session, login, callback and logout keep their existing non-envelope
+  contracts.
+- **Schema and bootstrap:** fresh consolidated migrations own the application
+  schema rather than replaying experimental history. The owner chose to add
+  `users.display_name` and `projects.name`, so reads disclose something beyond
+  already-known IDs; `user_contacts.email` stays delivery-only. As in the
+  experiments, tests and the development binary create a disposable database,
+  apply migrations and load seed fixtures at startup.
+- **Deferred to a lifecycle pass:** persistent storage, seed policy, SQLite
+  journal mode, worker supervision, and one development command for the issuer,
+  API and Vite. The delivery worker is not ported.
+
+### Operation sequence
+
+Each checkpoint has its own acceptance checks and stop gate. If a checkpoint
+contradicts an earlier assumption, stop and record it; do not silently widen an
+abstraction to absorb it.
+
+| Checkpoint | Operations (domain / OpenAPI ID)                                                             | Routes                                                        | What it tests                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A          | `memberships.change_role` / `changeMemberRole`; `memberships.remove_member` / `removeMember` | `POST /api/memberships/role`; `POST /api/memberships/remove`  | S16 ported unchanged into the S04 layout, then a control operation with an identical rejection set; multi-operation association; the first extraction decision |
+| B          | `projects.list_mine` / `listMyProjects`; `memberships.list` / `listProjectMembers`           | `GET /api/projects`; `GET /api/projects/{project_id}/members` | Filter-style and precondition-style read authorization, pagination, GET contracts, a React member directory                                                    |
+| Follow-up  | `invitations.issue` / `issueInvitation`; `invitations.accept` / `acceptInvitation`           | `POST /api/invitations`; `POST /api/invitations/accept`       | 201 success, several literal branches per status, a possibly credential-bearing body, outbox enqueue, existence-hiding 404; completes the React workflow       |
+
+Checkpoints A and B can be authorized separately. Invitation policies and
+checks, including whether issuance returns its token, get their own design after
+A and B supply evidence. Reads come before invitations because reads are the
+largest undesigned area, and member management over seeded fixtures is a
+coherent application without invitations. Mutations keep their command-style
+paths and S16's operation IDs; reads use resource paths. Resource-verb routing
+for mutations is a separate, deferred convention question. Listing pending
+invitations waits for explicit visibility rules and must never expose tokens.
+
+### Multi-operation assembly
+
+Generalize S16 alternative A without a second handwritten path catalog:
+
+1. Collect each operation alone in its own `OpenApiRouter` with one `routes!`
+   call. The bridge mutates that single collected operation through
+   `get_openapi_mut`, preserving S16's exactly-one-operation assertion per
+   declaration; `OpenApiRouter::merge` then adds it to the application router.
+   Both methods exist in the pinned utoipa-axum 0.3.0.
+2. Check components before each merge. utoipa 6.0.0's `OpenApi::merge` silently
+   keeps the first same-named component, so a differing definition under an
+   existing name must fail assembly, while identical shared definitions pass.
+   Distinct DTOs need distinct names; S16's generic `SuccessData` becomes
+   operation-specific.
+3. Each declaration supplies the operation-name pair, expected method, success
+   status and projection, exhaustive rejection mapping, applicable shared
+   profile and recovery capabilities. CSRF refusal applies only to unsafe
+   methods, matching the session layer, which skips GET, HEAD and OPTIONS.
+4. After merging, catalog checks fail assembly on duplicate OpenAPI IDs or
+   domain names, a surviving inferred handler ID, or one public code with
+   differing descriptor metadata. Independent contract tests still assert every
+   path and method.
+5. The request-ID and envelope boundary applies per operation for its declared
+   method. Axum 0.8.9 dispatches HEAD to GET handlers, so a GET operation's
+   boundary also establishes request context for HEAD. The owner chose to serve
+   HEAD as its GET operation: same status and headers, no body, covered by tests
+   rather than a separate OpenAPI declaration. Other unmatched routes and
+   methods stay outside operation contracts, as in S16. This slice avoids two
+   operations on one path.
+
+`change_role` and `remove_member` share one rejection type because their
+permitted sets coincide (S12; review finding O55-A-03). The owner chose this
+over per-operation types; the shared type splits as soon as their permitted sets
+diverge. Operations with different sets keep their own types, and a code used by
+several types delegates to one descriptor definition. Codes are namespaced by
+the operation's domain even when the fact concerns another entity, for example
+`invitations.already_member`.
+
+### Public response policy
+
+Every domain operation adopts the S16-tested subset of S15: a version-1 envelope
+with `schema_version`, `operation`, `request_id` and a literal `kind`; `code`
+and `message` for non-success; `data` for success. Additive fields are
+tolerated; unknown versions and codes remain `ClientUnknown`. The remainder of
+S15 stays proposed, and the frozen `{code,message}` API is not migrated.
+
+| Operation                  | Success                                   | Domain rejections                                                                             |
+| -------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| change role, remove member | 200 `{completion:"acknowledged"}`         | 403 `memberships.forbidden`; 404 `memberships.member_not_found`; 409 `memberships.last_owner` |
+| list my projects           | 200 page of `{project_id,name,role}`      | None; rows are filtered by actor                                                              |
+| list project members       | 200 page of `{user_id,display_name,role}` | 403 `memberships.forbidden` for an unknown project or a non-member                            |
+
+Every domain operation also declares the shared profile: 400
+`http.invalid_request`, 401 `http.unauthenticated`, 500 `iris.internal` and 503
+`iris.unavailable`, plus 403 `http.csrf_refused` for POST. Reads need 503 too:
+SQLx 0.9 leaves SQLite's journal mode unset unless requested, and the
+experiments use a 100 ms busy timeout, so readers and committing writers can
+contend.
+
+**Existence hiding** is specified per concealed pair, not as a blanket rule.
+Member listing gives an unknown project and a project the caller does not belong
+to the same 403 response apart from `request_id`; the mutations keep their
+existing concealment of unknown projects from non-owners. Authorized callers may
+still learn absence: an owner receives `memberships.member_not_found`. The owner
+chose this uniform 403, matching the mutations, over a uniform 404 for reads.
+
+After checkpoint B, `change_role` and `remove_member` may declare
+`listProjectMembers` as their current-state read (S15). A page describes present
+state only: absence from a page or a traversal does not prove removal, and a 403
+after a lost self-removal response does not resolve that earlier invocation
+(S14). Read operations declare no recovery capabilities; repeating a read is a
+new observation, not a replay.
+
+### Read conventions
+
+Reads are ordinary application functions. They have no mutation effects to
+report, but they still own cleanup:
+
+```rust
+// Proposed shape; not an Iris API.
+pub async fn list_members(
+    conn: &mut SqliteConnection,
+    actor: &Actor,
+    query: ListMembers, // project_id, limit, position after a user_id
+) -> Result<Page<MemberSummary>, ReadError<ListMembersRejection>>;
+```
+
+- One deferred read transaction covers the visibility check and the page query,
+  so both observe the same database state under SQLite's locking; other engines
+  need their own proof. Finalize it explicitly. In SQLite's default
+  rollback-journal mode an unfinished reader delays committing writers, and
+  SQLx's rollback on drop is queued, not acknowledged.
+- Visibility is explicit, application-owned SQL. `list_mine` filters on the
+  actor's memberships. `list_members` first establishes that the actor is a
+  member of the project, in any role, then selects. Authorization is
+  re-evaluated for every page. There is no policy engine or policy-to-SQL
+  translation.
+- Pages use keyset pagination on a unique ascending key (`user_id` or
+  `project_id`). `limit` is 1–100 with a default of 50. `cursor` is an opaque,
+  versioned, length-bounded string that clients echo verbatim. It carries
+  position only: authority comes from the actor, so a forged or foreign cursor
+  can reposition within visible rows but never widen them. No signing is needed
+  for this slice.
+- A page is not a snapshot of the collection. On an unchanged dataset, forward
+  traversal returns each visible row once in key order. With concurrent changes,
+  rows can be missed; the unique key prevents duplicates. `next_cursor: null`
+  means no further rows when that page was read.
+- Unknown and duplicate query parameters are rejected as `http.invalid_request`,
+  matching bodies. A scratch probe of the serde_urlencoded 0.7.1 path behind
+  axum 0.8.9's `Query` confirmed both under `deny_unknown_fields`; the handler
+  still checks ranges such as `limit=0`, and assembled routes need their own
+  contract tests.
+- Candidate runtime enforcement: run reads on a dedicated connection with
+  SQLite's `PRAGMA query_only` enabled and drop it afterwards, so an accidental
+  data change fails and the setting cannot leak into mutations. This guards
+  mistakes; it is not a security boundary or compile-time guarantee.
+- ETags, conditional requests, sort and filter options, total counts and a
+  generic pagination helper are deferred.
+
+`ReadError` reuses S15's rejection, failure and cleanup vocabulary without a
+mutation-effect assessment, which does not imply cleanup certainty. A connection
+that returned an error is dropped rather than reused, as in S16.
+
+### React client
+
+A new client in `apps/reference/web` covers session bootstrap, my projects,
+members, and role change or removal. Domain operations go through one
+whole-request boundary generalized from S16: it owns request execution and body
+reading, including thrown request and body-read errors, and validates responses
+against the exported document. The session endpoints keep their existing
+contracts. Query parameters are validated by the server adapter, not the client
+boundary. Body reads are bounded, so an oversize body becomes `ClientUnknown`.
+Measure the bundle and startup cost of runtime validation. Generated TypeScript
+remains static assistance, not validation.
+
+### Acceptance checks
+
+Expectations are written independently of descriptor-generated fixtures (S12).
+
+| Checkpoint             | Independent checks                                                                                                                                                                                                                                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Prerequisite           | CI runs `verify:s16` and `probe:s16`                                                                                                                                                                                                                                                                                                             |
+| A                      | Ported S16 suites pass with unchanged expectations; exact status/kind/code tuples for both operations; shared-code consistency; frozen experiments stay green                                                                                                                                                                                    |
+| A probes               | An omitted bridge on the second operation, a duplicate OpenAPI ID, conflicting metadata for a shared code, a wrong path, and a same-named but different component schema each fail; an identical shared schema passes                                                                                                                            |
+| B authorization        | Unknown and non-member projects give the same 403 response apart from `request_id`, while permitted disclosures stay distinct; a member removed between pages receives 403 on the next page; `list_mine` returns only the actor's memberships; email canaries never appear; GET needs no CSRF token while POST still does                        |
+| B pagination and input | On an unchanged dataset, forward traversal returns every member once in key order; foreign cursors stay within the caller's visible rows; limit 0, 101 or non-integer, a malformed cursor, and unknown or duplicate parameters each return 400; authenticated and unauthenticated HEAD requests behave deliberately, with no missing-context 500 |
+| B cleanup              | Rejection, query failure and cancellation each finalize or drop the read transaction, after which a writer can commit; `query_only` fails an accidental write and never reaches a mutation connection                                                                                                                                            |
+| React                  | Typed narrowing and runtime decoder cases for every domain operation, including oversize bodies; session bootstrap unchanged; one browser workflow per checkpoint against the local issuer                                                                                                                                                       |
+| Probes                 | Extend the omitted-edit probes with a changed GET parameter bound and an omitted visibility predicate that an independent test, not the compiler, catches                                                                                                                                                                                        |
+
+### Explicit exclusions
+
+No generic Action trait or executor, typed registration wrapper (S16 alternative
+B), custom derive, resource or query DSL, policy engine or automatic
+policy-to-SQL translation, generic pagination framework, receipts or idempotency
+keys, evidence collector or tracing, bounded server-owned execution, delivery
+worker, lifecycle conventions, envelope migration of the session endpoints,
+PostgreSQL or Turso support, real OIDC provider, generators or CLI, migration of
+the frozen experiments, or productivity claims.
+
+### Owner decisions
+
+On September 26, 2026, the owner settled each choice as recommended. The
+alternatives stay recorded for their rationale.
+
+| Choice                             | Decision                                                                           | Alternative not chosen                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Existence hiding for reads         | Uniform 403, as the mutations already use                                          | Uniform 404 for reads                                                                 |
+| Who can list members; which fields | Any project member, in any role; `user_id`, `display_name`, `role`; never email    | Owners only; IDs and roles only                                                       |
+| HEAD on GET operations             | Serve it as its GET operation, without a body                                      | Reject HEAD explicitly                                                                |
+| Rejection-type sharing             | Share where permitted sets coincide; split when they diverge                       | Per-operation types everywhere, with shared descriptor values                         |
+| Unknown query parameters           | Reject, as bodies do; duplicates too                                               | Ignore                                                                                |
+| Step order                         | Reads before invitations                                                           | Invitations before reads                                                              |
+| Frozen experiments in CI           | Keep until the reference application covers their evidence; record each retirement | Path-filtered or scheduled runs; removal from CI once the reference application lands |
+
+### Review of this proposal
+
+Astra reviewed the first draft read-only on September 26, 2026, across all three
+review tracks, against `9235c6e`, the uncommitted diff, application source and
+pinned crates. It found no blockers, confirmed the API, CSRF, journal-mode,
+GET-inventory and response-shape claims, and judged reads before invitations
+justified. This revision incorporates all four major findings (silent schema
+loss on merge, HEAD dispatch to GET handlers, read-transaction cleanup and
+`query_only` leakage, over-broad decoder scope) and all three minor ones
+(existence-hiding scope, pagination and readback overclaims, and scope, which
+moved invitations to a follow-up). Claude verified the merge and HEAD findings
+against the pinned sources. Astra's verdict was to revise, then proceed with the
+first tranche, now checkpoints A and B. Its sign-off pass on the revised draft,
+before the owner decisions were recorded, found all seven resolved and approved
+it with one wording nit, since applied: the client boundary owns thrown request
+and body-read errors, not just decoding. A later diff review signed off on the
+recorded owner decisions. One model's review is not owner approval or consensus.
+
 ## References and design provenance
 
 The
@@ -1823,6 +2107,20 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-26, S17 owner decisions:** The owner settled S17's seven open
+  choices as recommended: uniform 403 existence hiding for reads, member lists
+  visible to any member with display names, HEAD served as GET, shared rejection
+  types where permitted sets coincide, rejection of unknown query parameters,
+  reads before invitations, and frozen experiments kept in CI until covered.
+  Implementation is not yet authorized.
+- **2026-09-26, reference application proposal:** Added proposed S17 after
+  independent Claude and Astra assessments of `9235c6e` and a local rerun of the
+  workspace, S16 and web checks. Recommends a fresh reference application in the
+  S04 layout, frozen experiments, utoipa as primary, a private provisional
+  `crates/iris` with an evidence-based extraction rule, two checkpoints (a
+  second mutation, then the first reads) with independent acceptance checks, and
+  a follow-up design for invitations. Revised after Astra's review, which S17
+  records. Documentation only; no implementation, dependency, CI or wire change.
 - **2026-09-26, bounded S16 integration:** Implemented and verified alternative
   A in an isolated route. Added the runtime/export bridge, generated TypeScript,
   whole-request Ajv validation, behavioral/failure controls and omitted-edit

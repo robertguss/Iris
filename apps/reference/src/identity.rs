@@ -24,7 +24,7 @@ use store::Store;
 use subtle::ConstantTimeEq;
 use tower_sessions::{Expiry, Session, SessionManagerLayer, cookie::SameSite};
 
-/// Only codes the session layer and endpoints produce.
+// Only codes the session layer and endpoints produce.
 #[derive(Clone, Copy, Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
@@ -75,13 +75,7 @@ impl IntoResponse for ApiError {
 
 /// Only explicitly assembled middleware can supply an actor; headers cannot.
 #[derive(Clone)]
-pub struct Actor(
-    #[expect(
-        dead_code,
-        reason = "domain operations read the actor from step 3 onward"
-    )]
-    pub(crate) i64,
-);
+pub struct Actor(pub(crate) i64);
 
 impl<S: Send + Sync> FromRequestParts<S> for Actor {
     type Rejection = ApiError;

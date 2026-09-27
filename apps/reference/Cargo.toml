@@ -11,6 +11,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 utoipa = "=6.0.0"
 utoipa-axum = "=0.3.0"
+strum = { version = "=0.28.0", features = ["derive"] }
 tower-sessions = { version = "=0.15.0", default-features = false, features = ["axum-core"] }
 async-trait = "0.1"
 time = { version = "0.3", features = ["serde"] }

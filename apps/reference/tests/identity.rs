@@ -5,7 +5,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use iris_reference::{
-    app::{AppState, MIGRATOR, app, connect, routes, seed, unix_time},
+    app::{AppState, MIGRATOR, app, connect, openapi, seed, unix_time},
     identity::{Auth, store::Store},
 };
 use openidconnect::reqwest;
@@ -108,10 +108,26 @@ async fn send(
     origin: Option<&str>,
     csrf: bool,
 ) -> (u16, HeaderMap, Value) {
+    send_with(app, b, method, path, body, origin, csrf, None).await
+}
+#[allow(clippy::too_many_arguments)]
+async fn send_with(
+    app: &Router,
+    b: &mut Browser,
+    method: &str,
+    path: &str,
+    body: Value,
+    origin: Option<&str>,
+    csrf: bool,
+    extra: Option<(&str, &str)>,
+) -> (u16, HeaderMap, Value) {
     let mut request = Request::builder()
         .method(method)
         .uri(path)
         .header("content-type", "application/json");
+    if let Some((name, value)) = extra {
+        request = request.header(name, value);
+    }
     if !b.cookie.is_empty() {
         request = request.header("cookie", &b.cookie);
     }
@@ -145,7 +161,7 @@ async fn send(
     };
     assert_eq!(headers["cache-control"], "no-store");
     if !value.is_null() {
-        let spec = serde_json::to_value(routes().1).unwrap();
+        let spec = serde_json::to_value(openapi()).unwrap();
         let path = path.split('?').next().unwrap();
         let mut schema = spec["paths"][path][method.to_lowercase()]["responses"]
             [status.to_string()]["content"]["application/json"]["schema"]
@@ -279,6 +295,21 @@ async fn session_login_csrf_logout_and_no_resurrection() {
     assert_eq!(status, 403);
     assert_eq!(v["code"], "csrf");
     a.csrf = token;
+    let change = json!({"project_id":"41","user_id":"29","role":"viewer"});
+    // Fake identity headers do not sign in, even with a valid anonymous session.
+    let (status, _, v) = send_with(
+        &f.app,
+        &mut a,
+        "POST",
+        "/api/memberships/role",
+        change.clone(),
+        Some("http://127.0.0.1:5173"),
+        true,
+        Some(("x-iris-dev-user", "11")),
+    )
+    .await;
+    assert_eq!(status, 401);
+    assert_eq!(v["code"], "http.unauthenticated");
     login(&f, &mut a, "alice").await;
     let first_id = a.cookie.split('=').nth(1).unwrap().parse::<Id>().unwrap();
     let stale = f.store.load(&first_id).await.unwrap().unwrap();
@@ -301,6 +332,60 @@ async fn session_login_csrf_logout_and_no_resurrection() {
     );
     let mut second = Browser::default();
     login(&f, &mut second, "alice").await;
+    sqlx::query("INSERT INTO memberships VALUES (41, 29, 'editor')")
+        .execute(&f.store.pool)
+        .await
+        .unwrap();
+    let mut bob = Browser::default();
+    login(&f, &mut bob, "bob").await;
+    let (status, _, v) = send(
+        &f.app,
+        &mut bob,
+        "POST",
+        "/api/memberships/role",
+        change.clone(),
+        Some("http://127.0.0.1:5173"),
+        true,
+    )
+    .await;
+    assert_eq!(status, 403);
+    assert_eq!(v["code"], "memberships.forbidden");
+    for (origin, csrf) in [
+        (Some("http://127.0.0.1:5173"), false),
+        (Some("https://evil.example"), true),
+    ] {
+        let (status, _, v) = send(
+            &f.app,
+            &mut a,
+            "POST",
+            "/api/memberships/role",
+            change.clone(),
+            origin,
+            csrf,
+        )
+        .await;
+        assert_eq!(status, 403);
+        assert_eq!(v["code"], "http.csrf_refused");
+    }
+    let (status, _, v) = send(
+        &f.app,
+        &mut a,
+        "POST",
+        "/api/memberships/role",
+        change,
+        Some("http://127.0.0.1:5173"),
+        true,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(v["kind"], "success");
+    assert_eq!(v["data"], json!({"completion":"acknowledged"}));
+    let role: String =
+        sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=41 AND user_id=29")
+            .fetch_one(&f.store.pool)
+            .await
+            .unwrap();
+    assert_eq!(role, "viewer");
     for (origin, csrf) in [
         (Some("http://127.0.0.1:5173"), false),
         (Some("https://evil.example"), true),

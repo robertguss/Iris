@@ -1838,6 +1838,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "strum 0.28.0",
  "subtle",
  "tempfile",
  "time",

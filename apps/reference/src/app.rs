@@ -4,11 +4,14 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use axum::Router;
+use axum::{Router, http::StatusCode};
 use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 use utoipa::OpenApi;
 
-use crate::identity::{self, Auth};
+use crate::{
+    http,
+    identity::{self, Auth},
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -31,6 +34,15 @@ pub async fn connect(path: &Path) -> Result<SqliteConnection, sqlx::Error> {
         .foreign_keys(true)
         .busy_timeout(Duration::from_millis(100));
     SqliteConnection::connect_with(&options).await
+}
+
+/// SQLite reports busy as primary result code 5, possibly extended.
+pub fn is_busy(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|e| e.code())
+        .and_then(|code| code.parse::<i32>().ok())
+        .is_some_and(|code| code & 0xff == 5)
 }
 
 /// The application schema, including the session tables.
@@ -62,15 +74,25 @@ pub async fn seed(conn: &mut SqliteConnection, issuer: &str) -> Result<(), sqlx:
 #[openapi(info(title = "Iris reference application", version = "0.1.0"))]
 struct ApiDoc;
 
-/// Collected routes and their document; assembly runs without an identity provider.
-pub fn routes() -> (Router<AppState>, utoipa::openapi::OpenApi) {
-    use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
-    let (router, mut api) = utoipa_axum::router::OpenApiRouter::with_openapi(ApiDoc::openapi())
+/// The session endpoints, collected once for both the router and the document.
+fn collect_identity() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    utoipa_axum::router::OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(utoipa_axum::routes!(identity::session_info))
         .routes(utoipa_axum::routes!(identity::login))
         .routes(utoipa_axum::routes!(identity::callback))
         .routes(utoipa_axum::routes!(identity::logout))
-        .split_for_parts();
+        .split_for_parts()
+}
+
+pub fn identity_routes() -> Router<AppState> {
+    collect_identity().0
+}
+
+/// The application document; assembly runs without an identity provider.
+pub fn openapi() -> utoipa::openapi::OpenApi {
+    use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
+    let mut api = collect_identity().1;
+    api.merge(http::memberships::routes().1);
     // No project license has been chosen; omit the inferred empty license.
     api.info.license = None;
     api.components
@@ -82,9 +104,14 @@ pub fn routes() -> (Router<AppState>, utoipa::openapi::OpenApi) {
                 "Same-origin session and X-Iris-Csrf required. Explicit HTTP-loopback test mode uses iris-session-dev.",
             ))),
         );
-    (router, api)
+    api
 }
 
+/// Domain routes keep their envelope boundary outside the session layer.
+/// Unmatched routes fall back to a plain 404 outside every layer.
 pub fn app(auth: Auth) -> Router<AppState> {
-    auth.layer(routes().0)
+    auth.clone()
+        .layer(identity_routes())
+        .merge(http::memberships::authenticated(auth))
+        .fallback(|| async { StatusCode::NOT_FOUND })
 }

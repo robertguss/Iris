@@ -1841,6 +1841,9 @@ scenario reproduction (`runner.test.mjs:79`), and skipped the later steps; a
 rerun of the same commit passed every step, including both browser workflows.
 The failure is assessed as a flake; its cause was not diagnosed
 ([record](decisions.md#reference-application-current-state-read--september-27-2026)).
+The current-state read's commits then ran at `12227aa` (run 36345360713) and
+passed every step on the first attempt, including all three browser workflows
+([record](decisions.md#documentation-hygiene--september-27-2026)).
 
 ### Ownership boundaries
 
@@ -2430,6 +2433,11 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, documentation hygiene:** Recorded the current-state read's first
+  GitHub Actions run, which passed every step, in S17's status paragraph.
+  Documentation only; no design, wire or code change. The top-level README, the
+  API guide, the reference guide and the decision record's open decisions were
+  corrected alongside.
 - **2026-09-27, current-state read:** With the owner's approval, `change_role`
   and `remove_member` now declare `listProjectMembers` as their current-state
   read. Assembly checks the linkage, the client parses the declaration, and the

@@ -3,9 +3,10 @@
 A personal experiment in building an opinionated, API-first Rust application
 framework from existing crates, with React as its first client.
 
-Iris contains the design record, a runnable SQLite/Turso comparison, and an
-end-to-end Axum → OpenAPI → TypeScript → React experiment. **There is no
-application framework yet.**
+Iris contains the design record, a runnable SQLite/Turso comparison, an
+end-to-end Axum → OpenAPI → TypeScript → React experiment, and a reference
+application that tests the proposed contracts across several operations. **There
+is no application framework yet.**
 
 ## Why build this?
 
@@ -65,6 +66,9 @@ comparing recommendations without treating model agreement as proof.
 6. [Agent interface](experiments/agent-interface/README.md) — shared
    verification runner, JSON CLI, MCP conventions and scenario evidence, trust
    boundaries, and the proposed agent-repair evaluation.
+7. [Reference application](apps/reference/README.md) — membership management
+   over session identity: commands, operations, verification matrix, omission
+   probes, browser workflows, and limits.
 
 ## Run the database experiment
 
@@ -105,6 +109,23 @@ Further productivity experiments are deferred while we design the framework's
 features and conventions in the [living spec](docs/design-spec.md). The pilot
 does not yet inspect production requests or profile performance; successful tool
 calls alone do not demonstrate better repairs.
+
+The [S16 experiment](experiments/api-slice/s16.md) then published one membership
+action's full HTTP contract, with rejection metadata, precise per-code schemas
+and whole-request client validation, on an isolated route; the existing API is
+unchanged. The [reference application](apps/reference/README.md) (S17) tests
+whether that contract generalizes: two membership mutations and two paged reads
+over session identity, a React client whose browser workflows run in CI, and the
+mutations' declared current-state read. Only what two operations demonstrably
+share moves into the private, provisionally named `crates/iris`; none of it is
+framework API.
+
+What comes next is the owner's choice. The
+[S17 design](docs/design-spec.md#s17--reference-application-and-first-reads)
+records two candidates: a design for invitation issuance and acceptance in the
+reference application, and a lifecycle pass (persistent storage, seed policy,
+journal mode, worker supervision, one development command). Neither is
+authorized yet.
 
 ## Provenance and status
 

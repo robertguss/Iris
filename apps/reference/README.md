@@ -203,4 +203,5 @@ and the
 - Locally, only macOS was used. GitHub Actions (Ubuntu) passed at `a0c25ff`,
   before checkpoint B, and at `06ac967`, checkpoint B's handoff, on a rerun: the
   first attempt failed only in the frozen agent-interface check, assessed as a
-  flake. The current-state read commits have not run there.
+  flake. The current-state read commits passed every step on the first attempt
+  at `12227aa` (run 36345360713), including all three browser workflows.

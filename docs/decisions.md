@@ -182,24 +182,78 @@ with ordinary code rather than design the extension system first.
 
 ## Open decisions
 
+Status annotated September 27, 2026; the original questions are unchanged. Each
+status names the later record that settled or narrowed the question, and how
+far: most settlements apply to the experiments or the reference application, not
+to a framework default.
+
 - SQLite versus Turso as default; precise driver, release, features, and
-  migration tools.
+  migration tools. _Status:_ narrowed. SQLx/SQLite serves the experiments and
+  the reference application, not as a permanent default
+  ([experiment follow-up](#experiment-follow-up--september-24-2026)); exact pins
+  live in `Cargo.lock`, not framework promises. The default engine remains open.
 - Authentication mechanism, credential storage, and CSRF defenses. Same-origin
   HttpOnly-cookie authentication was suggested, not accepted as the final
-  design.
+  design. _Status:_ selected for the experiment, not a released framework:
+  same-origin server-side sessions with an HttpOnly cookie, OIDC authorization
+  code with PKCE, and a session-bound CSRF token
+  ([authentication experiment](#authentication-experiment--selected-september-24-2026)).
+  The reference application copies the session module as application code
+  ([S17 ownership boundaries](design-spec.md#ownership-boundaries)).
+  Real-provider verification and a durable account lifecycle remain deferred.
 - Project/tenant model and where tenant authorization is enforced; RLS is not
-  selected.
+  selected. _Status:_ open as a framework question. The experiments and the
+  reference application use project memberships checked by application code:
+  authority checks run in the same serialized transaction as their mutation
+  ([S05](design-spec.md#s05--identity-authority-transactions-and-side-effects)),
+  and reads use explicit visibility SQL re-evaluated for every page
+  ([S17 read conventions](design-spec.md#read-conventions)). RLS and a policy
+  engine remain unselected.
 - Invitation identity: verified account email, user ID, or another policy; how
-  email changes and normalization affect acceptance.
+  email changes and normalization affect acceptance. _Status:_ settled for the
+  experiments. Acceptance is bound to user ID, not email; delivery snapshots the
+  recipient's test address, so a contact change does not redirect an existing
+  invitation
+  ([local delivery follow-up](#local-delivery-follow-up--september-24-2026)).
+  Email-based identity linking is not implemented.
 - Whether repeat acceptance is idempotent success or a documented conflict.
-- Which errors intentionally hide resource or token existence.
-- Clock semantics at expiration and under transaction retries.
+  _Status:_ settled for the experiments as a documented conflict: repeat
+  acceptance returns `AlreadyAccepted`, 409 `already_accepted` over HTTP
+  ([experiment follow-up](#experiment-follow-up--september-24-2026)).
+- Which errors intentionally hide resource or token existence. _Status:_ decided
+  per concealed pair, not as a blanket rule. In the API slice, another
+  recipient's token gets the same 404 `not_found` as an unknown one
+  ([API guide](../experiments/api-slice/README.md#contract-choices-and-evidence)).
+  In the reference application, member listing gives an unknown project and a
+  non-member the same 403, the mutations conceal unknown projects from
+  non-owners, and an authorized owner can still learn absence through
+  `memberships.member_not_found`
+  ([S17 public response policy](design-spec.md#public-response-policy)).
+  Invitations in the reference application await their own design.
+- Clock semantics at expiration and under transaction retries. _Status:_
+  expiration settled for the experiments: one fixed timestamp per attempt, and
+  equality counts as expired
+  ([experiment follow-up](#experiment-follow-up--september-24-2026)). The
+  invitation and membership actions have no automatic transaction-retry policy;
+  clock semantics for such a policy remain open.
 - OpenAPI version/library, client generator, and how runtime contract checks
-  run.
+  run. _Status:_ narrowed. utoipa is provisional after both exporters passed the
+  same checks ([API follow-up](#api-follow-up--september-24-2026)), and the
+  reference application exports OpenAPI 3.1 with utoipa alone.
+  openapi-typescript generates static types, and the S16 and reference clients
+  validate whole responses with Ajv against the export
+  ([bounded S16 integration](#bounded-s16-integration--september-26-2026)).
 - Whether durable email delivery enters the first slice or the next one; outbox
   design if committing database state must reliably result in delivery.
+  _Status:_ settled: it entered the next slice as a SQLite transactional outbox
+  with fenced leases and bounded retries. The demos use disposable databases, so
+  this is not production durability
+  ([local delivery follow-up](#local-delivery-follow-up--september-24-2026)).
 - Packaging, crate layout, CLI name, framework name, license, and release
-  strategy.
+  strategy. _Status:_ open. The reference application's shared crate,
+  `crates/iris`, is private and provisionally named; its presence is no
+  packaging decision
+  ([S17 ownership boundaries](design-spec.md#ownership-boundaries)).
 
 ## Authentication experiment — selected September 24, 2026
 
@@ -898,6 +952,27 @@ acknowledgment before withholding it, so the cases show retained client
 uncertainty after a commit, not a real disconnect, cancellation or server
 continuation. The workflows check selected paths. One compile measured 29.4 ms,
 not investigated. No productivity claim follows.
+
+## Documentation hygiene — September 27, 2026
+
+**Documentation only; no design decision changed.** The owner chose this pass as
+the chunk after the current-state read.
+
+GitHub Actions run 36345360713 tested `12227aa`, the current-state read's
+documentation commit, on draft pull request #1. It passed every step on its
+first attempt, including the reference browser workflow's three workflows. The
+[current-state read entry](#reference-application-current-state-read--september-27-2026)
+recorded that GitHub Actions had not yet run its commits; it stays as written,
+and this run closes that gap.
+
+The top-level README now lists the reference application and describes S16 and
+S17 under its next milestone. The API guide's absent list names production email
+delivery instead of durable email delivery; the delivery experiment provides
+transactional local mail delivery on disposable demo databases. The owner's
+choice of this pass authorized that one sentence in a frozen experiment. The
+[open decisions](#open-decisions) above gain dated status notes; their questions
+are unchanged. The reference guide's CI limit and S17's status paragraph record
+the run.
 
 ## Maintaining this record
 

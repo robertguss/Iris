@@ -1,6 +1,7 @@
-// Checkpoint A's browser workflow against the local issuer. It builds and owns
-// the issuer, the development binary and a preview of the production client,
-// then drives both membership operations through agent-browser.
+// The reference console's browser workflow against the local issuer. It builds
+// and owns the issuer, the development binary and a preview of the production
+// client, then drives both membership operations from the member directory
+// through agent-browser.
 //
 //   node apps/reference/scripts/browser.mjs [--artifacts DIR]
 //
@@ -222,7 +223,7 @@ async function logout() {
   await button("Sign out");
   await wait("Not signed in");
 }
-/** The status line and the validated body's operation. */
+/** The outcome panel's status line and its validated body's operation. */
 async function outcome(status, operation) {
   try {
     await wait(status);
@@ -230,23 +231,36 @@ async function outcome(status, operation) {
     if (stop.signal.aborted) throw error;
     const shown = await browser(
       "eval",
-      `document.querySelector(".status strong")?.textContent ?? "no outcome"`,
+      `document.querySelector("#outcome .status strong")?.textContent ?? "no outcome"`,
     );
     throw new Error(`Expected "${status}"; the page shows ${shown.trim()}`);
   }
   await check(
-    `JSON.parse(document.querySelector("pre").textContent).operation === ${JSON.stringify(operation)}`,
+    `JSON.parse(document.querySelector("#outcome pre").textContent).operation === ${JSON.stringify(operation)}`,
     `${status} is a ${operation} response`,
   );
 }
-async function remove(user) {
+/** Waits until a panel's list has finished its read. */
+const settled = (panel) =>
+  browser(
+    "wait",
+    "--fn",
+    `document.querySelector("${panel} .listing")?.getAttribute("aria-busy") === "false"`,
+  );
+async function openProject(name) {
+  await settled("#projects");
+  await button(`Open ${name}`);
+  await settled("#members");
+}
+const select = (name) => button(`Select ${name}`);
+async function remove(name) {
   await browser("select", "#operation", "removeMember");
-  await browser("fill", "#member", user);
+  await select(name);
   await check(
-    `document.querySelector("button[type=submit]").disabled`,
+    `document.querySelector("#change button[type=submit]").disabled`,
     "removal needs confirmation",
   );
-  await browser("check", "input[type=checkbox]");
+  await browser("check", "#change input[type=checkbox]");
   await button("Remove member");
 }
 async function requests(path) {
@@ -257,6 +271,13 @@ async function requests(path) {
     throw new Error("Unexpected request log shape");
   return log.data.requests.length;
 }
+/** The outcome panel still shows this attempt, whatever the form now says. */
+async function retained(path, target, detail) {
+  await check(
+    `document.querySelector("#outcome .endpoint code").textContent === ${JSON.stringify(path)} && document.querySelector("#outcome .target").textContent.includes(${JSON.stringify(target)}) && document.querySelector("#outcome .status p").textContent === ${JSON.stringify(detail)}`,
+    `outcome keeps ${path} for ${target}`,
+  );
+}
 
 async function workflow() {
   // Anonymous, then a failed and recovered session bootstrap.
@@ -265,7 +286,7 @@ async function workflow() {
   await browser("set", "viewport", "1280", "1000");
   await wait("Not signed in");
   await check(
-    `document.querySelector("fieldset").disabled`,
+    `document.querySelector("#change fieldset").disabled`,
     "anonymous form disabled",
   );
   await capture("anonymous");
@@ -273,7 +294,7 @@ async function workflow() {
   await browser("reload");
   await wait("Session unavailable");
   await check(
-    `document.querySelector("fieldset").disabled && document.querySelector(".auth-panel button").disabled`,
+    `document.querySelector("#change fieldset").disabled && document.querySelector(".auth-panel button").disabled`,
     "controls disabled without a session",
   );
   await capture("session-error");
@@ -285,42 +306,119 @@ async function workflow() {
     `!document.querySelector(".auth-panel button").disabled`,
   );
 
-  // An owner changes a member's role, then loses one response.
+  // An owner changes a listed member's role; the listing is marked when the
+  // attempt is sent, before its response arrives.
   await login("Alice", "11");
+  await openProject("Launch plan");
+  await select("Bob Example");
   await check(
-    `!document.querySelector("fieldset").disabled && !document.cookie.includes("iris-session")`,
+    `!document.querySelector("#change fieldset").disabled && !document.cookie.includes("iris-session")`,
     "signed in; session cookie is HttpOnly",
   );
+  await browser(
+    "eval",
+    `(() => {
+      const original = window.fetch;
+      let release;
+      window.__irisHeld = new Promise((done) => (release = done));
+      window.__irisRelease = () => release();
+      window.fetch = async (...args) => {
+        const response = await original(...args);
+        if (String(args[0]).startsWith("/api/memberships/")) {
+          window.fetch = original;
+          await window.__irisHeld;
+        }
+        return response;
+      };
+      return true;
+    })()`,
+  );
   await button("Change member role");
+  await wait("Waiting for the API");
+  await check(
+    `document.querySelector("#members .stale") !== null`,
+    "listing marked while the response is pending",
+  );
+  await browser("eval", "(window.__irisRelease(), true)");
   await outcome("200 · Role change acknowledged", "memberships.change_role");
   await capture("role-changed");
+
+  // One lost response: unconfirmed, one attempt. Reading the members again,
+  // or pointing the form elsewhere, leaves that outcome as it was.
   await browser("network", "requests", "--clear");
   await browser("network", "route", "**/api/memberships/role", "--abort");
   await button("Change member role");
   await wait("Unconfirmed · No usable response");
   await check(
-    `document.querySelector(".status p").textContent === ${JSON.stringify(UNCONFIRMED)}`,
+    `document.querySelector("#outcome .status p").textContent === ${JSON.stringify(UNCONFIRMED)}`,
     "unconfirmed wording",
   );
   const attempts = await requests("/api/memberships/role");
   if (attempts !== 1) throw new Error(`Expected one attempt, saw ${attempts}`);
   await capture("unconfirmed");
   await browser("network", "unroute", "**/api/memberships/role");
+  await browser("click", "#members .reload");
+  await settled("#members");
+  await retained("/api/memberships/role", "Bob Example", UNCONFIRMED);
+  await browser("select", "#operation", "removeMember");
+  await select("Alice Example");
+  await retained("/api/memberships/role", "Bob Example", UNCONFIRMED);
+  // Refreshing the same session, or failing to, is no session change.
+  await button("Refresh session");
+  await browser(
+    "wait",
+    "--fn",
+    `!document.querySelector(".auth-panel button").disabled`,
+  );
+  await wait("Signed in as user 11");
+  await retained("/api/memberships/role", "Bob Example", UNCONFIRMED);
+  await browser("network", "route", "**/api/auth/session", "--abort");
+  await button("Refresh session");
+  await browser(
+    "wait",
+    "--fn",
+    `document.querySelector("[role=alert]") !== null`,
+  );
+  await browser("network", "unroute", "**/api/auth/session");
+  await retained("/api/memberships/role", "Bob Example", UNCONFIRMED);
 
-  // A non-owner is refused; the owner removes, then meets absence and the
-  // last-owner rule.
+  // A session change does clear it.
   await logout();
+  await check(
+    `document.querySelector("#outcome .status") === null && document.querySelector("#outcome .target") === null`,
+    "signing out clears the attempt",
+  );
+
+  // A non-owner is refused.
   await login("Bob", "29");
+  await openProject("Launch plan");
+  await select("Alice Example");
   await button("Change member role");
   await outcome("403 · Owner permission required", "memberships.change_role");
   await capture("forbidden");
+
+  // The owner removes a member. Confirmation belongs to one member; the stale
+  // row then reaches absence, and the last owner is protected.
   await logout();
   await login("Alice", "11");
-  await remove("29");
+  await openProject("Launch plan");
+  await browser("select", "#operation", "removeMember");
+  await select("Bob Example");
+  await browser("check", "#change input[type=checkbox]");
+  await select("Alice Example");
+  await check(
+    `!document.querySelector("#change input[type=checkbox]").checked && document.querySelector("#change button[type=submit]").disabled`,
+    "confirmation does not follow another member",
+  );
+  await remove("Bob Example");
   await outcome("200 · Removal acknowledged", "memberships.remove_member");
-  await remove("29");
+  await check(
+    `document.querySelector("#members .stale") !== null`,
+    "listing may predate the removal",
+  );
+  await remove("Bob Example");
   await outcome("404 · Member not found", "memberships.remove_member");
-  await remove("11");
+  await remove("Alice Example");
   await outcome("409 · Last owner must remain", "memberships.remove_member");
   await wait("Another owner is required first.");
   await capture("last-owner");
@@ -345,7 +443,7 @@ async function workflow() {
   await browser("reload");
   await wait("Not signed in");
   await check(
-    `document.querySelector("fieldset").disabled && localStorage.length === 0 && sessionStorage.length === 0`,
+    `document.querySelector("#change fieldset").disabled && localStorage.length === 0 && sessionStorage.length === 0`,
     "signed out; nothing stored",
   );
   return compile[0];
@@ -412,7 +510,7 @@ try {
     throw new Error(`Session through the preview: ${session.status}`);
   const compile = await Promise.race([workflow(), stopped]);
   console.log(
-    `PASS: OIDC sign-in and bootstrap recovery; role change, one unconfirmed attempt, non-owner refusal; removal, absence and last-owner protection; HttpOnly session; narrow layout; nothing stored. Validator compile ${compile.toFixed(1)} ms (production build). Artifacts: ${artifacts}`,
+    `PASS: OIDC sign-in and bootstrap recovery; from the member directory: role change with the listing marked at send time, one unconfirmed attempt kept across a reload and a new selection, non-owner refusal; removal with per-member confirmation, absence from a stale row and last-owner protection; HttpOnly session; narrow layout; nothing stored. Validator compile ${compile.toFixed(1)} ms (production build). Artifacts: ${artifacts}`,
   );
 } finally {
   await cleanup();

@@ -20,6 +20,22 @@ h1 { font-family: system-ui, sans-serif; font-weight: 600; font-size: clamp(30px
 .notice strong { font-weight: 600; }
 .notice p { margin: 3px 0 0; color: #665779; }
 .lab { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.column { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.page-size { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.page-size label { margin: 0; font-weight: 500; color: #6b6773; white-space: nowrap; }
+.page-size select { width: auto; margin: 0; padding: 5px 8px; }
+.read-status { font-size: 11px; color: #6b6773; line-height: 1.6; margin: 0 0 12px; }
+.rows { list-style: none; margin: 0 0 12px; padding: 0; border-top: 1px solid #ece9ef; }
+.rows li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #ece9ef; }
+.row-name { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.row-meta { display: block; font-size: 11px; color: #77717e; }
+.rows button, .page-controls button { background: #f7f6f9; border: 1px solid #e6e2ed; font-size: 11px; padding: 6px 10px; color: #61576f; flex-shrink: 0; }
+.rows button:hover, .page-controls button:hover { background: #ede8f5; }
+.rows button[aria-pressed="true"] { background: #655093; border-color: #655093; color: #fff; }
+.page-controls { display: flex; flex-wrap: wrap; gap: 7px; }
+.stale { font-size: 11px; color: #7a5412; background: #fff8ea; border: 1px solid #f0e0bd; border-radius: 6px; padding: 8px 10px; margin: 0 0 12px; }
+.target { font-size: 12px; color: #4e4958; line-height: 1.6; margin: 0 0 18px; overflow-wrap: anywhere; }
+.response-panel .target { margin: 12px 0 0; }
 .panel { background: #fff; border: 1px solid #e1dfd9; border-radius: 12px; padding: 25px; box-shadow: 0 3px 12px #27203303; min-width: 0; }
 .auth-panel { margin-bottom: 22px; }
 .auth-panel .examples { margin-bottom: 0; }

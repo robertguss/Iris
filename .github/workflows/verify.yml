@@ -34,7 +34,9 @@ jobs:
         with:
           node-version: 26.10.0
           cache: npm
-          cache-dependency-path: experiments/api-slice/web/package-lock.json
+          cache-dependency-path: |
+            experiments/api-slice/web/package-lock.json
+            apps/reference/web/package-lock.json
 
       - name: Install pinned npm
         run: npm install --global npm@10.9.9
@@ -53,6 +55,11 @@ jobs:
 
       - name: Probe reference application omissions
         run: node apps/reference/scripts/probes.mjs
+
+      - name: Verify reference client
+        run: |
+          npm --prefix apps/reference/web ci
+          npm --prefix apps/reference/web run verify
 
       - name: Install web dependencies
         run: npm --prefix experiments/api-slice/web ci

@@ -152,6 +152,22 @@ async fn collect(response: Response) -> (u16, Value) {
     assert!(!value.to_string().contains("canary"));
     (status, value)
 }
+/// Writes real responses for the client harness when `IRIS_REFERENCE_FIXTURES`
+/// names a directory; one file per operation, so parallel tests never share one.
+fn capture(operation_id: &str, responses: &[(u16, Value)]) {
+    let Some(dir) = std::env::var_os("IRIS_REFERENCE_FIXTURES") else {
+        return;
+    };
+    let fixtures = responses
+        .iter()
+        .map(|(status, body)| json!({"status": status, "body": body}))
+        .collect::<Vec<_>>();
+    std::fs::write(
+        std::path::Path::new(&dir).join(format!("{operation_id}.json")),
+        serde_json::to_vec_pretty(&fixtures).unwrap(),
+    )
+    .unwrap();
+}
 fn validate(status: u16, body: &Value) -> bool {
     let doc = serde_json::to_value(change_role().api).unwrap();
     let mut schema =
@@ -353,6 +369,7 @@ async fn whole_request_contract_and_fixtures() {
         .map(|(_, v)| v["request_id"].as_str().unwrap())
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(ids.len(), fixtures.len());
+    capture("changeMemberRole", &fixtures);
 }
 
 #[tokio::test]
@@ -945,6 +962,7 @@ async fn remove_member_whole_request() {
         .map(|(_, v)| v["request_id"].as_str().unwrap())
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(ids.len(), responses.len());
+    capture("removeMember", &responses);
 }
 
 #[tokio::test]

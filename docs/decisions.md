@@ -168,6 +168,73 @@ build speed from implementation language or assume additional crates improve it.
 | Stable structured API errors, possibly RFC 9457 Problem Details           | Predictable clients and testable failure behavior                            | Choose error codes, statuses, disclosure policy, and generator support |
 | One supervised development command                                        | Coordinate backend, React, contract generation, and diagnostics              | Start with existing tools; define lifecycle and error behavior         |
 
+Status annotated September 27, 2026; the rows above are unchanged. Each status
+names the later record that exercised, narrowed or deferred the proposal.
+Settlements apply to the experiments or the reference application, not to a
+framework default.
+
+- Named application actions independent of HTTP. _Status:_ exercised as a
+  convention, not a framework API. The API slice's original invitation actions
+  are plain transaction-owning functions without HTTP types, and the second
+  justified no generic trait
+  ([second-action follow-up](#second-action-follow-up--september-24-2026)). S16
+  and the reference application keep ordinary functions with explicit utoipa
+  registration
+  ([bounded S16 integration](#bounded-s16-integration--september-26-2026)). A
+  generic `Action` trait stays [deferred](#deferred-infrastructure).
+- Axum + Tokio. _Status:_ exercised: the API slice compiled and ran on them
+  ([API follow-up](#api-follow-up--september-24-2026)), and S16 and the
+  reference application use them. Exact versions live in `Cargo.lock`. This
+  serves the experiments and the reference application, not a released
+  framework.
+- SQLx + SQLite baseline. _Status:_ narrowed. The embedded database spike
+  measured its build cost beside Turso and found its migration tooling included
+  ([findings](embedded-db-findings.md)); it serves the API slice, S16 and the
+  reference application as a provisional baseline, not a permanent default
+  ([experiment follow-up](#experiment-follow-up--september-24-2026)).
+  Session-store pools and migrations are exercised; compile-time checked SQL is
+  not used. Exact pins live in `Cargo.lock`.
+- Native local Turso comparison. _Status:_ compared in the original spike: it
+  passed the same ten scenarios, including the concurrent-acceptance race, while
+  its clean test build took about three times as long
+  ([findings](embedded-db-findings.md)). Its small custom migrator, since
+  extended to the shared second migration
+  ([second-action follow-up](#second-action-follow-up--september-24-2026)),
+  lacks SQLx's checksum and history tooling. The API slice, S16 and the
+  reference application use SQLite, and S17 excludes Turso support
+  ([S17 exclusions](design-spec.md#explicit-exclusions)).
+- Rust contracts plus explicit routes generate OpenAPI. _Status:_ narrowed.
+  utoipa/utoipa-axum and aide were compared on the same handlers and passed the
+  same checks, and utoipa became provisional
+  ([API follow-up](#api-follow-up--september-24-2026)). The reference
+  application exports with utoipa alone; aide remains only in the frozen
+  comparison ([S17 ownership boundaries](design-spec.md#ownership-boundaries)).
+- Separate persistence types and external DTOs where their contracts differ.
+  _Status:_ exercised through domain/wire separation and explicit projections,
+  not as a framework rule or a separate persistence-model convention. Domain
+  types carry no HTTP types; the HTTP adapter owns wire DTOs and projections,
+  with string IDs on the wire and integer IDs in the domain
+  ([S12](design-spec.md#what-is-defined-where),
+  [S17 ownership boundaries](design-spec.md#ownership-boundaries)).
+  Project-member reads return `user_id`, `display_name` and `role`; stored email
+  never appears
+  ([S17 public response policy](design-spec.md#public-response-policy)).
+- Stable structured API errors, possibly RFC 9457 Problem Details. _Status:_
+  narrowed; RFC 9457 is not adopted. The API slice uses `{code,message}` errors
+  ([API follow-up](#api-follow-up--september-24-2026)). The reference
+  application's domain operations use the S16-tested subset of S15's versioned
+  envelope with namespaced codes and a declared shared profile, while the
+  session endpoints keep `{code,message}`
+  ([S17 public response policy](design-spec.md#public-response-policy)).
+  Existence hiding is decided per concealed pair (see the
+  [open decisions](#open-decisions)); a framework-wide error-code policy remains
+  open ([S11](design-spec.md#s11--open-design-agenda)).
+- One supervised development command. _Status:_ open, deferred to a lifecycle
+  design pass with persistent storage, seed policy, journal mode and worker
+  supervision ([S17 ownership boundaries](design-spec.md#ownership-boundaries)).
+  The reference application has a development server and a browser runner that
+  owns its processes, not one command for the issuer, API and Vite.
+
 ## Deferred infrastructure
 
 - Generic `Action` trait, resource DSL, broad procedural-macro API.
@@ -973,6 +1040,13 @@ choice of this pass authorized that one sentence in a frozen experiment. The
 [open decisions](#open-decisions) above gain dated status notes; their questions
 are unchanged. The reference guide's CI limit and S17's status paragraph record
 the run.
+
+## Architecture table status — September 27, 2026
+
+**Documentation only; no design decision changed.** The owner chose this pass
+after the documentation hygiene chunk. The
+[proposed architecture table](#proposed-architecture-not-yet-selected) gains
+dated status notes, one per row; its rows are unchanged.
 
 ## Maintaining this record
 

@@ -479,6 +479,64 @@ and pushes to `main`, so pushing this branch alone would not trigger it; an
 observed Actions run remains outstanding. No application, dependency or wire
 change accompanies this record.
 
+## Reference application checkpoint A, server side — September 26, 2026
+
+**Implemented experiment; checkpoint A remains partial.** Under the owner's
+authorization for the CI prerequisite and checkpoint A, the branch
+`s17-checkpoint-a` added `apps/reference` and `crates/iris` in five reviewed
+steps. Astra reviewed each plan and diff before its commit. The
+[S17 evidence](design-spec.md#checkpoint-a-server-side-evidence) summarizes the
+result, and the [guide](../apps/reference/README.md) owns the commands.
+
+Local results on macOS with Rust 1.98.1 and Node 24.20.0:
+
+```sh
+cargo test --workspace --locked                                # 81 passed
+cargo test --locked -p iris                                    # 9 passed
+cargo test --locked -p iris-reference                          # 24 passed
+cargo test --locked -p iris-api-spike --features dev-identity  # 24 passed, 1 ignored
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo fmt --all --check
+node apps/reference/scripts/probes.mjs  # 6 caught, 3 controls, 39 s
+```
+
+The frozen web `verify`, `verify:s16` and `probe:s16` stayed green throughout.
+The probe time was measured locally with a cold, isolated target; the probes add
+an independent build to CI whose duration there is unmeasured.
+
+Decisions and the alternatives not taken:
+
+- `change_role` and `remove_member` share a private mutation, as S04 permits,
+  rather than duplicating S16's transaction for removal. Only the optional-role
+  guard and the update-or-delete step differ.
+- Each operation's response contract is an `Operation` declaration that
+  rendering, export and assembly checks all read. Registration stays an explicit
+  `routes!` call, so S16 alternative B remains unadopted.
+- One checked assembly serves the application and its export. It merges
+  documents after conflict checks and keeps operation routers separate, rather
+  than using `OpenApiRouter::merge`, so each boundary wraps its own session
+  layer and export needs no identity provider.
+- Extraction: envelope rendering, the response bridge, the shared profile, the
+  request-ID boundary and the assembly checks moved to `crates/iris` because
+  both operations use them. Wire-ID parsing stays in the application: the rule
+  permits moving it but does not require it.
+- Unmatched routes return a plain 404 outside the session layers, and the
+  session error enum keeps only the codes identity emits.
+
+No frozen experiment was retired. S16's client harness is not yet ported, and
+the reference application's checkpoint A browser workflow is outstanding, so S16
+stays in CI.
+
+The new probe runner builds in its own temporary target. S16's `probe:s16`
+builds into the checkout's shared `target/`; Astra reproduced in scratch that
+this can leave a mutated build artifact that a later run treats as current. The
+experiment stays frozen, so this is recorded as a known risk rather than fixed.
+
+Limitations: the busy classification of a failed connection open is
+source-inspected; checkpoint A's client and browser acceptance, HEAD and GET
+behavior, Linux and GitHub Actions runs remain outstanding. No productivity
+claim follows.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

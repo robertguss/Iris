@@ -1791,8 +1791,12 @@ was added.
 
 ## S17 — Reference application and first reads
 
-**Proposed; the owner settled its seven open choices on September 26, 2026.**
-This section recommends the next bounded build step. It authorizes no
+**Proposed; checkpoint A's server side is an implemented experiment.** The owner
+settled its seven open choices on September 26, 2026, then authorized the CI
+prerequisite and checkpoint A. Checkpoint A remains partial: its client and
+browser acceptance is outstanding, and checkpoint B is not authorized. The
+[checkpoint A evidence](#checkpoint-a-server-side-evidence) records what was
+built. This section was first written as a proposal authorizing no
 implementation, dependency, CI or wire change. It was drafted after independent
 assessments of `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through
 Codex), then revised after Astra's [review](#review-of-this-proposal). The
@@ -1886,7 +1890,11 @@ Generalize S16 alternative A without a second handwritten path catalog:
    call. The bridge mutates that single collected operation through
    `get_openapi_mut`, preserving S16's exactly-one-operation assertion per
    declaration; `OpenApiRouter::merge` then adds it to the application router.
-   Both methods exist in the pinned utoipa-axum 0.3.0.
+   Both methods exist in the pinned utoipa-axum 0.3.0. _Implemented as:_ one
+   checked assembly merges each bridged document into the application's and
+   keeps each operation's router separate, so the operation's boundary can wrap
+   its own session layer and the export needs no identity provider (see
+   [evidence](#checkpoint-a-server-side-evidence)).
 2. Check components before each merge. utoipa 6.0.0's `OpenApi::merge` silently
    keeps the first same-named component, so a differing definition under an
    existing name must fail assembly, while identical shared definitions pass.
@@ -1906,7 +1914,8 @@ Generalize S16 alternative A without a second handwritten path catalog:
    HEAD as its GET operation: same status and headers, no body, covered by tests
    rather than a separate OpenAPI declaration. Other unmatched routes and
    methods stay outside operation contracts, as in S16. This slice avoids two
-   operations on one path.
+   operations on one path. _Status:_ POST method gating implemented; GET/HEAD
+   behavior and tests remain checkpoint B.
 
 `change_role` and `remove_member` share one rejection type because their
 permitted sets coincide (S12; review finding O55-A-03). The owner chose this
@@ -2071,6 +2080,56 @@ it with one wording nit, since applied: the client boundary owns thrown request
 and body-read errors, not just decoding. A later diff review signed off on the
 recorded owner decisions. One model's review is not owner approval or consensus.
 
+### Checkpoint A server-side evidence
+
+**Implemented experiment for the server side, September 26, 2026; checkpoint A
+remains partial.** Each step was plan- and diff-reviewed by Astra before commit.
+The [reference application guide](../apps/reference/README.md) owns the commands
+and measured results; the
+[decision record](decisions.md#reference-application-checkpoint-a-server-side--september-26-2026)
+records the choices and limits.
+
+- **Built:** `apps/reference` in the S04 layout, with the session/OIDC module
+  copied as application code, one consolidated migration (including
+  `users.display_name` and `projects.name`) and disposable seeds;
+  `memberships.change_role` ported from S16; and `memberships.remove_member`,
+  which shares its rejection type and a private mutation with `change_role`.
+- **Assembly as implemented:** each operation is still collected alone and
+  bridged through `get_openapi_mut`. One checked assembly, used by both the
+  application and its export, merges each document only after rejecting a
+  conflicting path or same-named component, then checks the catalog. Operation
+  routers stay separate rather than going through `OpenApiRouter::merge`, so
+  each operation's boundary wraps its own session layer, preserving S16's
+  middleware order, and the export needs no identity provider.
+- **Extraction decision:** both operations use envelope rendering, the
+  per-operation response bridge, the shared refusal/failure profile, the
+  request-ID boundary and the assembly checks, so these moved into
+  `crates/iris`. Its `Operation` declares a response contract for the bridge;
+  registration stays an explicit `routes!` call in the application, so this is
+  not alternative B. The application keeps transactions, cleanup classification,
+  authorization, SQL, domain types, session code, wire-ID parsing and mounting.
+  It injects a classifier for its session refusal markers and owns the session
+  security scheme. The CSRF method exemption has one definition, in `iris`, used
+  by both the session layer and the operation profile.
+- **Deviations from the S16 source:** the session error enum keeps only the
+  codes identity emits; S16's `SuccessData` became `ChangeRoleSuccess` and
+  `RemoveMemberSuccess` over a shared `Completion`; unmatched routes return a
+  plain 404 outside the session layers; per-operation documents no longer carry
+  the security scheme; and fixture capture for the TypeScript harness waits for
+  the client.
+
+| Acceptance row | Status                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prerequisite   | Workflow runs `verify:s16` and `probe:s16`; commands pass locally; no GitHub Actions run observed                                                                                                                                                                                                                                                                                                                            |
+| A              | Ported S16 Rust suites pass with unchanged expectations, except one marked-response case adapted from `Forbidden` (403) to `LoginFailed` (401) after the session enum narrowed; whole-request fixtures run against the assembled application. Exact status/kind/code tuples for both operations; shared-code metadata checked in memory and in the export; frozen experiments green. The S16 client cases are not yet ported |
+| A probes       | Omitted second bridge, duplicate OpenAPI ID, conflicting shared-code metadata, wrong path and a same-named different component each fail; an identical shared component assembles; an omitted operation collection also fails                                                                                                                                                                                                |
+| React (A)      | Outstanding: client boundary, typed narrowing and decoder cases, oversize bodies and one browser workflow                                                                                                                                                                                                                                                                                                                    |
+
+Not established: the busy classification of a failed connection open is
+source-inspected rather than tested; runs used macOS with Node 24.20.0 and
+26.8.1 (CI pins 26.10.0), and no GitHub Actions run has been observed. No
+productivity claim follows.
+
 ## References and design provenance
 
 The
@@ -2110,6 +2169,13 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-26, checkpoint A server side:** Implemented `apps/reference` with
+  session identity, the ported `change_role`, `remove_member`, one checked
+  multi-operation assembly and a private provisional `crates/iris` holding what
+  both operations share. Added checkpoint A omission probes and recorded the
+  split assembly, extraction decision, deviations and acceptance status in S17.
+  Client and browser acceptance remain outstanding; no frozen experiment was
+  retired.
 - **2026-09-26, S16 checks in CI:** With the owner's authorization, the CI
   workflow runs `verify:s16` in its web verification step and `probe:s16` as its
   own step. Both passed locally under Node 26.8.1; no GitHub Actions run has

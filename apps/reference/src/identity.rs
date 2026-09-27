@@ -215,7 +215,7 @@ async fn boundary(
             data = None;
         }
     }
-    if !csrf_exempt(request.method()) {
+    if !iris::csrf_exempt(request.method()) {
         let token = single(request.headers(), "x-iris-csrf");
         let valid = single(request.headers(), "origin") == Some(auth.origin.as_str())
             && data
@@ -239,14 +239,6 @@ async fn boundary(
         expiry(&session, latest.expires_at)?;
     }
     Ok(response)
-}
-
-/// Safe methods skip CSRF; domain operations declare CSRF refusal for the rest.
-pub(crate) fn csrf_exempt(method: &axum::http::Method) -> bool {
-    matches!(
-        *method,
-        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
-    )
 }
 
 /// The session cookie as documented for every protected operation.

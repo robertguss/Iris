@@ -25,8 +25,7 @@ const ORIGIN: &str = "http://127.0.0.1:5173";
 
 /// S16's single mounted operation, now through its collected mount.
 fn authenticated(auth: Auth) -> Router<AppState> {
-    let collected = change_role();
-    (collected.mount)(collected.router, auth)
+    mount_change_role(change_role().router, auth)
 }
 
 struct Fixture {
@@ -384,7 +383,8 @@ async fn session_save_failure_after_commit() {
             }
         },
     ));
-    let app = boundary(f.auth.clone().layer(inner), &CHANGE_ROLE).with_state(f.state.clone());
+    let app = iris::boundary(f.auth.clone().layer(inner), &CHANGE_ROLE, classify)
+        .with_state(f.state.clone());
     let response = collect(
         app.oneshot(request(&alice, &body(29, "owner")))
             .await
@@ -458,7 +458,7 @@ async fn refusal_rewrite_preserves_cookie_headers() {
             response
         }),
     );
-    let response = boundary(router, &CHANGE_ROLE)
+    let response = iris::boundary(router, &CHANGE_ROLE, classify)
         .with_state(AppState {
             database: "unused".into(),
             now: crate::app::unix_time,
@@ -580,7 +580,7 @@ async fn unclassified_responses_stay_unclassified() {
                 }
             }),
         );
-        let response = boundary(router, &CHANGE_ROLE)
+        let response = iris::boundary(router, &CHANGE_ROLE, classify)
             .with_state(AppState {
                 database: "unused".into(),
                 now: crate::app::unix_time,
@@ -627,7 +627,7 @@ async fn failed_cleanup_never_projects_rejection() {
     ] {
         let response = reply(
             &CHANGE_ROLE,
-            &RequestId("req_00000000000000000000000000000000".into()),
+            &RequestId::new("req_00000000000000000000000000000000".into()),
             Err(ActionError::Failed {
                 primary,
                 cleanup: Cleanup::Unconfirmed {
@@ -817,7 +817,7 @@ fn recovery_contract_is_resubmission_only() {
 #[test]
 fn operations_share_rejection_metadata() {
     assert_eq!(CHANGE_ROLE.mappings(), REMOVE_MEMBER.mappings());
-    let codes = |collected: Collected| {
+    let codes = |collected: Collected<AppState>| {
         let doc = serde_json::to_value(collected.api).unwrap();
         let mut codes = vec![];
         for item in doc["paths"].as_object().unwrap().values() {

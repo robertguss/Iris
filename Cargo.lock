@@ -1796,6 +1796,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
+name = "iris"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "getrandom 0.4.3",
+ "serde_json",
+ "strum 0.28.0",
+ "utoipa",
+ "utoipa-axum",
+]
+
+[[package]]
 name = "iris-api-spike"
 version = "0.0.0"
 dependencies = [
@@ -1832,6 +1844,7 @@ dependencies = [
  "axum",
  "getrandom 0.4.3",
  "http-body-util",
+ "iris",
  "jsonschema",
  "openidconnect",
  "reqwest",

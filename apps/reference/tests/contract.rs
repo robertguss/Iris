@@ -37,9 +37,8 @@ fn independent_inventory() {
     ];
     expected.sort();
     assert_eq!(actual, expected);
-    let collected = iris_reference::http::memberships::collect();
-    assert_eq!(collected.len(), 2);
-    for operation in collected {
+    use iris_reference::http::memberships::{change_role, remove_member};
+    for operation in [change_role(), remove_member()] {
         let operation: Value = serde_json::to_value(operation.api).unwrap();
         for (path, item) in operation["paths"].as_object().unwrap() {
             assert_eq!(

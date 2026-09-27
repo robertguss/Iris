@@ -101,12 +101,12 @@ fn assemble() -> Assembled {
         .add_security_scheme("BrowserSession", identity::security_scheme());
     let mut operations = Vec::new();
     let mut entries = Vec::new();
-    for collected in http::memberships::collect() {
-        http::merge_checked(&mut api, collected.api);
+    for (collected, mount) in http::memberships::collect() {
+        iris::merge_checked(&mut api, collected.api);
         entries.push(collected.entry);
-        operations.push((collected.router, collected.mount));
+        operations.push((collected.router, mount));
     }
-    http::check_catalog(&api, &entries);
+    iris::check_catalog(&api, &entries);
     Assembled {
         identity,
         operations,

@@ -1,8 +1,5 @@
 //! HTTP adapter for membership operations, ported from the S16 experiment.
-use super::{
-    Collected, Mapping, Operation, Recovery, RequestId, Shared, boundary, parse_id, shared,
-    success_schemas,
-};
+use super::{Mount, classify, parse_id};
 use crate::{
     app::AppState,
     domains::memberships as action,
@@ -10,11 +7,12 @@ use crate::{
 };
 use action::{Acknowledged, ActionError, FailureKind, Rejection, StopReason};
 use axum::{
-    Extension, Json,
+    Extension, Json, Router,
     extract::{State, rejection::JsonRejection},
     http::Method,
     response::Response,
 };
+use iris::{Collected, Mapping, Operation, Recovery, RequestId, Shared, shared, success_schemas};
 use serde::{Deserialize, Serialize};
 use sqlx::SqliteConnection;
 use strum::VariantArray;
@@ -231,26 +229,37 @@ async fn remove_member_endpoint(
 }
 
 /// Explicit ecosystem registration: each operation is collected alone.
-pub fn change_role() -> Collected {
-    super::collect(
+pub fn change_role() -> Collected<AppState> {
+    iris::collect(
         &CHANGE_ROLE,
         OpenApiRouter::new().routes(utoipa_axum::routes!(change_role_endpoint)),
         success_schemas::<ChangeRoleSuccess>(),
-        |router, auth| boundary(auth.layer(router), &CHANGE_ROLE),
     )
 }
 
-pub fn remove_member() -> Collected {
-    super::collect(
+pub fn remove_member() -> Collected<AppState> {
+    iris::collect(
         &REMOVE_MEMBER,
         OpenApiRouter::new().routes(utoipa_axum::routes!(remove_member_endpoint)),
         success_schemas::<RemoveMemberSuccess>(),
-        |router, auth| boundary(auth.layer(router), &REMOVE_MEMBER),
     )
 }
 
-pub fn collect() -> Vec<Collected> {
-    vec![change_role(), remove_member()]
+fn mount_change_role(router: Router<AppState>, auth: crate::identity::Auth) -> Router<AppState> {
+    iris::boundary(auth.layer(router), &CHANGE_ROLE, classify)
+}
+
+fn mount_remove_member(router: Router<AppState>, auth: crate::identity::Auth) -> Router<AppState> {
+    iris::boundary(auth.layer(router), &REMOVE_MEMBER, classify)
+}
+
+/// Each collected operation with the mount that layers its session stack
+/// and boundary.
+pub(crate) fn collect() -> Vec<(Collected<AppState>, Mount)> {
+    vec![
+        (change_role(), mount_change_role),
+        (remove_member(), mount_remove_member),
+    ]
 }
 
 #[cfg(test)]

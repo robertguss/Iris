@@ -1,6 +1,6 @@
-// Checkpoint A and B omitted-edit probes. Each probe edits a disposable source
-// copy, never the checkout, and builds into that copy's own target directory so
-// no mutated artifact can outlive the run.
+// Omitted-edit probes for checkpoints A and B and the current-state read. Each
+// probe edits a disposable source copy, never the checkout, and builds into
+// that copy's own target directory so no mutated artifact can outlive the run.
 import { execFileSync, spawnSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -216,7 +216,28 @@ struct RemoveMemberSuccess {
     failed("list_mine_authorization"),
   );
 
-  console.log("PASS: checkpoint A and B probes detected; disposable copy and its target removed on exit");
+  // The mutations' current-state read. Assembly resolves the named read; it
+  // cannot tell which of two same-schema required fields is the right input.
+  await reset();
+  await edit(`operation: "listProjectMembers",`, `operation: "listMembers",`);
+  expect(
+    "current-state read naming no operation caught by the catalog check",
+    "cargo",
+    contract,
+    /memberships\.(change_role|remove_member) recovery read listMembers is not in the document/,
+  );
+
+  await reset();
+  await edit(`path_inputs: &[("project_id", "project_id")],`, `path_inputs: &[("project_id", "user_id")],`);
+  expect("member ID bound to the project path assembles", "cargo", ["run", ...cargo, "--bin", "export-openapi", "--", "probe.json"], /^$/, true);
+  expect(
+    "member ID bound to the project path caught by the hand-written recovery test",
+    "cargo",
+    lib("recovery_contract_declares_the_member_list"),
+    failed("recovery_contract_declares_the_member_list"),
+  );
+
+  console.log("PASS: checkpoint A and B probes and current-state read probes detected; disposable copy and its target removed on exit");
 } finally {
   await rm(temp, { recursive: true, force: true });
 }

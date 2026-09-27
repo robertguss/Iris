@@ -103,9 +103,24 @@ pub fn shared(s: Shared) -> Mapping {
 
 pub struct Recovery {
     pub inspect: bool,
-    pub read: bool,
+    /// Exported as `false` when absent.
+    pub read: Option<CurrentStateRead>,
     pub replay: bool,
     pub new_submission: &'static str,
+}
+
+/// A read of present state that an operation declares for recovery (S15).
+/// After an unresolved attempt, a caller may send it under their current
+/// authorization, as a fresh first page with no cursor; the binding supplies
+/// no query parameters. What it returns establishes no outcome for that
+/// attempt, no causality and no concurrency fence, and it authorizes no new
+/// submission.
+pub struct CurrentStateRead {
+    /// The read's public operation ID.
+    pub operation: &'static str,
+    /// Each of the read's path parameters, with the request-body field that
+    /// supplies it.
+    pub path_inputs: &'static [(&'static str, &'static str)],
 }
 
 /// One operation's public contract. Rendering, export and assembly checks all
@@ -274,7 +289,20 @@ fn bridge<R: Copy>(api: &mut OpenApi, op: &Operation<R>, success: Vec<(String, R
     iris.insert("operation".into(), json!(op.name));
     iris.insert("schema_version".into(), json!(VERSION));
     if let Some(recovery) = &op.recovery {
-        iris.insert("recovery".into(), json!({"inspect":recovery.inspect,"read":recovery.read,"replay":recovery.replay,"new_submission":recovery.new_submission}));
+        let read = recovery.read.as_ref().map_or(json!(false), |read| {
+            let mut inputs = serde_json::Map::new();
+            for (param, field) in read.path_inputs {
+                assert!(
+                    inputs
+                        .insert(param.to_string(), json!({"request_body_field": field}))
+                        .is_none(),
+                    "{} binds path parameter {param} twice",
+                    op.name
+                );
+            }
+            json!({"operation_id": read.operation, "path_inputs": inputs})
+        });
+        iris.insert("recovery".into(), json!({"inspect":recovery.inspect,"read":read,"replay":recovery.replay,"new_submission":recovery.new_submission}));
     }
     iris.insert(
         "prerequisites".into(),
@@ -367,23 +395,30 @@ pub fn merge_checked(into: &mut OpenApi, from: OpenApi) {
     into.merge(from);
 }
 
-/// Checks the assembled document against every declared operation.
+/// Checks the assembled document against every declared operation, and each
+/// declared current-state read against its target.
 pub fn check_catalog(api: &OpenApi, entries: &[CatalogEntry]) {
     let doc = serde_json::to_value(api).unwrap();
-    let mut ids = HashMap::new();
+    let mut operations = HashMap::new();
     for item in doc["paths"]
         .as_object()
         .into_iter()
         .flat_map(|p| p.values())
     {
-        for operation in item.as_object().into_iter().flat_map(|i| i.values()) {
+        for (method, operation) in item.as_object().into_iter().flatten() {
             if let Some(id) = operation["operationId"].as_str() {
                 assert!(
-                    ids.insert(id, operation["x-iris"]["operation"].as_str())
+                    operations
+                        .insert(id, (method.as_str(), operation))
                         .is_none(),
                     "duplicate OpenAPI operation ID: {id}"
                 );
             }
+        }
+    }
+    for (_, operation) in operations.values() {
+        if operation["x-iris"]["recovery"].is_object() {
+            check_current_state_read(&doc, &operations, operation);
         }
     }
     let mut names = HashSet::new();
@@ -395,13 +430,15 @@ pub fn check_catalog(api: &OpenApi, entries: &[CatalogEntry]) {
             entry.name
         );
         assert!(
-            !ids.contains_key(entry.handler),
+            !operations.contains_key(entry.handler),
             "surviving inferred handler ID: {}",
             entry.handler
         );
         assert_eq!(
-            ids.get(entry.public_id),
-            Some(&Some(entry.name)),
+            operations
+                .get(entry.public_id)
+                .map(|(_, operation)| operation["x-iris"]["operation"].as_str()),
+            Some(Some(entry.name)),
             "{} is not bridged as {}",
             entry.name,
             entry.public_id
@@ -420,6 +457,125 @@ pub fn check_catalog(api: &OpenApi, entries: &[CatalogEntry]) {
             }
         }
     }
+}
+
+/// The target must be an Iris GET without recovery that requires no parameter
+/// outside its path. The bindings must cover exactly its path parameters, each
+/// from a required request-body field with an identical schema. Equality is
+/// deliberately conservative: it also rejects some compatible schemas.
+/// Structure cannot show that a binding names the right field; an independent
+/// test must.
+fn check_current_state_read(
+    doc: &Value,
+    operations: &HashMap<&str, (&str, &Value)>,
+    source: &Value,
+) {
+    let name = source["x-iris"]["operation"].as_str().unwrap_or_default();
+    let read = &source["x-iris"]["recovery"]["read"];
+    if *read == json!(false) {
+        return;
+    }
+    let Some((id, bindings)) = descriptor(read) else {
+        panic!("{name} declares an unsupported recovery read");
+    };
+    let Some((method, target)) = operations.get(id) else {
+        panic!("{name} recovery read {id} is not in the document");
+    };
+    assert!(
+        target["x-iris"].is_object(),
+        "{name} recovery read {id} is not an Iris operation"
+    );
+    assert!(
+        *method == "get",
+        "{name} recovery read {id} is not a GET operation"
+    );
+    assert!(
+        target["x-iris"].get("recovery").is_none(),
+        "{name} recovery read {id} declares recovery"
+    );
+    let parameters = target["parameters"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let path = |param: &str| {
+        parameters
+            .iter()
+            .find(|p| p["in"] == "path" && p["name"] == param)
+    };
+    // Bindings supply path parameters only, so a required parameter elsewhere
+    // is never bound, whatever its name.
+    for parameter in parameters {
+        let param = parameter["name"].as_str().unwrap_or_default();
+        if parameter["in"] == "path" {
+            assert!(
+                bindings.iter().any(|(bound, _)| *bound == param),
+                "{name} recovery read leaves {id}'s path parameter {param} unbound"
+            );
+        } else {
+            assert!(
+                parameter["required"] != true,
+                "{name} recovery read leaves {id}'s required {} parameter {param} unbound",
+                parameter["in"].as_str().unwrap_or_default()
+            );
+        }
+    }
+    for (param, _) in &bindings {
+        assert!(
+            path(param).is_some(),
+            "{name} recovery read binds {param}, which is not a path parameter of {id}"
+        );
+    }
+    let Some(body) = request_schema(doc, source) else {
+        panic!("{name} recovery read needs a JSON object request body");
+    };
+    for (param, field) in &bindings {
+        let declared = &body["properties"][field];
+        assert!(
+            !declared.is_null(),
+            "{name} recovery read binds {param} from {field}, which the request body does not declare"
+        );
+        assert!(
+            body["required"]
+                .as_array()
+                .is_some_and(|required| required.iter().any(|r| r.as_str() == Some(field))),
+            "{name} recovery read binds {param} from {field}, which the request body does not require"
+        );
+        assert!(
+            *declared == path(param).unwrap()["schema"],
+            "{name} recovery read binds {param} from {field}, whose schema differs"
+        );
+    }
+}
+
+/// `{operation_id, path_inputs: {<parameter>: {request_body_field}}}`, and
+/// nothing else.
+fn descriptor(read: &Value) -> Option<(&str, Vec<(&str, &str)>)> {
+    let read = read.as_object()?;
+    if read.len() != 2 {
+        return None;
+    }
+    let id = read.get("operation_id")?.as_str()?;
+    let bindings = read
+        .get("path_inputs")?
+        .as_object()?
+        .iter()
+        .map(|(param, input)| {
+            let input = input.as_object().filter(|input| input.len() == 1)?;
+            Some((param.as_str(), input.get("request_body_field")?.as_str()?))
+        })
+        .collect::<Option<_>>()?;
+    Some((id, bindings))
+}
+
+/// The JSON request-body schema: inline, or one local component reference.
+fn request_schema<'a>(doc: &'a Value, source: &'a Value) -> Option<&'a Value> {
+    let schema = &source["requestBody"]["content"]["application/json"]["schema"];
+    let schema = match schema.get("$ref") {
+        Some(reference) => doc["components"]["schemas"]
+            .get(reference.as_str()?.strip_prefix("#/components/schemas/")?)?,
+        None => schema,
+    };
+    (schema["type"] == "object").then_some(schema)
 }
 
 #[cfg(test)]

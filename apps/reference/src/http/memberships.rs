@@ -22,7 +22,10 @@ use axum::{
     http::Method,
     response::Response,
 };
-use iris::{Collected, Mapping, Operation, Recovery, RequestId, Shared, shared, success_schemas};
+use iris::{
+    Collected, CurrentStateRead, Mapping, Operation, Recovery, RequestId, Shared, shared,
+    success_schemas,
+};
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 use utoipa_axum::router::OpenApiRouter;
@@ -166,9 +169,16 @@ const ACKNOWLEDGED: Mapping = Mapping {
     prerequisite: None,
 };
 
-const RESUBMIT_ONLY: Recovery = Recovery {
+/// No inspection or replay. After an unresolved attempt, the attempt's project
+/// can be read again: its members as they are when read, under the caller's
+/// current authorization. A matching role, an absent member or a refused read
+/// resolves nothing about the attempt (S14).
+const MEMBER_LIST_READ: Recovery = Recovery {
     inspect: false,
-    read: false,
+    read: Some(CurrentStateRead {
+        operation: "listProjectMembers",
+        path_inputs: &[("project_id", "project_id")],
+    }),
     replay: false,
     new_submission: "current authority and intent required",
 };
@@ -182,7 +192,7 @@ pub(crate) static CHANGE_ROLE: Operation<Rejection> = Operation {
     success_schema: "ChangeRoleSuccess",
     rejections: Rejection::VARIANTS,
     rejection: membership_rejection,
-    recovery: Some(RESUBMIT_ONLY),
+    recovery: Some(MEMBER_LIST_READ),
 };
 
 pub(crate) static REMOVE_MEMBER: Operation<Rejection> = Operation {
@@ -194,7 +204,7 @@ pub(crate) static REMOVE_MEMBER: Operation<Rejection> = Operation {
     success_schema: "RemoveMemberSuccess",
     rejections: Rejection::VARIANTS,
     rejection: membership_rejection,
-    recovery: Some(RESUBMIT_ONLY),
+    recovery: Some(MEMBER_LIST_READ),
 };
 
 pub(crate) static LIST_MEMBERS: Operation<ListMembersRejection> = Operation {

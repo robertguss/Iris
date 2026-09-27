@@ -804,9 +804,11 @@ fn remove_member_independent_contract() {
     );
 }
 
-/// Written by hand: neither operation offers inspection, reads or replay.
+/// Written by hand: neither operation offers inspection or replay. Both name
+/// the member list of the attempt's project as their current-state read, fed
+/// from the request's `project_id`, never its `user_id`.
 #[test]
-fn recovery_contract_is_resubmission_only() {
+fn recovery_contract_declares_the_member_list() {
     for (collected, path, name) in [
         (change_role(), PATH, "memberships.change_role"),
         (remove_member(), REMOVE, "memberships.remove_member"),
@@ -819,7 +821,12 @@ fn recovery_contract_is_resubmission_only() {
                 "schema_version": 1,
                 "recovery": {
                     "inspect": false,
-                    "read": false,
+                    "read": {
+                        "operation_id": "listProjectMembers",
+                        "path_inputs": {
+                            "project_id": {"request_body_field": "project_id"},
+                        },
+                    },
                     "replay": false,
                     "new_submission": "current authority and intent required",
                 },

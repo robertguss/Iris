@@ -112,10 +112,15 @@ assert.deepEqual(
   [...MUTATIONS, ...READS].sort(),
   [...DOMAIN_OPERATIONS].sort(),
 );
+// Both mutations name the member list of the attempt's project, fed from the
+// request's project_id, never its user_id.
 for (const op of MUTATIONS) {
   assert.deepEqual(api.recovery(op), {
     inspect: false,
-    read: false,
+    read: {
+      operation_id: "listProjectMembers",
+      path_inputs: { project_id: { request_body_field: "project_id" } },
+    },
     replay: false,
     new_submission: "current authority and intent required",
   });
@@ -123,10 +128,97 @@ for (const op of MUTATIONS) {
     "memberships.last_owner": "memberships.another_owner_required",
   });
 }
-// Reads declare no recovery capabilities and have no prerequisites.
-for (const op of ["listProjectMembers", "listMyProjects"] as const) {
-  assert.equal(api.recovery(op), undefined);
-  assert.deepEqual(api.prerequisites(op), {});
+// Reads have no prerequisites; a read that declares recovery fails below.
+for (const op of READS) assert.deepEqual(api.prerequisites(op), {});
+
+// Recovery: construction accepts only the shape the client relies on. Assembly
+// checks a read's compatibility with its mutation; which field feeds which
+// parameter is pinned only by the expectations above.
+// Untyped on purpose: each case writes what no valid export contains.
+const recovery = (doc: Document, path: string, method = "post"): any =>
+  doc.paths[path][method]["x-iris"]!.recovery;
+const declared = (doc: Document) => recovery(doc, PATHS.changeMemberRole).read;
+const undeclared = copy();
+recovery(undeclared, PATHS.changeMemberRole).read = false;
+assert.deepEqual(client(undeclared).recovery("changeMemberRole"), {
+  inspect: false,
+  read: false,
+  replay: false,
+  new_submission: "current authority and intent required",
+});
+const recoveryCases: [string, (doc: Document) => void][] = [
+  [
+    "an extra recovery field",
+    (doc) => (recovery(doc, PATHS.changeMemberRole).receipt = false),
+  ],
+  [
+    "inspection",
+    (doc) => (recovery(doc, PATHS.changeMemberRole).inspect = true),
+  ],
+  ["replay", (doc) => (recovery(doc, PATHS.changeMemberRole).replay = true)],
+  [
+    "no new-submission constraint",
+    (doc) => (recovery(doc, PATHS.changeMemberRole).new_submission = 1),
+  ],
+  [
+    "a read declared as true",
+    (doc) => (recovery(doc, PATHS.changeMemberRole).read = true),
+  ],
+  ["an extra descriptor field", (doc) => (declared(doc).cursor = "first")],
+  [
+    // Bindings that would match the mutation's path, which has no parameters.
+    "a mutation as the read",
+    (doc) =>
+      Object.assign(declared(doc), {
+        operation_id: "removeMember",
+        path_inputs: {},
+      }),
+  ],
+  ["an unknown read", (doc) => (declared(doc).operation_id = "listEverything")],
+  ["a missing binding", (doc) => (declared(doc).path_inputs = {})],
+  [
+    "an extra binding",
+    (doc) =>
+      (declared(doc).path_inputs.limit = { request_body_field: "user_id" }),
+  ],
+  [
+    "an unsupported binding shape",
+    (doc) => (declared(doc).path_inputs.project_id.constant = "41"),
+  ],
+  [
+    "an unknown body field",
+    (doc) =>
+      (declared(doc).path_inputs.project_id.request_body_field = "team_id"),
+  ],
+  [
+    "an optional body field",
+    (doc) =>
+      ((doc.components as any).schemas.ChangeRoleRequest.required = [
+        "user_id",
+        "role",
+      ]),
+  ],
+  [
+    "a request body outside component schemas",
+    (doc) =>
+      (role(doc).post.requestBody!.content!["application/json"]!.schema!.$ref =
+        "#/$defs/ChangeRoleRequest"),
+  ],
+  [
+    "recovery on a read",
+    (doc) =>
+      (members(doc).get["x-iris"]!.recovery = {
+        inspect: false,
+        read: false,
+        replay: false,
+        new_submission: "current authority and intent required",
+      }),
+  ],
+];
+for (const [label, change] of recoveryCases) {
+  const doc = copy();
+  change(doc);
+  assert.throws(() => client(doc), /Reference recovery mismatch/, label);
 }
 
 let checks = 0;

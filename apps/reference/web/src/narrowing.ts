@@ -3,7 +3,7 @@
 // executed.
 import snapshot from "../../openapi.json" with { type: "json" };
 import { client } from "./client.ts";
-import type { Known, Read, Result } from "./client.ts";
+import type { CurrentStateRead, Known, Read, Result } from "./client.ts";
 import type { components } from "./generated.ts";
 import { read } from "./membership.ts";
 
@@ -197,4 +197,13 @@ export function eitherReadParams(op: Read) {
   }
   const mine: Promise<Result<"listMyProjects">> = read(op, {});
   return mine;
+}
+
+// Only mutations declare recovery; reads are new observations. Never called.
+export function mutationRecovery() {
+  const api = bundled();
+  // @ts-expect-error A read declares no recovery.
+  api.recovery("listProjectMembers");
+  const read: false | CurrentStateRead = api.recovery("removeMember").read;
+  return read;
 }

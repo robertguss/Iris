@@ -29,6 +29,25 @@ const METHODS: Record<Operation, "get" | "post"> = {
   listMyProjects: "get",
 };
 
+/**
+ * A read a mutation declares for after an unresolved attempt (S15). A page it
+ * returns describes present state when read, under the caller's current
+ * authorization: it neither confirms nor rules out the attempt, and it
+ * authorizes no new submission.
+ */
+export type CurrentStateRead = {
+  operation_id: Read;
+  /** Each of the read's path parameters, with the request-body field that supplies it. */
+  path_inputs: Record<string, { request_body_field: string }>;
+};
+/** A mutation's declared recovery. The client supports no inspection or replay. */
+export type Recovery = {
+  inspect: false;
+  read: false | CurrentStateRead;
+  replay: false;
+  new_submission: string;
+};
+
 /** Response bodies are read up to this many bytes; declared bodies are far smaller. */
 export const BODY_LIMIT = 64 * 1024;
 
@@ -68,26 +87,99 @@ type Declared = {
       [field: string]: unknown;
     }
   >;
+  requestBody?: {
+    content?: { "application/json"?: { schema?: { $ref?: string } } };
+  };
   "x-iris"?: {
     schema_version: number;
     /** Absent for reads, which declare no recovery capabilities. */
-    recovery?: object;
+    recovery?: unknown;
     prerequisites?: Record<string, string>;
   };
 };
 /** The exported document, not an arbitrary remote one. */
 export type Document = {
-  components: object;
+  components: {
+    schemas?: Record<string, { required?: string[]; [field: string]: unknown }>;
+  };
   paths: Record<string, Record<string, Declared>>;
 };
 
 type Entry = {
   path: string;
   version: number;
-  recovery: object | undefined;
+  /** Absent for reads. */
+  recovery: Recovery | undefined;
   prerequisites: Record<string, string>;
   validators: Map<number, ValidateFunction>;
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const hasKeys = (value: Record<string, unknown>, keys: string[]) =>
+  Object.keys(value).sort().join() === [...keys].sort().join();
+
+// Assembly checks that a declared read is compatible with its mutation. This
+// checks only the shape the client relies on: an exported read, bound path
+// parameters, and required request-body fields. Which field feeds which
+// parameter is pinned by hand-written tests, not here.
+function parseRecovery(
+  document: Document,
+  paths: Map<string, string>,
+  operation: Declared,
+): Recovery {
+  const mismatch = new Error("Reference recovery mismatch");
+  const recovery = operation["x-iris"]!.recovery;
+  if (
+    !isRecord(recovery) ||
+    !hasKeys(recovery, ["inspect", "read", "replay", "new_submission"]) ||
+    recovery.inspect !== false ||
+    recovery.replay !== false ||
+    typeof recovery.new_submission !== "string"
+  )
+    throw mismatch;
+  const { read, new_submission } = recovery;
+  if (read === false)
+    return { inspect: false, read: false, replay: false, new_submission };
+  if (
+    !isRecord(read) ||
+    !hasKeys(read, ["operation_id", "path_inputs"]) ||
+    !READS.some((op) => op === read.operation_id) ||
+    !isRecord(read.path_inputs)
+  )
+    throw mismatch;
+  const target = read.operation_id as Read;
+  const parameters = [...paths.get(target)!.matchAll(/\{([^}]+)\}/g)].map(
+    ([, name]) => name,
+  );
+  // Only a reference to a named component schema is resolved.
+  const [, component] =
+    operation.requestBody?.content?.["application/json"]?.schema?.$ref?.match(
+      /^#\/components\/schemas\/([^/]+)$/,
+    ) ?? [];
+  const body =
+    component === undefined
+      ? undefined
+      : document.components.schemas?.[component];
+  const path_inputs: CurrentStateRead["path_inputs"] = {};
+  for (const [parameter, input] of Object.entries(read.path_inputs)) {
+    if (
+      !isRecord(input) ||
+      !hasKeys(input, ["request_body_field"]) ||
+      typeof input.request_body_field !== "string" ||
+      !body?.required?.includes(input.request_body_field)
+    )
+      throw mismatch;
+    path_inputs[parameter] = { request_body_field: input.request_body_field };
+  }
+  if (!hasKeys(path_inputs, parameters)) throw mismatch;
+  return {
+    inspect: false,
+    read: { operation_id: target, path_inputs },
+    replay: false,
+    new_submission,
+  };
+}
 
 // No schema fetches, payload coercion, default insertion, property removal,
 // retries or raw diagnostics.
@@ -119,13 +211,24 @@ export function client(document: Document) {
   // A JSON Schema resource with the same local pointer layout as OpenAPI.
   // Register only schemas; OpenAPI itself is not a JSON Schema document.
   ajv.addKeyword({ keyword: "components", valid: true });
+  const paths = new Map(
+    declared.map(({ path, operation }) => [operation.operationId, path]),
+  );
+  const recovery = (operation: Declared) => {
+    if (MUTATIONS.some((op) => op === operation.operationId))
+      return parseRecovery(document, paths, operation);
+    // Reads are new observations: they declare no recovery.
+    if (operation["x-iris"]!.recovery !== undefined)
+      throw new Error("Reference recovery mismatch");
+    return undefined;
+  };
   const entries = new Map<string, Entry>(
     declared.map(({ path, operation }) => [
       operation.operationId,
       {
         path,
         version: operation["x-iris"]!.schema_version,
-        recovery: operation["x-iris"]!.recovery,
+        recovery: recovery(operation),
         prerequisites: operation["x-iris"]!.prerequisites ?? {},
         validators: new Map(
           Object.entries(operation.responses).map(([status, response]) => [
@@ -142,7 +245,7 @@ export function client(document: Document) {
   const entry = (op: Operation) => entries.get(op)!;
   return {
     path: (op: Operation) => entry(op).path,
-    recovery: (op: Operation) => entry(op).recovery,
+    recovery: (op: Mutation) => entry(op).recovery!,
     prerequisites: (op: Operation) => entry(op).prerequisites,
     /** Calls `request` exactly once and classifies whatever comes back. */
     async execute<Op extends Operation>(

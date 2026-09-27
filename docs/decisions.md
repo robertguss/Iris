@@ -537,6 +537,74 @@ source-inspected; checkpoint A's client and browser acceptance, HEAD and GET
 behavior, Linux and GitHub Actions runs remain outstanding. No productivity
 claim follows.
 
+## Reference application checkpoint A, client — September 27, 2026
+
+**Implemented experiment; checkpoint A is complete.** Under the same
+authorization, three further steps on `s17-checkpoint-a` added the reference
+client, a development server and one browser workflow. Astra reviewed each plan
+and diff before its commit. The
+[S17 client evidence](design-spec.md#checkpoint-a-client-evidence) summarizes
+the result, and the [guide](../apps/reference/README.md) owns the commands.
+
+Local results on macOS with Rust 1.98.1, Node 24.20.0, `agent-browser` 0.38.1
+and headless Chrome 154:
+
+```sh
+cargo test --workspace --locked                   # 83 passed
+cargo test --locked -p iris-reference             # 26 passed
+npm --prefix apps/reference/web run verify        # 122 decoder, 24 presentation cases; build
+node apps/reference/scripts/browser.mjs           # passed; owns its processes and ports
+```
+
+`verify` also passed under Node 26.8.1; `npm@10.9.9 ci` (CI's pin) installed the
+lockfile. The frozen web `verify` and `verify:s16` stayed green. CI now runs the
+client verification and the browser workflow; no GitHub Actions run has been
+observed.
+
+Decisions and the alternatives not taken:
+
+- The client bundles the committed export instead of fetching
+  `/api/openapi.json`, which the application does not serve; adding it would
+  have been a wire change. Client and server must therefore ship together.
+- The boundary accepts exactly the export's `x-iris` POST operations and
+  validates each response against its own operation's schemas; a second
+  handwritten operation list in the client is checked against the export rather
+  than trusted.
+- Bodies are read once, up to 64 KiB, as strict UTF-8. Oversize bodies get a new
+  `client_unknown` reason, `body_oversize`, beside S16's five; locked, consumed
+  or partly read bodies are `body_unreadable`, as S16's `text()` call implied.
+- Session endpoints use plain `fetch` under their existing contracts, without
+  `openapi-fetch` or runtime validation.
+- A 500, a 503 and `client_unknown` are all presented as unconfirmed, with no
+  effect claim, no retry and no readback, which this checkpoint lacks.
+- The development server seeds one demo editor itself rather than changing the
+  shared test seeds, which the membership tests already extend.
+- The lockfile was resolved with `npm install --before=2026-09-24` so every
+  package matches the experiment's lockfile, instead of taking a newer
+  transitive `rolldown`.
+
+Mutations seeded while building, each failing its intended check: no streaming
+limit, no declared-length pre-check, no unusable-body check, either operation's
+validator accepted, generated-type drift, widened response types, no linkage or
+domain-schema check, and lost or short fixture capture (client); a missing flag
+check, unmounted domain routes, a missing outcome arm and an overclaiming 500
+(development server and presentation); and, in the browser, a missing demo
+membership, overclaiming unconfirmed wording, a retry after a lost response and
+a missing CSRF header. The workflow's own process handling was probed too: a
+taken port, foreign servers on every port, a spawn error, SIGTERM, a child that
+never reports ready, a child killed mid-run and a build that ignores SIGTERM
+each stop it without a PASS or leftover processes, and a second invocation is
+refused without disturbing the first.
+
+No frozen experiment was retired. S16's client harness is now reproduced for
+both operations, but its other omission probes (compile-time omissions,
+compatibility and regeneration drift, the projector, and the CSRF profile
+branches) are not, so S16 stays in CI.
+
+Limitations: macOS and one headless browser only; the browser workflow checks
+selected paths; Ajv's runtime compilation needs `unsafe-eval` under a strict
+content security policy; no GitHub Actions run. No productivity claim follows.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

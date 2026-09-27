@@ -90,6 +90,9 @@ jobs:
           npm install --global agent-browser@0.38.1
           agent-browser install --with-deps
 
+      - name: Verify reference browser workflow
+        run: node apps/reference/scripts/browser.mjs --artifacts /tmp/reference-artifacts
+
       - name: Verify credential-free browser flow
         shell: bash
         run: |

@@ -1791,15 +1791,15 @@ was added.
 
 ## S17 — Reference application and first reads
 
-**Proposed; checkpoint A's server side is an implemented experiment.** The owner
-settled its seven open choices on September 26, 2026, then authorized the CI
-prerequisite and checkpoint A. Checkpoint A remains partial: its client and
-browser acceptance is outstanding, and checkpoint B is not authorized. The
-[checkpoint A evidence](#checkpoint-a-server-side-evidence) records what was
-built. This section was first written as a proposal authorizing no
-implementation, dependency, CI or wire change. It was drafted after independent
-assessments of `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through
-Codex), then revised after Astra's [review](#review-of-this-proposal). The
+**Proposed; checkpoint A is an implemented experiment.** The owner settled its
+seven open choices on September 26, 2026, then authorized the CI prerequisite
+and checkpoint A; checkpoint B is not authorized. Checkpoint A's
+[server-side](#checkpoint-a-server-side-evidence) and
+[client](#checkpoint-a-client-evidence) evidence record what was built. This
+section was first written as a proposal authorizing no implementation,
+dependency, CI or wire change. It was drafted after independent assessments of
+`9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through Codex), then
+revised after Astra's [review](#review-of-this-proposal). The
 [owner decisions](#owner-decisions) are recorded below; the assessments and the
 review are not owner decisions.
 
@@ -2020,7 +2020,9 @@ against the exported document. The session endpoints keep their existing
 contracts. Query parameters are validated by the server adapter, not the client
 boundary. Body reads are bounded, so an oversize body becomes `ClientUnknown`.
 Measure the bundle and startup cost of runtime validation. Generated TypeScript
-remains static assistance, not validation.
+remains static assistance, not validation. _Status:_ implemented for checkpoint
+A's two operations ([evidence](#checkpoint-a-client-evidence)); my projects and
+members wait for checkpoint B.
 
 ### Acceptance checks
 
@@ -2082,10 +2084,11 @@ recorded owner decisions. One model's review is not owner approval or consensus.
 
 ### Checkpoint A server-side evidence
 
-**Implemented experiment for the server side, September 26, 2026; checkpoint A
-remains partial.** Each step was plan- and diff-reviewed by Astra before commit.
-The [reference application guide](../apps/reference/README.md) owns the commands
-and measured results; the
+**Implemented experiment for the server side, September 26, 2026.** The
+[client evidence](#checkpoint-a-client-evidence) completes checkpoint A. Each
+step was plan- and diff-reviewed by Astra before commit. The
+[reference application guide](../apps/reference/README.md) owns the commands and
+measured results; the
 [decision record](decisions.md#reference-application-checkpoint-a-server-side--september-26-2026)
 records the choices and limits.
 
@@ -2115,20 +2118,69 @@ records the choices and limits.
   codes identity emits; S16's `SuccessData` became `ChangeRoleSuccess` and
   `RemoveMemberSuccess` over a shared `Completion`; unmatched routes return a
   plain 404 outside the session layers; per-operation documents no longer carry
-  the security scheme; and fixture capture for the TypeScript harness waits for
-  the client.
+  the security scheme; and fixture capture for the TypeScript harness, restored
+  with the client, writes one file per operation.
 
-| Acceptance row | Status                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prerequisite   | Workflow runs `verify:s16` and `probe:s16`; commands pass locally; no GitHub Actions run observed                                                                                                                                                                                                                                                                                                                            |
-| A              | Ported S16 Rust suites pass with unchanged expectations, except one marked-response case adapted from `Forbidden` (403) to `LoginFailed` (401) after the session enum narrowed; whole-request fixtures run against the assembled application. Exact status/kind/code tuples for both operations; shared-code metadata checked in memory and in the export; frozen experiments green. The S16 client cases are not yet ported |
-| A probes       | Omitted second bridge, duplicate OpenAPI ID, conflicting shared-code metadata, wrong path and a same-named different component each fail; an identical shared component assembles; an omitted operation collection also fails                                                                                                                                                                                                |
-| React (A)      | Outstanding: client boundary, typed narrowing and decoder cases, oversize bodies and one browser workflow                                                                                                                                                                                                                                                                                                                    |
+| Acceptance row | Status                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prerequisite   | Workflow runs `verify:s16` and `probe:s16`; commands pass locally; no GitHub Actions run observed                                                                                                                                                                                                                                                                                                                                        |
+| A              | Ported S16 Rust suites pass with unchanged expectations, except one marked-response case adapted from `Forbidden` (403) to `LoginFailed` (401) after the session enum narrowed; whole-request fixtures run against the assembled application. Exact status/kind/code tuples for both operations; shared-code metadata checked in memory and in the export; frozen experiments green. The S16 client cases are ported for both operations |
+| A probes       | Omitted second bridge, duplicate OpenAPI ID, conflicting shared-code metadata, wrong path and a same-named different component each fail; an identical shared component assembles; an omitted operation collection also fails                                                                                                                                                                                                            |
+| React (A)      | Implemented; see the [client evidence](#checkpoint-a-client-evidence): decoder cases for both operations, including oversize and unusable bodies; typed narrowing; unchanged session bootstrap; one browser workflow against the local issuer                                                                                                                                                                                            |
 
 Not established: the busy classification of a failed connection open is
 source-inspected rather than tested; runs used macOS with Node 24.20.0 and
 26.8.1 (CI pins 26.10.0), and no GitHub Actions run has been observed. No
 productivity claim follows.
+
+### Checkpoint A client evidence
+
+**Implemented experiment, September 27, 2026.** Each step was plan- and
+diff-reviewed by Astra before commit. The
+[reference application guide](../apps/reference/README.md) owns the commands and
+measurements; the
+[decision record](decisions.md#reference-application-checkpoint-a-client--september-27-2026)
+records the choices and limits.
+
+- **Boundary:** `apps/reference/web` generalizes S16's whole-request boundary to
+  both operations. Construction fails unless the export's `x-iris` operations
+  are exactly `changeMemberRole` and `removeMember`, each a POST with a JSON
+  schema for every status. Each call executes its request once and validates the
+  complete status and body against that operation's schemas, so one operation's
+  envelope never passes as the other's. Bodies are read once, as sent: past 64
+  KiB, declared or streamed, a body is cancelled and becomes `client_unknown`
+  (`body_oversize`); a locked, consumed or partly read body is
+  `body_unreadable`; invalid UTF-8 is `non_json`.
+- **Contract source:** the client bundles the committed `openapi.json` rather
+  than fetching a document, so no wire route was added. The Rust drift test
+  guards the snapshot and a generated-type drift check guards the client, so a
+  client and server built from one commit agree.
+- **Evidence:** real responses captured from both Rust whole-request tests,
+  counted per status, kind and code, then independent, cross-operation,
+  malformed, oversize and unusable-body cases; compile-time narrowing for both
+  operations; and seeded mutations of each check.
+- **Console and session:** session bootstrap keeps the existing contracts over
+  plain `fetch`. Role change and removal are by ID until checkpoint B's reads.
+  Outcome wording is exhaustive over both operations' codes: a 500, a 503 and
+  `client_unknown` say the outcome is unconfirmed, claim no effect and send no
+  retry (S14).
+- **Development binary and browser workflow:** `reference-dev --local-oidc-demo`
+  serves disposable data against the local issuer, with one demo editor so
+  success paths are reachable without invitations. One browser workflow drives
+  sign-in, bootstrap recovery, both operations' success, refusal, absence and
+  last-owner outcomes, and one unconfirmed attempt, against the production
+  build.
+- **Cost of runtime validation:** the production bundle is 374.32 kB (111.87 kB
+  gzip), 130.62 kB (38.24 kB gzip) more than the same build with stub validators
+  and no Ajv. Compiling both operations' validators took 13.3–24.1 ms (median
+  13.9 ms) across nine production-build runs in headless Chrome 154, and 41.5 ms
+  cold or about 10 ms warm in Node 24.20.0. Ajv compiles with `new Function`, so
+  a strict content security policy would need precompiled validators.
+
+Not established: browser runs used macOS and headless Chrome 154 only, and no
+GitHub Actions run has been observed. The workflow checks selected paths, not
+every code. No frozen experiment was retired: S16's client harness is now
+reproduced, but its other omission probes are not.
 
 ## References and design provenance
 
@@ -2169,6 +2221,13 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, checkpoint A client:** Added the reference client in
+  `apps/reference/web`: a whole-request boundary for both operations with
+  bounded single reads, typed narrowing, captured and independent decoder cases,
+  a checkpoint A console over unchanged session bootstrap, a development binary,
+  and one browser workflow against the local issuer, which CI now runs. Recorded
+  the client evidence and validation cost in S17; checkpoint A is complete. No
+  frozen experiment was retired; no wire change.
 - **2026-09-26, checkpoint A server side:** Implemented `apps/reference` with
   session identity, the ported `change_role`, `remove_member`, one checked
   multi-operation assembly and a private provisional `crates/iris` holding what

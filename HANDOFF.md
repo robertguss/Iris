@@ -6,312 +6,317 @@ Observed September 27, 2026, by the outgoing driver.
 
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
   `robertguss/Iris`).
-- Branch: `s17-checkpoint-a`, which now tracks `origin/s17-checkpoint-a`. `main`
-  is unchanged at `9235c6e`.
-- Reviewed through `bf55a09` (step 3 of this chunk); this handoff is committed
+- Branch: `s17-checkpoint-a`, tracking `origin/s17-checkpoint-a`. `main` is
+  unchanged at `9235c6e`.
+- Reviewed through `420081e` (step 3 of this chunk). This handoff is committed
   after it.
-- Pushed through `a0c25ff`. That is `origin/s17-checkpoint-a`, the head of draft
-  pull request #1 (https://github.com/robertguss/Iris/pull/1); `origin/main` is
-  `9235c6e`. The three checkpoint B commits and this handoff are local only.
-- Working tree clean apart from this handoff before its commit.
+- Pushed through `a0c25ff`, which is `origin/s17-checkpoint-a` and the head of
+  draft pull request #1 (https://github.com/robertguss/Iris/pull/1). The branch
+  was 7 commits ahead before this handoff: the previous chunk's three
+  server-side commits and its handoff, then this chunk's `b55bfca`, `05cbfff`
+  and `420081e`. None has been pushed.
+- The working tree was clean apart from this handoff before its commit.
 
-Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
+Re-check HEAD, the working tree and the remote (`git status`, `git log -8`,
 `git ls-remote origin`) before relying on any of this.
 
 ## 2. Read these first
 
-- `docs/design-spec.md`: "How to interpret and maintain this spec", then S17,
-  especially "Read conventions", "React client", "Acceptance checks" (the React
-  and B rows), "Owner decisions" and "Checkpoint B server-side evidence".
-- `docs/decisions.md`: the last two entries, "Reference application checkpoint
-  A, client" and "Reference application checkpoint B, server side".
+- `docs/design-spec.md`: "How to interpret and maintain this spec", then S17:
+  "Public response policy" (its last paragraph), "Read conventions", "React
+  client", "Acceptance checks", "Owner decisions", and the four evidence
+  sections, especially "Checkpoint B client evidence".
+- `docs/decisions.md`: the last three entries, the checkpoint A client and the
+  checkpoint B server side and client.
 - `apps/reference/README.md`: commands, operations and read rules, layout,
-  verification matrix, cost of runtime validation, probes and limits.
-- `crates/iris/src/lib.rs` and `apps/reference/src/read.rs`: what the crate
-  owns, and the read machinery, whose doc comments state their guarantees.
-- `apps/reference/web/src/client.ts`, `main.tsx` and `present.ts`: the client
-  boundary, the checkpoint A console and the mutation-only presentation, all of
-  which the next chunk extends.
-- `apps/reference/scripts/browser.mjs`: the browser workflow; its header states
-  the process-ownership guarantees to keep.
-- `.github/workflows/verify.yml`: what CI runs.
+  verification matrix, validation cost, probes and limits.
+- The client, whose doc comments state its guarantees:
+  - `apps/reference/web/src/client.ts`: the boundary;
+  - `membership.ts`: requests, with one `read` overload per read;
+  - `present.ts`: wording;
+  - `directory.ts`: paging, pairing and staleness transitions;
+  - `main.tsx`: the console.
+- `apps/reference/scripts/browser.mjs`: its header states the process-ownership
+  guarantees, including the single API restart between the two workflows.
+- `.github/workflows/verify.yml`: what CI runs. The browser command is unchanged
+  but now runs both workflows.
 - `docs/design-review-brief.md`: how independent reviews are run.
 
 ## 3. Context
 
-The owner authorized checkpoint B at the start of this session. They also
-approved publishing `s17-checkpoint-a` and opening a pull request, so the
-updated workflow would run on GitHub Actions; the pull request is not to be
-merged. The driver then published the branch and opened draft pull request #1.
-Its run passed every step at `a0c25ff`
-([record](docs/decisions.md#reference-application-checkpoint-b-server-side--september-27-2026)).
+The owner authorized all of checkpoint B on September 27. The previous chunk
+built its server side, and this chunk built its client in three reviewed steps.
+S17's evidence now marks checkpoints A and B complete. Every S17 checkpoint the
+owner has authorized is done. What comes next is the owner's choice (section 9).
 
-The oracle (Astra, GPT-6-Astra via Codex) agreed to split checkpoint B the way
-checkpoint A was split:
+Two ideas shape the client, beyond what the decision record lists:
 
-- This chunk built the server side in three steps: the member read, the
-  own-project read, then the probes and the evidence.
-- The next chunk does the client and the browser workflow.
+- **Present state only (S14).** A page describes the state when it was read.
+  Every read sentence is scoped to its page, and no read ever resolves an
+  earlier attempt. Nothing re-reads automatically after a mutation.
+- **Attempt records.** An attempt's operation and target are captured when it is
+  sent, and its outcome when it completes. The record then survives reloads,
+  selections and same-user refreshes; only the next attempt or a session change
+  replaces it. The "may predate your last attempt" note records request
+  ordering, not observation.
 
-Checkpoint B therefore stays partial.
+These came from review findings, and the tests and mutations pin them.
 
-Every export change forces client linkage in the same step, even without UI. The
-client refuses any `x-iris` operation it doesn't list with its hand-written
-method, and verification decodes each operation's captured responses against
-hand-written counts. That is why the client already accepts both reads, while
-`main.tsx` is still checkpoint A's by-ID console and `present.ts` covers only
-the two mutations (the `Mutation` type).
+The mutations still declare no current-state read. The owner was not asked this
+session (section 9), because the answer to the first open question never came
+and the owner asks for one question at a time.
 
-Choices made along the way, and the alternatives not taken, are in the decision
-record's checkpoint B entry.
+The browser workflow needed fresh data for checkpoint B. Checkpoint A's workflow
+ends with Bob removed from project 41, and without invitations nothing can
+restore Bob's membership. So the runner restarts only the API between the
+workflows.
 
 ## 4. Agreed chunk and acceptance
 
-- **Objective:** checkpoint B's server side:
-  - `memberships.list` / `listProjectMembers` and `projects.list_mine` /
-    `listMyProjects`, with GET and HEAD;
-  - S17's read conventions;
-  - the B authorization, pagination and input, and cleanup rows;
-  - the read probes;
-  - the client linkage the export forces;
+- **Objective:** S17's React row for both reads:
+  - decoder, narrowing and presentation cases, including oversize bodies;
+  - the member directory, with my projects and a project's members with
+    next-page navigation, and role change and removal started from a member;
+  - session bootstrap unchanged;
+  - one checkpoint B browser workflow against the local issuer;
+  - S17's evidence marking checkpoint B complete;
   - the frozen experiments kept green.
 - **Exclusions:**
-  - read UI and presentation, and browser workflow changes;
-  - declaring a current-state read on the mutations;
+  - server, export or seed changes;
+  - a current-state read declaration, which was conditional on the owner's
+    answer, and that answer never came;
   - invitations, the lifecycle pass, and edits to `experiments/`;
   - retiring a frozen experiment;
-  - merges, and pushes beyond the approved initial publish.
+  - merges, and pushes without the owner's go-ahead.
 - **Stopping condition:** step 3 signed off and committed, then this handoff.
-- **Disposition:** `accepted`, as commits `9b548a3` (member read, iris GET/HEAD
-  and optional recovery, `read::run`), `5b16132` (own-project read) and
-  `bf55a09` (read probes and evidence).
-- **Scope changes approved by the user:** publishing the branch and opening a
-  pull request, without merging (done: draft #1). No other change.
+- **Disposition:** `accepted`, as three commits:
+  - `b55bfca`: the reads in the client and their presentation;
+  - `05cbfff`: the member directory, and checkpoint A's workflow driven from it;
+  - `420081e`: checkpoint B's workflow, the API restart, and the evidence.
+- **Scope changes approved by the user:** none.
 
 ## 5. Verification and review
 
-Environment: macOS, Rust 1.98.1, Node 24.20.0 (the client checks also ran under
-26.8.1; CI pins 26.10.0), `agent-browser` 0.38.1 with headless Chrome 154.
-Driver evidence is in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/d46ebdae-6aee-430c-911e-a7625e5cb965/scratchpad/`
-(temporary; below, `scratchpad/`). Step 3 changed only `probes.mjs` and
-Markdown, so the step 2 suite results still describe `bf55a09`'s code.
+Environment: macOS, Rust 1.98.1, Node 24.20.0 (client checks also under 26.8.1
+via `mise exec node@26.8.1`; CI pins 26.10.0), `agent-browser` 0.38.1, headless
+Chrome 154. Driver evidence is in
+`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/42ba4b9b-aa28-4de6-bf60-99bbae6cdfe5/scratchpad/`
+(temporary; below, `scratchpad/`). No client source changed in step 3, so the
+step 3 `verify` runs describe `05cbfff`'s client too.
 
-| Claim                     | Commit and evidence                                                                                                                                                                                                                                                                                                                                                    | Checked by                                                                                                                         |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace, lints, format  | `5b16132`: `cargo test --workspace --locked --no-fail-fast`, 106 passed (`iris` 13; `iris-reference` 45 = lib 34, contract 2, dev binary 2, identity 7); dev-identity suite 24 passed, 1 ignored; Clippy `-D warnings` for the workspace (all targets and features) and each crate alone; `cargo fmt --all --check`; `git diff --check` (`scratchpad/step2/final.log`) | Driver. The oracle ran `iris` plus `iris-reference` (51 tests at step 1, 58 at step 2), Clippy for both crates, fmt and diff check |
-| Client linkage            | `5b16132`: `npm --prefix apps/reference/web run verify`, 143 runtime cases across 4 operations (captured 19, 17, 12 and 9), 24 presentations, build; also under Node 26.8.1 (`scratchpad/step3/verify-node26.log`)                                                                                                                                                     | Driver and oracle (Node 24); Node 26.8.1 is driver-reported                                                                        |
-| B rows (server)           | Hand-written tests in `http/memberships/list_tests.rs`, `http/projects/tests.rs`, `read.rs` and both domains; S17 "Checkpoint B server-side evidence" maps them to rows                                                                                                                                                                                                | Driver and oracle (tests read and run)                                                                                             |
-| Probes                    | `bf55a09` content: `node apps/reference/scripts/probes.mjs`, 10 caught mutations and 7 controls, 1 min 24 s cold (`scratchpad/step3/probes.log`); a no-op probe makes the harness fail (`probes-negative.log`)                                                                                                                                                         | Driver; the oracle reran the harness (10 and 7, 12 CAUGHT lines, 109.65 s) and the negative control                                |
-| Seeded mutations          | Step 1: `iris` and `read.rs` in-tree, then 12 on a disposable copy (`scratchpad/mutate-step1.py`, `mut-s1/`, `mut-s1-rerun/`); step 2: 8 (`mutate-step2.py`, `mut-s2/`). All caught except the equivalent cursor-length mutant; the decision record lists them                                                                                                         | Driver; the oracle inspected the logs, did not rerun them                                                                          |
-| Frozen experiments green  | `5b16132`: web `verify` and `verify:s16` (`step2/final.log`); `probe:s16` not rerun (experiment unchanged)                                                                                                                                                                                                                                                             | Driver                                                                                                                             |
-| Checkpoint A browser flow | `5b16132`: `node apps/reference/scripts/browser.mjs` passed after each step and nine times in a row; validator compile for 4 operations 17.5–21.0 ms, median 19.5 ms (`scratchpad/measure-b/runs.log`); bundle 382.39 kB (112.55 kB gzip)                                                                                                                              | Driver; the oracle checked the log figures                                                                                         |
-| GitHub Actions            | Run 36317010742 on PR #1 at `a0c25ff`: every step passed, 7 min 37 s; reference client 23 s, browser workflow 15 s (`scratchpad/ci-run-36317010742.log`). The checkpoint B commits have not run in CI                                                                                                                                                                  | Driver; the oracle confirmed the run's success                                                                                     |
+| Claim                     | Commit and evidence                                                                                                                                                                                                                                                                                               | Checked by                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Client checks             | `420081e`: `npm --prefix apps/reference/web run verify`, with 231 runtime cases, 49 presentations, 9 request constructions, 11 directory transitions, `tsc` and the build (389.42 kB, 114.41 kB gzip). Also under Node 26.8.1 (`scratchpad/step3/verify-node24.log`, `verify-node26.log`)                         | Oracle ran Node 24 `verify` itself at steps 1 and 2, and Node 26 at the first step 1 review; the step 3 runs are driver-reported |
+| Browser workflows         | `420081e`: `node apps/reference/scripts/browser.mjs`, five consecutive passes, 12.9–13.2 s each with builds cached, validator compile 18.0–20.0 ms (median 19.1 ms); a sixth after a wording-only change, 18.1 ms (`scratchpad/step3/browser-1` … `browser-6`, logs and screenshots)                              | Oracle ran the workflow itself at step 2 (19.1 ms after the fix) and step 3 (19.0 ms)                                            |
+| Restart ownership         | `420081e`: `scratchpad/probe-restart.py`, on disposable copies of the runner (step3/probes.log). A foreign listener on 3003 in the restart window, the replacement API killed, and SIGTERM in the window each fail with no PASS and no leftovers; the listener survives; no replacement starts after a stop       | Oracle reran all three probes                                                                                                    |
+| Seeded mutations          | Step 1: 17 (`mutate-step1.py`, step1/mutations.log). Step 2: 10 directory and 8 through the browser (`mutate-step2.py`, step2/mutations-directory.log, mutations-ui.log). Step 3: 5 through the browser (`mutate-step3.py`, step3/mutations.log). All caught at their named check; the decision record lists them | Oracle inspected the runners and logs, and read the new step 2 mutations' failures; it did not rerun the suites                  |
+| Workspace, Clippy, frozen | Not rerun this chunk: no Rust, export or `experiments/` file changed. The last results are the previous chunk's at `5b16132` (106 workspace tests, Clippy, fmt, web `verify` and `verify:s16`)                                                                                                                    | Previous chunk                                                                                                                   |
+| GitHub Actions            | None of the seven local commits has run in CI. The last run is 36317010742 at `a0c25ff`                                                                                                                                                                                                                           | —                                                                                                                                |
 
 Oracle verdicts and dispositions, all fixed unless stated:
 
-1. Chunk proposal: sign-off; record B as partial until the client chunk.
-2. Step 1 plan: changes requested.
-   - P2: the forced client linkage has more consumers. Fixed with the `Mutation`
-     type and by scoping the tests.
-   - P2: writer progress cannot prove explicit finalization. Fixed:
-     classification is unit-tested with injected rollback results, awaited
-     finalization rests on source review, and cancellation uses the real
-     `read::run` future after showing the writer is blocked.
-   - P3: positive page bounds and parameter assertions. Added.
+1. Chunk proposal and step 1 plan: changes requested.
+   - P2: empty-page wording must be scoped to the page, since a continuation
+     page can be empty. Fixed.
+   - P2: extracted body cases needed a failing check if skipped. Fixed with a
+     hand-written per-operation tally.
+   - P3: update S10 in step 3. Done.
 
-   The re-review signed off, adding that the cancellation writer should use
-   explicit SQL so a busy `COMMIT` can be retried; this was applied.
+   The re-review signed off.
 
-3. Step 1 diff: sign-off.
-   - P3: the `BrowserSession` description claimed CSRF for every method. Fixed.
-   - A suggestion to call `mount_list_members` in the 503 test. Applied.
-   - The equivalent cursor-length mutant is kept as a documented bound.
-4. Step 2 plan: sign-off, with two details: move `open` to `http/mod.rs`, and
-   make the pagination fixture discriminating. Both done.
-5. Step 2 diff: sign-off, no findings.
-6. Step 3 plan: sign-off.
-   - P3: the S10 status row. Fixed.
-   - Probe details: named failures, separate cargo runs, valid SQL bindings.
-     Kept.
-7. Step 3 diff: sign-off.
-   - P3: a mutation label. Renamed to "mismatched declared handler identity".
-   - P3: the probes' named-test guarantee was stated too broadly. Narrowed to
-     the checkpoint B probes.
+2. Step 1 diff: changes requested.
+   - P2: a union-typed caller could omit the project ID. Fixed with per-read
+     overloads and a negative compile-time case.
+   - P3: own-project negative cases were missing. Added.
+   - A formatting note on `client.ts:57`: Prettier 3.8.3 flags it, and flagged
+     the base commit too, while 3.9.9 accepts it. Left as is.
+
+   The re-review signed off.
+
+3. Step 2 plan: changes requested.
+   - P2: confirmation per target.
+   - P2: freeze the attempt's operation.
+   - P2: attempt-scoped stale wording, with defined ordering.
+
+   All fixed. The re-review signed off, with a P3: show stale marking before the
+   response arrives. Done by holding one response through a `window.fetch`
+   wrapper.
+
+4. Step 2 diff: changes requested.
+   - P2: a same-user or failed session refresh erased the attempt. Fixed: only
+     the session-transition effect clears it, and browser checks cover all three
+     cases.
+
+   The re-review signed off.
+
+5. Step 3 plan: changes requested.
+   - P2: the restart must be abort-aware. Fixed with a synchronous pre-spawn
+     guard in `start()` and retirement limited to the original API.
+   - P2: restore the aborted initial projects load check. Added.
+
+   The re-review signed off.
+
+6. Step 3 diff: sign-off, with three P3 wording corrections, all applied:
+   - pending projects reads can also complete as stale;
+   - separate the missing recovery declaration from manual reads;
+   - the outcome is recorded when the attempt completes, not when it is sent.
 
 ## 6. Remaining work
 
-1. **S17 checkpoint B, client:**
-   - read decoder, narrowing and presentation cases;
-   - the React member directory;
-   - one checkpoint B browser workflow;
-   - completing B's evidence.
-
-   See section 7.
-
-2. **Running the checkpoint B commits on GitHub Actions:** they're local only.
-   Pushing them to draft PR #1 needs the owner's go-ahead (section 9).
-3. **A follow-up design for invitation issuance and acceptance.**
-4. **A lifecycle design pass:** persistent storage, seed policy, journal mode,
-   worker supervision, and one development command. Running the console by hand
-   takes three processes.
-5. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
+1. **The owner's open questions (section 9).**
+2. **Running the seven local commits on GitHub Actions:** needs push approval.
+3. **Declaring `listProjectMembers` as the mutations' current-state read, if the
+   owner approves.** It changes `crates/iris::Recovery.read` (a boolean today)
+   to name the read and its inputs, and needs:
+   - both regenerations;
+   - updates to the Rust and client recovery assertions;
+   - wording that points to the member list without implying a page resolves the
+     attempt.
+4. **A follow-up design for invitation issuance and acceptance** (S17).
+5. **A lifecycle design pass:** persistent storage, seed policy, journal mode,
+   worker supervision, one development command.
+6. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
    probes are carried by the reference application.
-6. **Documentation hygiene, carried forward:**
+7. **Documentation hygiene, carried forward:**
    - the top-level README's "Next milestone" omits S16 and S17;
    - `experiments/api-slice/README.md` still lists "durable email delivery" as
      absent;
    - the original "Open decisions" list in `docs/decisions.md` includes items
      settled later.
-7. **Precompiled validators:** needed if a content security policy without
-   `unsafe-eval` is adopted, to replace Ajv's runtime compilation.
+8. **Precompiled validators:** needed if a content security policy without
+   `unsafe-eval` is adopted.
 
 ## 7. Next chunk
 
-`approved` (the owner authorized all of checkpoint B): S17 checkpoint B's
-client, on `s17-checkpoint-a`. It still goes through plan review.
-
-- **Acceptance:** S17's React row for both reads:
-  - typed narrowing, and runtime decoder cases including oversize bodies;
-  - presentation of read outcomes;
-  - the member directory: my projects, then a project's members with next-page
-    navigation, with role change and removal started from it;
-  - session bootstrap unchanged;
-  - one checkpoint B browser workflow against the local issuer, extending
-    `browser.mjs` while keeping its process-ownership properties.
-
-  Then S17's evidence marks checkpoint B complete. The frozen experiments stay
-  green, and each step is signed off by the oracle.
+`proposed`. Nothing beyond checkpoint B is authorized.
 
 - **First action:** ask the owner the open questions in section 9, one at a
-  time, then propose the client chunk's steps and stopping point in the first
-  plan review. The planning and building are already authorized, so neither
-  waits on the answers. Push approval only gates publishing and CI. The
-  current-state-read answer only gates the presentation work that depends on it.
+  time, and wait for each answer before asking the next. Then propose the chunk
+  the answers authorize, in the first plan review.
+- **Acceptance:** set by that choice.
+  - If the current-state read is approved: remaining-work item 3, with the
+    frozen experiments and both browser workflows green.
+  - If the invitations design is chosen: a design section in S17's style.
+    Documentation only, reviewed through the design-review brief, authorizing no
+    implementation until the owner says so.
 
 ## 8. Decisions and authorizations in force
 
 - **The seven S17 owner decisions** in S17's "Owner decisions".
-- **Authorized:**
-  - the CI prerequisite and checkpoint A, both complete;
-  - checkpoint B: the server side is done and the client is next.
-
-  Commits go on `s17-checkpoint-a`.
-
-- **Approved by the owner this session:** publishing `s17-checkpoint-a` and
-  opening a pull request, without merging. Done as draft PR #1 at `a0c25ff`. The
-  driver has treated later pushes as needing a fresh go-ahead.
-- **Not authorized:** merges; invitations; the lifecycle pass; retiring frozen
-  experiments.
+- **Authorized:** the CI prerequisite, checkpoint A and checkpoint B, all
+  complete. Commits go on `s17-checkpoint-a`.
+- **Approved by the owner in the previous chunk:** publishing `s17-checkpoint-a`
+  and opening a pull request, without merging. Done as draft PR #1 at `a0c25ff`.
+  Later pushes need a fresh go-ahead.
+- **Not authorized:** merges; pushes; invitations; the lifecycle pass; retiring
+  frozen experiments; declaring a current-state read on the mutations.
 - **Decided in this chunk:** the choices in the decision record's "Reference
-  application checkpoint B, server side" entry, and the agreed server/client
-  split.
+  application checkpoint B, client" entry.
 - **Workflow:** the owner asked for oracle review before every commit.
 
 ## 9. Open questions for the user
 
-- May the driver push the checkpoint B commits (and later ones) to draft PR #1,
-  so GitHub Actions runs them? This blocks item 2 of the remaining work, and any
-  CI claim for checkpoint B.
+Ask one at a time.
+
+- May the driver push the local commits (seven, plus this handoff) to draft PR
+  #1, so GitHub Actions runs them? This was asked at the start of this session
+  and has not been answered. It blocks any CI claim for checkpoint B.
 - Should `change_role` and `remove_member` declare `listProjectMembers` as their
-  current-state read (`x-iris` `recovery.read`; S15 and S17 say "may")? This
-  changes the mutations' exported recovery metadata, and lets the unconfirmed
-  wording point to the member list. It shapes the client chunk's presentation
-  step. The outgoing driver has no firm recommendation: declaring it matches
-  S17's stated intent, but a page describes present state only (S14), so the
-  wording must not imply the page resolves an earlier attempt.
+  current-state read (`x-iris` `recovery.read`; S15 and S17 say "may")? It
+  blocks remaining-work item 3. There is no firm recommendation. Declaring it
+  matches S17's stated intent. But a page describes present state only (S14), so
+  the wording must not imply that the page resolves an earlier attempt.
+- Which follow-up should come next: the current-state read (if approved), the
+  invitations design, or the lifecycle pass? This blocks the next chunk.
 
 ## 10. Operational state
 
-- **Running processes:** none, and no servers or browser sessions. The browser
-  workflow and the probes stop everything they start.
+- **Running processes:** none. No servers or browser sessions (checked: ports
+  4001, 3003 and 5175 free; `agent-browser session list` empty). The browser
+  workflow, the probes and every mutation runner stop what they start. The
+  in-place mutation runners restored their files, confirmed by SHA-256.
 - **Draft PR #1:** open at `a0c25ff`, with passing run 36317010742. Don't merge
   it.
-- **`agent-browser`:** 0.38.1 is installed in mise's Node 24 global bin, with
-  Chrome 154 in `~/.agent-browser/browsers/`. Under another Node it may not be
-  on `PATH`.
-- **Gitignored build output:** `target/`, `apps/reference/web/node_modules` and
-  `dist`, and `experiments/api-slice/web/node_modules` and `dist`. Nothing needs
-  cleanup.
+- **`agent-browser`:** 0.38.1 is in mise's Node 24 global bin, with Chrome 154
+  in `~/.agent-browser/browsers/`. Under another Node it may not be on `PATH`.
+- **Gitignored build output:** `target/`, and `node_modules` and `dist` under
+  both web directories. Nothing needs cleanup.
 - **Retained evidence:** temporary, and possibly already deleted: the driver's
   scratchpad (section 5), and any review directories the oracle created under
   the system temp directories.
 - **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
   `target/` and can leave a mutated artifact that a later run treats as current.
-  The experiment is frozen, so the risk is recorded rather than fixed. The
-  reference probes and the driver's mutation runners use their own temporary
-  targets.
+  The experiment is frozen, so the risk is recorded rather than fixed.
 
 ## 11. Conventions and gotchas
 
-- **Shell aliases:** in this machine's interactive shells, `tr` is aliased to a
-  trash command, `npm` to a package guard and `ls` to another tool. Use
-  `command tr`, `command npm` and `/bin/ls`. A bare `tr` slipped through again
-  this chunk and tried to trash files named "\n" and " "; neither existed.
-- **zsh:** it doesn't word-split `$VAR` into a command and its arguments; use a
-  shell function. `PIPESTATUS` is bash-only.
-- **Markdown formatting:** a user-level hook formats Markdown written through
-  the driver's Write and Edit tools. Scripted edits bypass it, so run
-  `bunx prettier --write --print-width 80 --prose-wrap always <files>`
-  afterwards. TypeScript under `apps/reference/web/src` is Prettier-formatted
-  too; pass explicit file lists, and never format
-  `apps/reference/web/src/generated.ts`.
-- **Contract changes:** changing an operation's contract takes two
-  regenerations:
-  `cargo run --locked -p iris-reference --bin export-openapi -- apps/reference/openapi.json`,
-  then `npm --prefix apps/reference/web run generate`.
+- **Shell aliases:** in interactive shells `tr` is a trash command, `npm` a
+  package guard and `ls` another tool. Use `command tr`, `command npm` and
+  `/bin/ls`.
+- **zsh:** no word-splitting of `$VAR` into a command; no `PIPESTATUS`; a bare
+  `=====` word triggers `=` expansion (use quotes).
+- **Formatting:**
+  - A user-level hook formats Markdown written through the driver's Write and
+    Edit tools, including scratch prompt files. Exact-string patches applied to
+    such a file afterwards can silently miss. Append to it or rewrite it.
+  - Scripted edits bypass the hook, so run
+    `bunx prettier@3.9.9 --write --print-width 80 --prose-wrap always <files>`.
+    Pin the version: bare `bunx prettier` resolves the latest release, and 3.8.3
+    formats `client.ts`'s `Result` union differently.
+  - TypeScript under `apps/reference/web/src` is Prettier-formatted, except
+    `generated.ts`, which is never formatted. `style.css` keeps its compact,
+    unformatted style.
+- **Contract changes need two regenerations:** `export-openapi`, then
+  `npm --prefix apps/reference/web run generate`.
 - **Every new or changed operation touches the client in the same step:**
-  - `client.ts`: `DOMAIN_OPERATIONS` and `METHODS`;
-  - `client.test.ts`: `NAMES`, `PATHS` and the hand-written `CAPTURED` counts.
-
-  `verify` captures real responses only from library tests whose names contain
-  `whole_request`, so name a new operation's capture test accordingly.
-
-- **Doc comments leak into the export:** a `///` comment on a `#[utoipa::path]`
-  handler becomes the exported `summary`, so use `//`. The reads' independent
-  contracts assert that there is no summary.
-- **Test `validate` helpers:** they build a schema from the export, and an
-  undeclared status yields an empty schema that accepts anything. Check
-  `responses[status]` directly when asserting absence.
-- **SQLite fault injection that works here:**
-  - A read's 503: hold `BEGIN EXCLUSIVE` on another connection, and send the
-    request through the operation's own mount with an injected `Actor` and no
-    cookie, so the session layer needs no database.
-  - A read's 500: store a BLOB in a TEXT column the page decodes; SQLx decodes
-    by the value's runtime type.
-  - Retrying a busy `COMMIT`: drive the writer with explicit SQL.
-    `Transaction::commit` consumes the transaction and queues a rollback on
-    failure.
-- **Shared test fixtures:** they live in `pub(crate)` `#[cfg(test)]` modules,
-  `http::memberships::{tests, list_tests}`.
-- **Seeded mutations and probes:** they anchor on exact source text, so rerun
-  `cargo fmt` before writing anchors; a rustfmt rewrap caused one anchor drift.
-  Quiet libtest prints failures as `---- <path> stdout ----` blocks, not
-  `test … FAILED` lines.
-- **New packages in `apps/reference/web`:** install with
-  `command npm install --before=<date>` if the lockfile should keep matching the
-  experiment's resolved set.
-- **Node JSON imports:** under Node, a TypeScript file that imports JSON needs
-  `with { type: "json" }`.
-- **`vite preview`:** it must get `--host 127.0.0.1`, because its default may
-  bind `::1`.
-- **`agent-browser` output:** `eval` prints its result JSON-encoded.
-  `network requests --json` returns `{ data: { requests: [...] } }`, including
-  aborted requests.
-- **Browser workflow ports:** it needs ports 4001, 3003 and 5175 free, and
-  refuses to run otherwise.
-- **Timeouts:** the driver's tool calls time out at 600 s, so run long suites in
-  the background with output written to files. `cargo test` stops at the first
-  failing binary unless given `--no-fail-fast`.
-- **Frozen fixture in use:** the reference tests and the browser workflow start
-  the local issuer from `experiments/api-slice/checks/oidc-provider.mjs`.
+  - `client.ts`: `DOMAIN_OPERATIONS`, `METHODS`, and `MUTATIONS` or `READS` (a
+    test checks they partition the operations);
+  - `client.test.ts`: `NAMES`, `PATHS`, `CAPTURED` and `BODY_CASES`;
+  - a presentation arm, since the switches are exhaustive.
+- **Typed operation unions lose statuses:** `Known<Op>` or `Result<Op>` over a
+  union of operations keeps only their shared statuses. Use explicit unions
+  (`Result<"a"> | Result<"b">`) and per-operation overloads.
+- **Two build paths:** the browser workflow's `vite build` does not type-check,
+  so browser mutations need only bundle. `verify` runs `tsc`.
+- **Nothing runs concurrently with in-place browser mutations:** they edit the
+  checkout's client files and share the `dist` build and the workflow's ports.
+  Don't run them beside `verify` or the browser workflow.
+- **`agent-browser`:**
+  - `network route` has only `--abort` and `--body`. Hold a response by wrapping
+    `window.fetch` through `eval`, as the workflow does.
+  - The request log includes aborted requests. `--filter /api/projects` also
+    matches member paths, so count before opening a project.
+  - `eval` prints JSON.
+- **Driver tooling:** tool calls time out at 600 s, and a foreground `sleep` is
+  blocked, so run long suites in the background with output in files.
+- **Browser workflow ports:** 4001, 3003 and 5175 must be free. The API is
+  restarted once, logging to `api.log`, then `api-b.log`.
+- **Test fixtures and seeds:**
+  - The development server seeds Bob as an editor of project 41.
+  - The Rust tests and the workflow start the frozen issuer fixture
+    `experiments/api-slice/checks/oidc-provider.mjs`.
+  - Refer to test identities without gendered pronouns.
+- **Rust, carried forward:**
+  - A `///` comment on a `#[utoipa::path]` handler becomes the exported
+    `summary`, so use `//`.
+  - Test `validate` helpers accept anything for an undeclared status, so check
+    `responses[status]` directly.
+  - The shared test fixtures live in `http::memberships::{tests, list_tests}`.
+    The previous handoff's section 11 (`git show 091129a:HANDOFF.md`) still
+    holds the other server-side recipes: SQLite fault injection for 503, 500 and
+    a busy `COMMIT`; rerunning `cargo fmt` before anchoring seeded mutations;
+    libtest's quiet failure blocks; `cargo test --no-fail-fast`;
+    `npm install --before=<date>`; JSON import attributes; and
+    `vite preview --host 127.0.0.1`.
+  - `verify` captures responses only from library tests whose names contain
+    `whole_request`.
 - **`crates/iris`:** add to it only what two operations demonstrably share,
   naming both.
-- **History and pushes:** history on `main` is linear and was previously pushed
-  by the owner. Never push without the owner's go-ahead. The branch has an
-  upstream now, so a bare `git push` would update PR #1.
-- **Panes:** the driver works in the left pane and the oracle in the right. Send
-  oracle prompts through a file, as the driver skill describes.
+- **History and pushes:** history on `main` is linear. Never push without the
+  owner's go-ahead. The branch has an upstream, so a bare `git push` would
+  update PR #1.
+- **Panes:** the driver works in the left pane and the oracle in the right. The
+  driver sends oracle prompts through a file.
 
 ## 12. Skills
 

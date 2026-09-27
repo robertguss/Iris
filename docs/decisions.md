@@ -234,6 +234,8 @@ framework default.
   supervision ([S17 ownership boundaries](design-spec.md#ownership-boundaries)).
   The reference application has a development server and a browser runner that
   owns its processes, not one command for the issuer, API and Vite.
+  [S18](design-spec.md#s18--reference-application-lifecycle) now proposes one, a
+  Node supervisor script; the row stays open until the owner decides.
 
 ## Deferred infrastructure
 
@@ -1047,6 +1049,34 @@ the run.
 after the documentation hygiene chunk. The
 [proposed architecture table](#proposed-architecture-not-yet-selected) gains
 dated status notes, one per row; its rows are unchanged.
+
+## Reference application lifecycle — September 27, 2026
+
+**Proposed recommendation; documentation only.** After pull request #1 merged,
+the owner chose the lifecycle pass that S17 deferred, and a new local branch,
+`lifecycle-design`, from the handoff commit `8d2cfc7`.
+[S18](design-spec.md#s18--reference-application-lifecycle) records current
+behavior from source: every database starts fresh and disposable, SQLx 0.9.0
+leaves the journal mode unset, the running application never schedules the
+session store's cleanup, the development server has no graceful shutdown, and
+the frozen delivery worker's callers stop the process if the worker task ends. A
+scratch probe outside the checkout, on Python's SQLite 3.53.4 rather than the
+application's build, confirmed that in rollback mode an open reader makes a
+committing writer fail after its 100 ms busy timeout, while WAL lets it commit.
+
+S18 recommends that storage stay disposable unless the development binary is
+given an explicit path argument, not an environment variable, which the browser
+runner would pass along. A new database is initialized atomically at a temporary
+sibling path and seeded only then, so a restart keeps changed data. A reset
+deletes the database files. Migrations become append-only once a persistent
+database exists. The journal mode stays rollback and is checked at startup. A
+Node supervisor script with the browser runner's process rules starts the
+issuer, API and Vite. Session cleanup, and later any worker, runs as a
+supervised task with a bounded shutdown. Worker restart policy and send
+uncertainty are left to the invitations design.
+
+Alternatives are recorded with S18's eight owner choices. No runtime,
+dependency, CI, migration or wire change accompanies this record.
 
 ## Maintaining this record
 

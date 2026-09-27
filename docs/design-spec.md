@@ -1,6 +1,6 @@
 # Iris living design specification
 
-Last updated: September 26, 2026.
+Last updated: September 27, 2026.
 
 This is the current design entry point for Iris: what we want to build, the
 conventions we are considering, and most importantly why. It is a living spec,
@@ -35,11 +35,12 @@ evidence lifecycle. S14 defines the caller-loss recommendation and failure
 table; S15 gives a concrete result, response and recovery reference contract.
 S16 compares two authoring paths with one annotated membership vertical slice.
 S17 proposes the next bounded step: a reference application that generalizes S16
-across operations and adds the first reads. S10 distinguishes implementation
-from proposals. Use the [independent review brief](design-review-brief.md) for
-assignments, three review tracks, report format and synthesis instructions. S13
-also supplies focused runtime-evidence questions; assess the design, not just
-the example syntax.
+across operations and adds the first reads. S18 proposes that application's
+development lifecycle: storage, seeds, journal mode, task supervision and one
+development command. S10 distinguishes implementation from proposals. Use the
+[independent review brief](design-review-brief.md) for assignments, three review
+tracks, report format and synthesis instructions. S13 also supplies focused
+runtime-evidence questions; assess the design, not just the example syntax.
 
 ## S01 — Purpose and constraints
 
@@ -370,6 +371,7 @@ boundaries; a tool allowlist is not a sandbox.
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                  |
 | Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                               |
 | Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md) |
+| Reference application lifecycle                                         | Proposed in S18: storage, seeds, journal mode, tasks, development command; not implemented                                                                           |
 | Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                          |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                        |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                    |
@@ -400,6 +402,7 @@ observations motivate shared definitions, not productivity claims.
   semantics.
 - Runtime evidence collection, correlation, bounded retention and disclosure.
 - Configuration, startup, migrations, jobs and service lifecycle conventions.
+  S18 proposes a first slice for the reference application.
 - Packaging, generators and compile-loop improvements justified by experience.
 
 Do not interpret this agenda as approval to implement all items. Generic action
@@ -1878,6 +1881,7 @@ packaging and naming remain open (S11).
 - **Deferred to a lifecycle pass:** persistent storage, seed policy, SQLite
   journal mode, worker supervision, and one development command for the issuer,
   API and Vite. The delivery worker is not ported.
+  [S18](#s18--reference-application-lifecycle) now proposes that pass.
 
 ### Operation sequence
 
@@ -2394,6 +2398,198 @@ restart windows were probed with injected delays in copies of the runner. One
 validator compile measured 29.4 ms; it was not investigated. No frozen
 experiment was retired, and no productivity claim follows.
 
+## S18 — Reference application lifecycle
+
+**Proposed; documentation only.** On September 27, 2026, the owner chose this
+lifecycle pass as the chunk after the pull request #1 merge. It covers the five
+items that S17 [deferred](#ownership-boundaries): persistent storage, seed
+policy, SQLite journal mode, worker supervision, and one development command for
+the issuer, API and Vite. It authorizes no implementation, dependency, CI,
+migration or wire change. The recommendations are the driver's (Claude, Opus
+5.5); the [open choices](#lifecycle-choices-for-the-owner) await the owner, and
+no recommendation is accepted direction until the owner decides it. Source
+citations are to `8d2cfc7`.
+
+### Current behavior
+
+Every process that uses the reference application's schema starts from a fresh,
+disposable database, so no data carries over to a restart. Its temporary
+directory is removed when dropped, which happens on a normal return; tempfile
+relies on destructors, so a process ended by a signal can leave the directory
+and its data behind.
+
+| Concern               | Current behavior                                                                                                                                                                                                                                                                                                                                                                         | Source                                                                                                                                                                                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Development database  | `reference-dev` creates `reference.db` in a fresh temporary directory, removed on a normal return but possibly left behind after a signal; a restart starts from fresh data                                                                                                                                                                                                              | [`reference-dev.rs:16-17`](../apps/reference/src/bin/reference-dev.rs)                                                                                                                                                                              |
+| Test databases        | Each test fixture owns a temporary directory; so does each read-module test                                                                                                                                                                                                                                                                                                              | [`tests/identity.rs:59`](../apps/reference/tests/identity.rs), [`memberships/tests.rs:65`](../apps/reference/src/http/memberships/tests.rs), [`read.rs:107-108`](../apps/reference/src/read.rs)                                                     |
+| Migration             | One consolidated migration, applied by SQLx's migrator at every startup to a new file                                                                                                                                                                                                                                                                                                    | [`app.rs:49`](../apps/reference/src/app.rs), [`reference-dev.rs:19`](../apps/reference/src/bin/reference-dev.rs), [`0001_initial.sql`](../apps/reference/migrations/0001_initial.sql)                                                               |
+| Seeds                 | `seed` inserts Alice (11) and Bob (29), projects 41 and 43 with one owner each, and both external identities bound to the configured issuer; its comment restricts it to disposable fixtures. The development binary then adds Bob as an editor of 41, as the membership tests do                                                                                                        | [`app.rs:51-71`](../apps/reference/src/app.rs), [`reference-dev.rs:20-25`](../apps/reference/src/bin/reference-dev.rs)                                                                                                                              |
+| Journal mode          | Never set. SQLx 0.9.0 leaves `journal_mode` unset unless requested, because WAL persists in the database file and switching needs an exclusive lock that the busy timeout cannot wait for. Every file database therefore uses SQLite's default rollback journal; the identity test's in-memory database uses SQLite's `MEMORY` journal                                                   | `sqlx-sqlite-0.9.0/src/options/mod.rs:179-183`, [`tests/identity.rs:573`](../apps/reference/tests/identity.rs)                                                                                                                                      |
+| Busy timeouts         | At runtime, domain connections from `app::connect` wait 100 ms and the session store's pool of up to four connections waits 1 s, both overriding SQLx's 5 s default. The membership test fixture's session pool keeps the 5 s default                                                                                                                                                    | [`app.rs:30-37`](../apps/reference/src/app.rs), [`reference-dev.rs:27-35`](../apps/reference/src/bin/reference-dev.rs), [`memberships/tests.rs:74-80`](../apps/reference/src/http/memberships/tests.rs), `sqlx-sqlite-0.9.0/src/options/mod.rs:203` |
+| Reads                 | Each read owns a fresh connection with `query_only` enabled and one deferred transaction, and drops the connection afterwards                                                                                                                                                                                                                                                            | [`read.rs:50-68`](../apps/reference/src/read.rs)                                                                                                                                                                                                    |
+| Session expiry        | `Store::cleanup` deletes expired sessions and login attempts, but the running application never schedules it; only a test calls it, on an in-memory database. The frozen `auth-demo` runs it every 60 s and logs database errors, but nothing supervises that task's termination                                                                                                         | [`store.rs:19-22`](../apps/reference/src/identity/store.rs), [`tests/identity.rs:601`](../apps/reference/tests/identity.rs), [`auth-demo.rs:54-62`](../experiments/api-slice/server/src/bin/auth-demo.rs)                                           |
+| Workers               | None. The delivery worker is not ported                                                                                                                                                                                                                                                                                                                                                  | [S17](#ownership-boundaries)                                                                                                                                                                                                                        |
+| Shutdown              | `axum::serve` runs without graceful shutdown or signal handling; the process ends on a signal with requests in flight                                                                                                                                                                                                                                                                    | [`reference-dev.rs:48`](../apps/reference/src/bin/reference-dev.rs)                                                                                                                                                                                 |
+| Starting it by hand   | Three commands in three terminals: the issuer fixture on 4001, the development server on 3003 (`IRIS_LISTEN` overrides it) and Vite on 5175, which proxies `/api` to 3003 or `IRIS_API_TARGET`                                                                                                                                                                                           | [Reference guide](../apps/reference/README.md#run-it), [`vite.config.ts`](../apps/reference/web/vite.config.ts)                                                                                                                                     |
+| Processes under tests | The browser runner refuses taken ports, treats a server as ready only when its own child reports the bound address, runs each child in its own process group, stops everything on an unexpected exit or SIGINT/SIGTERM, and escalates SIGTERM to SIGKILL after 5 s. It restarts the API to reset data, and passes its whole environment to the API. The binary's smoke test binds port 0 | [`browser.mjs:9-18`](../apps/reference/scripts/browser.mjs), [`browser.mjs:206-245`](../apps/reference/scripts/browser.mjs), [`dev_binary.rs:56-72`](../apps/reference/tests/dev_binary.rs)                                                         |
+
+The frozen API slice is the only worker evidence. Its delivery worker runs as a
+spawned task that ticks every second, claims one outbox row under a 30 s lease,
+sends with a 10 s timeout, and logs and retries any database error forever
+([`delivery.rs:54-85`](../experiments/api-slice/server/src/delivery.rs),
+[`outbox.rs:3-4`](../experiments/embedded-db/sqlite/src/outbox.rs)). Both entry
+points race the server against the worker's join handle and exit with "delivery
+worker stopped" if the task ends, so a worker panic stops the process
+([`main.rs:19`](../experiments/api-slice/server/src/main.rs),
+[`main.rs:34-37`](../experiments/api-slice/server/src/main.rs),
+[`auth-demo.rs:41`](../experiments/api-slice/server/src/bin/auth-demo.rs),
+[`auth-demo.rs:67-70`](../experiments/api-slice/server/src/bin/auth-demo.rs)).
+Neither stops claiming before exit or waits for an in-flight send. Lease expiry
+permits another attempt only if the database survives and the row stays
+eligible, and the frozen entry points create a fresh database on every restart.
+Claims interrupted before sending still count toward the five-attempt budget,
+and exhaustion, expiry or acceptance ends eligibility
+([`outbox.rs:24-27`](../experiments/embedded-db/sqlite/src/outbox.rs)). Neither
+transmission nor delivery is guaranteed, and duplicates remain possible (S13's
+[delivery table](#worked-flow-b-invitation-followed-by-outbox-delivery)). The
+session cleanup task is not raced against the server, so its termination would
+go unnoticed.
+
+### Journal-mode evidence
+
+A scratch probe held a deferred read transaction open after a `SELECT`, then
+tried to commit an insert from a second connection with a 100 ms busy timeout,
+once per mode:
+
+| Mode                | Writer's commit while the reader is open           | Reader | After reopening                              |
+| ------------------- | -------------------------------------------------- | ------ | -------------------------------------------- |
+| Rollback (`DELETE`) | Fails with "database is locked" after about 120 ms | 1 row  | Still `delete`; only the database file       |
+| WAL                 | Succeeds at once                                   | 1 row  | Still `wal`; `-wal` and `-shm` files present |
+
+It ran on macOS through Python's SQLite 3.53.4, not the libsqlite3-sys 0.37.0
+build the application links, and not through SQLx; it confirms documented SQLite
+behavior rather than the application's. The `-wal` and `-shm` files were
+observed while connections were still open; SQLite removes them when the last
+connection closes cleanly, which the oracle's own probe observed. It matches
+S17's reasoning: in rollback mode an unfinished reader blocks committing
+writers, which the reads bound by finalizing explicitly. WAL removes that
+contention for readers, but changes the file set a reset must delete. WAL for
+persistent development storage alone would leave the disposable tests in
+rollback mode, so adopting it would need its own contention and cleanup
+evidence.
+
+### Recommendations
+
+Proposed; each names the choice it depends on.
+
+1. **Storage stays disposable by default; persistence is an explicit path.** The
+   development binary gains an explicit database path argument, for example
+   `--database PATH`, and keeps its temporary database when none is given.
+   Tests, the smoke test and the browser runner keep passing nothing, so they
+   stay disposable. A command-line argument rather than an environment variable,
+   because the browser runner passes its whole environment to the API: an
+   exported persistent path would silently reach it. The development command
+   (recommendation 6) supplies a gitignored default such as
+   `apps/reference/.dev/reference.db`.
+2. **Initialization is atomic and runs once per database.** A new database is
+   built at a temporary sibling path: create, migrate, seed, close. It then
+   takes the target name only if that name is still free (for example a hard
+   link, which fails if the target exists), and the temporary name is removed.
+   SQLx connections are closed and their closure awaited before linking, and
+   nothing reopens the temporary name. An initialization interrupted before the
+   link leaves no database at the target; one interrupted between link and
+   removal leaves a complete database under two names, and the next startup
+   removes the leftover temporary name. Of two concurrent initializations one
+   wins while the other opens the winner's file. Hard linking is a candidate
+   mechanism, not a proven implementation. An existing database is migrated but
+   never seeded, so a restart keeps changed memberships.
+3. **Seeds run only inside initialization.** `seed` and the development binary's
+   extra editor row form one development fixture set, applied only to a database
+   this initialization created. There is no separate seed command and no
+   reseeding of an existing file. Seeded external identities are bound to the
+   issuer URL in use at creation, so the development command fixes the issuer at
+   `http://127.0.0.1:4001`; a database created against another issuer needs a
+   reset.
+4. **Reset deletes the database, with exclusive ownership.** Every user of the
+   database is stopped and its connections closed first, and startup and reset
+   exclude each other, for example with a lock file. The development command
+   refuses a reset while its API is running. A connection left open keeps using
+   the deleted file while new connections use its replacement, and SQLite warns
+   that deleting a live database's files risks corruption through reused sidecar
+   names. A reset then removes the database file and any `-journal`, `-wal` and
+   `-shm` files, and initializes again. It removes the session, login-attempt
+   and external-identity tables with the domain data, so every browser session
+   ends. It is never an in-place delete of rows.
+5. **Migrations become append-only once a persistent database exists.** SQLx's
+   migrator records each applied version with a checksum and refuses a modified
+   migration. After persistence lands, schema changes add a migration rather
+   than editing `0001_initial.sql`; a checksum refusal stops startup with a
+   message naming the reset.
+6. **One Node supervisor script starts the issuer, API and Vite.** A script such
+   as `apps/reference/scripts/dev.mjs`, possibly also exposed as an npm script,
+   starts the issuer on 4001, then the API on 3003 with the persistent path,
+   then Vite on 5175. It adopts the browser runner's process rules: refuse taken
+   ports, readiness from each child's reported address, one process group per
+   child, stop everything and exit non-zero when any child exits unexpectedly,
+   and SIGTERM then SIGKILL after 5 s. Invocation (a script, an npm script or
+   both) is separate from process ownership. Code shared with the browser runner
+   moves into a common module only when the second script needs it, mirroring
+   S17's extraction rule. It does not regenerate the contract in watch mode; the
+   drift checks already name the regeneration commands.
+7. **Journal mode stays rollback for now, and startup reports it.** Rollback
+   mode is the only mode checkpoint B's read evidence exercised
+   ([evidence](#checkpoint-b-server-side-evidence)), and a single developer's
+   database is assumed to rarely contend. Startup reads `PRAGMA journal_mode`
+   and refuses a database whose mode differs from the configured one, rather
+   than switching it silently, since a file opened elsewhere in WAL mode keeps
+   WAL. WAL for the persistent database stays the alternative, set once during
+   initialization. Busy timeouts stay as they are and are documented.
+8. **Periodic tasks and workers are supervised when they arrive.** With
+   persistence, expired sessions accumulate, so session cleanup becomes the
+   first periodic task. Any task, including a future delivery worker, is owned
+   by the process: its handle is kept, an unexpected exit or panic is reported
+   and stops the development process (as the frozen entry points do for the
+   worker), and on SIGINT or SIGTERM the server stops accepting connections,
+   tasks stop starting new work, and in-flight work gets a bounded deadline
+   before exit. These are constraints for the invitations design, not a worker
+   implementation. That design must still choose restart versus stop on worker
+   failure, and state that a send interrupted by shutdown stays uncertain: SMTP
+   may have accepted it. After the lease expires the row may be sent again, or
+   never, if the attempt budget, expiry or acceptance ends its eligibility.
+
+### Acceptance checks for a later implementation
+
+| Area            | Independent checks                                                                                                                                                                                                                                                                                                                                                      |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Storage         | Without the path argument, data is disposable, as today; with it, a restart keeps a changed role and a removal and does not reseed; a persistent path set in the environment does not reach the browser runner or the tests                                                                                                                                             |
+| Initialization  | Interrupting initialization after migration and after seeding leaves no database at the target; interrupting it after the link leaves a complete database at the target, and the next startup removes the leftover temporary name; two concurrent initializations leave one seeded database with one set of fixtures; an existing database is migrated and never seeded |
+| Reset           | Reset is refused while the API or another initialization holds the database; otherwise it removes every database-owned file, including `-wal` and `-shm` when present, and a browser session from before the reset is no longer valid afterwards                                                                                                                        |
+| Migrations      | A modified applied migration stops startup with a message naming the reset; an added migration applies to an existing database                                                                                                                                                                                                                                          |
+| Journal mode    | A newly created database reports the configured mode; an existing database in another mode, including one switched to WAL elsewhere, is refused, not converted                                                                                                                                                                                                          |
+| Tasks, shutdown | Session cleanup removes expired rows on a persistent database; a task that panics stops the process with a message; SIGTERM ends in-flight requests within the deadline, and no task starts new work after the signal                                                                                                                                                   |
+| Command         | A taken port refuses startup before anything starts; readiness waits for all three; any child's unexpected exit stops the others and exits non-zero; SIGINT stops all three process groups; the frozen experiments and the browser runner behave as before                                                                                                              |
+
+### Lifecycle choices for the owner
+
+| Choice                                   | Recommended                                             | Alternative                                                                   |
+| ---------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Default for the development binary       | Disposable unless given an explicit path                | Persistent by default, disposable by flag                                     |
+| How the path is given                    | Command-line argument                                   | Environment variable, removed from the browser runner's environment           |
+| Where the development command keeps data | Gitignored `apps/reference/.dev/`                       | The operating system's per-user data directory                                |
+| When seeds run                           | Only during atomic initialization of a new database     | An explicit seed command, idempotent against an existing database             |
+| Migration policy after persistence       | Append-only; a checksum refusal names the reset         | Keep editing `0001_initial.sql` and reset on every schema change              |
+| Journal mode                             | Rollback everywhere, checked at startup                 | WAL for the persistent database, set once at initialization                   |
+| Development command                      | A Node supervisor script, optionally also an npm script | A process-runner dependency, a Rust binary, or a Makefile without supervision |
+| Session cleanup                          | A supervised periodic task once storage persists        | None while development data stays small                                       |
+
+### Explicit exclusions
+
+No production deployment or configuration system, environments beyond local
+development, backups, data migration between databases, PostgreSQL or Turso,
+real OIDC provider, hot reloading of Rust code, watch-mode contract
+regeneration, delivery worker or invitations, CI change, change to the frozen
+experiments, or productivity claims.
+
 ## References and design provenance
 
 The
@@ -2433,6 +2629,13 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, lifecycle pass:** Added proposed S18 for the reference
+  application's lifecycle: current behavior with source citations, a
+  journal-mode probe, recommendations for storage, initialization, seeds, reset,
+  migrations, journal mode, task supervision and one development command,
+  acceptance checks and eight choices for the owner. Pointed S10, S11 and S17 at
+  it and corrected the "Last updated" date. Documentation only; no
+  implementation, dependency, CI, migration or wire change.
 - **2026-09-27, documentation hygiene:** Recorded the current-state read's first
   GitHub Actions run, which passed every step, in S17's status paragraph.
   Documentation only; no design, wire or code change. The top-level README, the

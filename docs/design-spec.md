@@ -359,20 +359,20 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                              | Status and evidence                                                                                                             |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                     |
-| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                         |
-| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md) |
-| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                  |
-| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                            |
-| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below               |
-| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                             |
-| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration          |
-| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow; [guide](../apps/reference/README.md)            |
-| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                     |
-| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                   |
-| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                               |
+| Capability                                                              | Status and evidence                                                                                                                                                  |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                          |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                              |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                      |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                       |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                 |
+| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                    |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                  |
+| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                               |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md) |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                          |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                        |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                    |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
@@ -1392,6 +1392,9 @@ uses the existing HTTP operation only within the caller's authority and intent.
 `memberships.another_owner_required` describes a necessary state for last-owner
 recovery, not permission to promote someone and not a sufficient fix. Neither
 `Failed`, HTTP 503, nor client unknown grants an automatic retry policy.
+_Status:_ S17's reference application now exposes such a read and declares
+`listProjectMembers` as the current-state read of both its mutations
+([evidence](#current-state-read-evidence)).
 
 ### Scenario matrix and future checks
 
@@ -1791,17 +1794,20 @@ was added.
 
 ## S17 — Reference application and first reads
 
-**Proposed; checkpoints A and B are implemented experiments.** The owner settled
-its seven open choices on September 26, 2026, then authorized the CI
-prerequisite and checkpoint A, and on September 27 checkpoint B. Checkpoint A's
+**Proposed; checkpoints A and B, and the mutations' current-state read, are
+implemented experiments.** The owner settled its seven open choices on September
+26, 2026, then authorized the CI prerequisite and checkpoint A, and on September
+27 checkpoint B. Checkpoint A's
 [server-side](#checkpoint-a-server-side-evidence) and
 [client](#checkpoint-a-client-evidence) evidence, and checkpoint B's
 [server-side](#checkpoint-b-server-side-evidence) and
-[client](#checkpoint-b-client-evidence) evidence, record what was built. This
-section was first written as a proposal authorizing no implementation,
-dependency, CI or wire change. It was drafted after independent assessments of
-`9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through Codex), then
-revised after Astra's [review](#review-of-this-proposal). The
+[client](#checkpoint-b-client-evidence) evidence, record what was built. The
+owner then approved declaring `listProjectMembers` as the mutations'
+current-state read, and its [evidence](#current-state-read-evidence) records
+that step. This section was first written as a proposal authorizing no
+implementation, dependency, CI or wire change. It was drafted after independent
+assessments of `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through
+Codex), then revised after Astra's [review](#review-of-this-proposal). The
 [owner decisions](#owner-decisions) are recorded below; the assessments and the
 review are not owner decisions.
 
@@ -1829,6 +1835,12 @@ now runs `verify:s16` and `probe:s16`, whose commands passed locally under Node
 workflow runs on pull requests and pushes to `main`; its first observed run, on
 draft pull request #1 at `a0c25ff`, passed every step
 ([record](decisions.md#reference-application-checkpoint-b-server-side--september-27-2026)).
+Checkpoint B's commits then ran at `06ac967` (run 36329466284). The first
+attempt failed only in the frozen agent-interface check, at its `members`
+scenario reproduction (`runner.test.mjs:79`), and skipped the later steps; a
+rerun of the same commit passed every step, including both browser workflows.
+The failure is assessed as a flake; its cause was not diagnosed
+([record](decisions.md#reference-application-current-state-read--september-27-2026)).
 
 ### Ownership boundaries
 
@@ -1963,9 +1975,15 @@ state only: absence from a page or a traversal does not prove removal, and a 403
 after a lost self-removal response does not resolve that earlier invocation
 (S14). Read operations declare no recovery capabilities; repeating a read is a
 new observation, not a replay. _Status:_ both reads omit `recovery` from
-`x-iris`. The mutations declare no current-state recovery read; that declaration
-awaits the owner. In the member directory, manual reloads provide new state
-observations and do not alter earlier attempt outcomes.
+`x-iris`. On September 27 the owner approved the declaration, and both mutations
+now make it: `recovery.read` names `listProjectMembers` and binds its
+`project_id` path parameter to the request's `project_id` field. A caller sends
+it under their current authorization as a fresh first page, with no cursor. A
+returned page, a member's absence or a 403 resolves nothing about the attempt:
+the read is no receipt and no concurrency fence, and it authorizes no new
+submission. In the member directory, the readback and manual reloads provide new
+state observations and never alter an attempt's outcome
+([evidence](#current-state-read-evidence)).
 
 ### Read conventions
 
@@ -2030,22 +2048,25 @@ Measure the bundle and startup cost of runtime validation. Generated TypeScript
 remains static assistance, not validation. _Status:_ implemented for all four
 operations: checkpoint A's two ([evidence](#checkpoint-a-client-evidence)), and
 both reads with my projects, members and the member directory
-([evidence](#checkpoint-b-client-evidence)).
+([evidence](#checkpoint-b-client-evidence)). After an unconfirmed attempt, the
+console offers the mutations' declared current-state read
+([evidence](#current-state-read-evidence)).
 
 ### Acceptance checks
 
 Expectations are written independently of descriptor-generated fixtures (S12).
 
-| Checkpoint             | Independent checks                                                                                                                                                                                                                                                                                                                               |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Prerequisite           | CI runs `verify:s16` and `probe:s16`                                                                                                                                                                                                                                                                                                             |
-| A                      | Ported S16 suites pass with unchanged expectations; exact status/kind/code tuples for both operations; shared-code consistency; frozen experiments stay green                                                                                                                                                                                    |
-| A probes               | An omitted bridge on the second operation, a duplicate OpenAPI ID, conflicting metadata for a shared code, a wrong path, and a same-named but different component schema each fail; an identical shared schema passes                                                                                                                            |
-| B authorization        | Unknown and non-member projects give the same 403 response apart from `request_id`, while permitted disclosures stay distinct; a member removed between pages receives 403 on the next page; `list_mine` returns only the actor's memberships; email canaries never appear; GET needs no CSRF token while POST still does                        |
-| B pagination and input | On an unchanged dataset, forward traversal returns every member once in key order; foreign cursors stay within the caller's visible rows; limit 0, 101 or non-integer, a malformed cursor, and unknown or duplicate parameters each return 400; authenticated and unauthenticated HEAD requests behave deliberately, with no missing-context 500 |
-| B cleanup              | Rejection, query failure and cancellation each finalize or drop the read transaction, after which a writer can commit; `query_only` fails an accidental write and never reaches a mutation connection                                                                                                                                            |
-| React                  | Typed narrowing and runtime decoder cases for every domain operation, including oversize bodies; session bootstrap unchanged; one browser workflow per checkpoint against the local issuer                                                                                                                                                       |
-| Probes                 | Extend the omitted-edit probes with a changed GET parameter bound and an omitted visibility predicate that an independent test, not the compiler, catches                                                                                                                                                                                        |
+| Checkpoint             | Independent checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prerequisite           | CI runs `verify:s16` and `probe:s16`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| A                      | Ported S16 suites pass with unchanged expectations; exact status/kind/code tuples for both operations; shared-code consistency; frozen experiments stay green                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| A probes               | An omitted bridge on the second operation, a duplicate OpenAPI ID, conflicting metadata for a shared code, a wrong path, and a same-named but different component schema each fail; an identical shared schema passes                                                                                                                                                                                                                                                                                                                                                                                               |
+| B authorization        | Unknown and non-member projects give the same 403 response apart from `request_id`, while permitted disclosures stay distinct; a member removed between pages receives 403 on the next page; `list_mine` returns only the actor's memberships; email canaries never appear; GET needs no CSRF token while POST still does                                                                                                                                                                                                                                                                                           |
+| B pagination and input | On an unchanged dataset, forward traversal returns every member once in key order; foreign cursors stay within the caller's visible rows; limit 0, 101 or non-integer, a malformed cursor, and unknown or duplicate parameters each return 400; authenticated and unauthenticated HEAD requests behave deliberately, with no missing-context 500                                                                                                                                                                                                                                                                    |
+| B cleanup              | Rejection, query failure and cancellation each finalize or drop the read transaction, after which a writer can commit; `query_only` fails an accidental write and never reaches a mutation connection                                                                                                                                                                                                                                                                                                                                                                                                               |
+| React                  | Typed narrowing and runtime decoder cases for every domain operation, including oversize bodies; session bootstrap unchanged; one browser workflow per checkpoint against the local issuer                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Probes                 | Extend the omitted-edit probes with a changed GET parameter bound and an omitted visibility predicate that an independent test, not the compiler, catches                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Current-state read     | Assembly fails on each unsupported declaration: the descriptor's shape; an unresolved or non-Iris target; a non-GET target or one with recovery; a missing or extra binding; a required parameter outside the path; a body field that is undeclared, optional or of a different schema. A hand-written recovery contract for both mutations; the client refuses any recovery shape it does not support; exact unconfirmed wording. Committed mutations whose responses are withheld, read back showing a matching role, an absent member and a 403 after self-removal, each resolving nothing and resending nothing |
 
 ### Explicit exclusions
 
@@ -2301,6 +2322,75 @@ authorization on a new read; it resolves nothing about the removal, which has
 its own outcome. The mutations still declare no current-state read. No frozen
 experiment was retired, and no productivity claim follows.
 
+### Current-state read evidence
+
+**Implemented experiment, September 27, 2026.** The owner approved declaring
+`listProjectMembers` as the current-state read of `change_role` and
+`remove_member`, on the terms Astra recommended. Two further steps on
+`s17-checkpoint-a` built it: `cfb4d18`, the contract, and `8b7e68a`, the console
+and its browser evidence. Astra reviewed each step's plan and diff before its
+commit. The [reference application guide](../apps/reference/README.md) owns the
+commands and measurements; the
+[decision record](decisions.md#reference-application-current-state-read--september-27-2026)
+records the choices and limits.
+
+- **Declaration:** `x-iris` `recovery.read` is `false` where no read is
+  declared, never `true`. Both mutations declare
+  `{"operation_id": "listProjectMembers", "path_inputs": {"project_id": {"request_body_field": "project_id"}}}`.
+  Inspection and replay stay unsupported, the new-submission constraint is
+  unchanged, and the reads still omit `recovery`.
+- **Linkage checks:** assembly checks each declared read against the assembled
+  document. The target must be an Iris GET without recovery that requires no
+  parameter outside its path. The bindings must cover exactly its path
+  parameters, each from a required request-body field with an identical schema.
+  Equality is deliberately conservative and rejects some compatible schemas.
+  Structure cannot show which field is right: a probe binds `user_id` instead of
+  `project_id`, and assembly accepts the binding while the hand-written recovery
+  test rejects it.
+- **Client:** construction parses each mutation's recovery into an explicit type
+  and refuses any shape it does not support, and any recovery on a read.
+  Assembly checks compatibility; the client checks only the shape it relies on;
+  hand-written tests pin which field feeds which parameter.
+- **Console:** an unconfirmed outcome (no usable response, 500 or 503) adds:
+  "Reading the project’s members again is a new read. A returned page describes
+  members when it was read and neither confirms nor rules out this attempt." It
+  offers "Read members of" the attempt's project: that project's first page,
+  with no cursor, its input taken from the attempt's recorded request body
+  through the declared binding. No read automatically follows a mutation; the
+  readback needs a user action and never changes the attempt.
+- **Browser evidence:** to withhold a response, the workflow lets the request
+  reach the server. A wrapper records the response and throws, so the page gets
+  a network error, and the runner then checks independently that the recorded
+  response is a 200 acknowledgment. The runner restarts the API a second time,
+  so a third workflow starts from the seed data:
+  - a withheld role change is read back showing the new role;
+  - a withheld removal, sent while page 1 had a next cursor, is read back from
+    page 1 showing the member absent;
+  - in checkpoint B, Bob's withheld self-removal is refused its next page and,
+    read back from another project, refused again.
+
+  Each attempt sent one mutation request and each readback one GET, and the
+  outcome and target stayed unchanged. Checkpoint A now also shows a reload
+  keeping an acknowledged outcome, with no readback offered.
+
+- **Counts:** 34 `crates/iris` tests, 21 of them new, and 127 in the workspace.
+  16 negative client documents; 51 presentations; 13 request constructions and
+  readbacks. Two new omission probes. 45 seeded mutations across both steps,
+  each caught. The three restart ownership probes, aimed at the second window.
+  The production bundle is 391.75 kB (115.10 kB gzip), and compiling the
+  validators took 17.3–29.4 ms (median 19.0 ms) across five runs.
+
+Not established: local runs used macOS, Node 24.20.0 and 26.8.1, and headless
+Chrome 154. GitHub Actions has not run `cfb4d18` or `8b7e68a`, which are not
+pushed. The runner receives the acknowledgment before withholding it from the
+page. The cases therefore show that client uncertainty is kept after an
+acknowledged commit. They do not test a real disconnect, cancellation, or server
+work continuing after the caller is lost. The runner's copy of the response is
+never application recovery evidence. The workflows check selected paths, and the
+restart windows were probed with injected delays in copies of the runner. One
+validator compile measured 29.4 ms; it was not investigated. No frozen
+experiment was retired, and no productivity claim follows.
+
 ## References and design provenance
 
 The
@@ -2340,6 +2430,14 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, current-state read:** With the owner's approval, `change_role`
+  and `remove_member` now declare `listProjectMembers` as their current-state
+  read. Assembly checks the linkage, the client parses the declaration, and the
+  console offers a manual readback after an unconfirmed attempt, worded so that
+  no page resolves the attempt. A second API restart gives the browser runner a
+  third workflow on fresh data. Recorded the evidence in S17, a status note in
+  S15 and checkpoint B's CI run. The wire change is the `recovery.read` value.
+  No frozen experiment was retired.
 - **2026-09-27, checkpoint B client:** Under the owner's authorization of
   checkpoint B, added both reads to the reference client with page-scoped
   presentation, replaced the console's ID form with a member directory whose

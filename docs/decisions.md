@@ -785,6 +785,120 @@ compile, not investigated. Bob's refused next page shows authorization on a new
 read; it is not evidence about the removal, which has its own outcome. No
 productivity claim follows.
 
+## Reference application current-state read — September 27, 2026
+
+**Implemented experiment.** The owner answered the three questions the
+checkpoint B client handoff left open, one at a time:
+
+- The local commits may be pushed to draft PR #1.
+- `change_role` and `remove_member` should declare `listProjectMembers` as their
+  current-state read, on the terms Astra recommended when asked.
+- That declaration is the next chunk.
+
+Two steps on `s17-checkpoint-a` built it: `cfb4d18`, the contract, and
+`8b7e68a`, the console and its browser evidence. Astra reviewed each plan and
+diff before its commit. The
+[S17 evidence](design-spec.md#current-state-read-evidence) summarizes the
+result, and the [guide](../apps/reference/README.md) owns the commands.
+
+The push brought draft PR #1 to `06ac967`. GitHub Actions run 36329466284 failed
+on its first attempt only in the frozen agent-interface check, at the `members`
+scenario reproduction (`runner.test.mjs:79`); the later steps were skipped. A
+rerun of the same commit passed every step, including both browser workflows, so
+checkpoint B has passed CI. The failure is assessed as a flake; its cause was
+not diagnosed. That step passed in every other recorded run and locally at the
+same commit, and nothing it depends on changed.
+
+Local results on macOS with Rust 1.98.1, Node 24.20.0, `agent-browser` 0.38.1
+and headless Chrome 154:
+
+```sh
+cargo test --workspace --locked                # 127 passed; 34 in crates/iris
+node apps/reference/scripts/probes.mjs         # every probe, including two new ones
+npm --prefix apps/reference/web run verify     # 231 runtime cases, 51 presentations, 13 requests and readbacks, 11 transitions; build
+node apps/reference/scripts/browser.mjs        # A, restart, B, restart, C; five consecutive passes, 15 s each
+```
+
+Clippy, rustfmt, the dev-identity tests, `verify` under Node 26.8.1, the frozen
+S16 checks, the agent-interface test and the OIDC fixture test also passed. The
+production bundle is 391.75 kB (115.10 kB gzip), and compiling the validators
+took 17.3–29.4 ms (median 19.0 ms) across the five browser runs.
+
+Decisions and the alternatives not taken:
+
+- `recovery.read` is `false` when no read is declared, and otherwise names the
+  read's public operation ID with a binding from each of its path parameters to
+  a request-body field. It is never `true`, which would name neither the read
+  nor its inputs. There is no expression language, cursor or query binding: the
+  read is a fresh first page.
+- Linkage is checked in `check_catalog` over the assembled document, because it
+  spans operations and consumers see that document. Extending `CatalogEntry`
+  would have duplicated what the document already holds. The bridge still
+  rejects a path parameter bound twice, which its map would otherwise collapse
+  silently.
+- A bound field's schema must equal the path parameter's. This is deliberately
+  conservative: some compatible schemas fail, and no schema subsumption is
+  implemented. A required parameter outside the path fails whatever its name. A
+  first version matched required parameters by name only, so a required query,
+  header or cookie `project_id` passed beside the bound path parameter.
+- Structure cannot show which field is right. Binding `user_id` passes every
+  check, so a hand-written test pins the relationship. A probe shows assembly
+  accepting the swap and the hand-written recovery test rejecting it.
+- The client parses recovery structurally and refuses what it does not support.
+  Exact values are pinned only in tests. Not taken: hard-coding the expected
+  declaration beside `METHODS`.
+- An unconfirmed outcome points to reading the members again, in page-scoped
+  wording, only when the declared read is one the page knows. A read the page
+  has no wording for adds nothing.
+- The readback reuses the directory's `openProject`, a first page with no
+  cursor, with inputs taken from the attempt's recorded request body through the
+  binding. It is offered only while the outcome is unconfirmed, it stays offered
+  after a 403, and it never changes the attempt. No read automatically follows a
+  mutation.
+- To withhold a response, the workflow lets the request reach the server. A
+  wrapper records the response and throws, so the page gets a network error, and
+  the runner then checks the recorded acknowledgment independently. The existing
+  lost-response case aborts the request instead, so it shows nothing about a
+  commit.
+- The browser runner restarts the API a second time, so a third workflow starts
+  from the seed data. With two users and no invitations, "Alice removes Bob" and
+  "Bob removes himself" exclude each other in one dataset. The absent-member
+  case also could not share checkpoint A's removal without dropping A's 404 from
+  a stale row. Not taken: dropping that check; changing the seed.
+- Bob's self-removal in checkpoint B became the withheld case. Its next-page 403
+  check stays. Checkpoint A now checks that a reload keeps an acknowledged
+  outcome, the coverage B's acknowledged self-removal used to give.
+
+Mutations seeded while building, each failing its intended check:
+
+- Contract (34): each linkage predicate dropped or weakened, each caught by its
+  own case. The target-read predicates are isolated from one another, and the
+  name-only parameter match is caught by its regression case. Also: an
+  undeclared read rendered `true`; a duplicate binding collapsing; the linkage
+  never checked; the reference binding `user_id`, or declaring no read; each
+  clause of the client's recovery parse; and `api.recovery` accepting a read.
+- Console (11): the pointer dropped; wording claiming the read confirms; wording
+  for any declared read; `readback` hard-coding `project_id` or ignoring the
+  declaration. Through the browser: the readback reading the open project,
+  clearing the attempt, continuing from the shown page's cursor, being hidden
+  after a 403, or being offered for any outcome. And a withheld real 409, which
+  must fail the runner's status check.
+
+The second restart was probed on disposable copies, through the window after the
+second API exits. A foreign listener on port 3003 fails the run and survives it.
+The second replacement, killed once ready, stops the run, naming it. SIGTERM in
+the window starts no third API. None printed a PASS or left a process, port or
+browser session behind.
+
+No frozen experiment was retired.
+
+Limitations: macOS and one headless browser only. GitHub Actions has not run
+`cfb4d18` or `8b7e68a`, which are not pushed. The runner receives the
+acknowledgment before withholding it, so the cases show retained client
+uncertainty after a commit, not a real disconnect, cancellation or server
+continuation. The workflows check selected paths. One compile measured 29.4 ms,
+not investigated. No productivity claim follows.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

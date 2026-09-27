@@ -2491,18 +2491,26 @@ Proposed; each names the choice it depends on.
    exported persistent path would silently reach it. The development command
    (recommendation 6) supplies a gitignored default such as
    `apps/reference/.dev/reference.db`.
-2. **Initialization is atomic and runs once per database.** A new database is
-   built at a temporary sibling path: create, migrate, seed, close. It then
-   takes the target name only if that name is still free (for example a hard
-   link, which fails if the target exists), and the temporary name is removed.
-   SQLx connections are closed and their closure awaited before linking, and
-   nothing reopens the temporary name. An initialization interrupted before the
-   link leaves no database at the target; one interrupted between link and
-   removal leaves a complete database under two names, and the next startup
-   removes the leftover temporary name. Of two concurrent initializations one
-   wins while the other opens the winner's file. Hard linking is a candidate
-   mechanism, not a proven implementation. An existing database is migrated but
-   never seeded, so a restart keeps changed memberships.
+2. **One API owns a persistent database, and initialization is atomic.** The
+   Rust application owns the database lifecycle: initialization, migration,
+   validation, reset, and closing connections and tasks at shutdown. While it
+   runs, it holds an ownership lock on its database path, so a second start or a
+   reset against the same path is refused before touching the database. A
+   crashed owner's lock must not block a later start, and external SQLite tools
+   do not honor the lock. No workflow here needs several API processes sharing
+   one persistent database; if one appears, this choice is revisited. A new
+   database is built at a temporary sibling path: create, migrate, seed, close.
+   It then takes the target name only if that name is still free (for example a
+   hard link, which fails if the target exists), and the temporary name is
+   removed. SQLx connections are closed and their closure awaited before
+   linking, and nothing reopens the temporary name. An initialization
+   interrupted before the link leaves no database at the target; one interrupted
+   between link and removal leaves a complete database under two names, and the
+   next startup removes the leftover temporary name. The no-clobber link still
+   protects the target if two initializations race despite the lock. Hard
+   linking is a candidate mechanism, not a proven implementation. An existing
+   database is migrated but never seeded, so a restart keeps changed
+   memberships.
 3. **Seeds run only inside initialization.** `seed` and the development binary's
    extra editor row form one development fixture set, applied only to a database
    this initialization created. There is no separate seed command and no
@@ -2523,19 +2531,27 @@ Proposed; each names the choice it depends on.
 5. **Migrations become append-only once a persistent database exists.** SQLx's
    migrator records each applied version with a checksum and refuses a modified
    migration. After persistence lands, schema changes add a migration rather
-   than editing `0001_initial.sql`; a checksum refusal stops startup with a
-   message naming the reset.
+   than editing `0001_initial.sql`; a checksum refusal stops startup. Startup
+   never resets. Its message names the database path and the migration version,
+   describes the mismatch, and suggests restoring the applied migration's source
+   (adding a new migration for the intended change) before the reset, which
+   discards the data.
 6. **One Node supervisor script starts the issuer, API and Vite.** A script such
    as `apps/reference/scripts/dev.mjs`, possibly also exposed as an npm script,
    starts the issuer on 4001, then the API on 3003 with the persistent path,
-   then Vite on 5175. It adopts the browser runner's process rules: refuse taken
-   ports, readiness from each child's reported address, one process group per
-   child, stop everything and exit non-zero when any child exits unexpectedly,
-   and SIGTERM then SIGKILL after 5 s. Invocation (a script, an npm script or
-   both) is separate from process ownership. Code shared with the browser runner
-   moves into a common module only when the second script needs it, mirroring
-   S17's extraction rule. It does not regenerate the contract in watch mode; the
-   drift checks already name the regeneration commands.
+   then Vite on 5175. It sets the addresses it owns explicitly: Vite's proxy
+   target (`IRIS_API_TARGET`) is the API it started, and the API's listen
+   address, public origin and issuer match the other two children, overriding
+   any inherited values, so the console cannot reach another API and database.
+   Its reset invokes the Rust application's reset rather than deleting files
+   itself. It adopts the browser runner's process rules: refuse taken ports,
+   readiness from each child's reported address, one process group per child,
+   stop everything and exit non-zero when any child exits unexpectedly, and
+   SIGTERM then SIGKILL after 5 s. Invocation (a script, an npm script or both)
+   is separate from process ownership. Code shared with the browser runner moves
+   into a common module only when the second script needs it, mirroring S17's
+   extraction rule. It does not regenerate the contract in watch mode; the drift
+   checks already name the regeneration commands.
 7. **Journal mode stays rollback for now, and startup reports it.** Rollback
    mode is the only mode checkpoint B's read evidence exercised
    ([evidence](#checkpoint-b-server-side-evidence)), and a single developer's
@@ -2549,38 +2565,68 @@ Proposed; each names the choice it depends on.
    first periodic task. Any task, including a future delivery worker, is owned
    by the process: its handle is kept, an unexpected exit or panic is reported
    and stops the development process (as the frozen entry points do for the
-   worker), and on SIGINT or SIGTERM the server stops accepting connections,
-   tasks stop starting new work, and in-flight work gets a bounded deadline
-   before exit. These are constraints for the invitations design, not a worker
-   implementation. That design must still choose restart versus stop on worker
-   failure, and state that a send interrupted by shutdown stays uncertain: SMTP
-   may have accepted it. After the lease expires the row may be sent again, or
-   never, if the attempt budget, expiry or acceptance ends its eligibility.
+   worker), and shutdown follows one timeline: on SIGINT or SIGTERM the server
+   stops accepting connections, tasks stop starting new work, in-flight requests
+   and tasks drain until an inner deadline, then pools and connections close and
+   the ownership lock is released. Axum 0.8.9's graceful shutdown waits for
+   connections without a timer of its own, so the inner deadline is the
+   application's. It fits inside the supervisor's outer 5 s kill with a margin,
+   or the design states that forced termination is the limit. Neither a clean
+   exit nor an expired deadline creates a receipt, a rollback acknowledgment or
+   permission to resend: a mutation interrupted by shutdown stays unconfirmed
+   for its caller, as S14 requires. These are constraints for the invitations
+   design, not a worker implementation. That design must still choose restart
+   versus stop on worker failure, and state that a send interrupted by shutdown
+   stays uncertain: SMTP may have accepted it. After the lease expires the row
+   may be sent again, or never, if the attempt budget, expiry or acceptance ends
+   its eligibility.
 
 ### Acceptance checks for a later implementation
 
 | Area            | Independent checks                                                                                                                                                                                                                                                                                                                                                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Storage         | Without the path argument, data is disposable, as today; with it, a restart keeps a changed role and a removal and does not reseed; a persistent path set in the environment does not reach the browser runner or the tests                                                                                                                                             |
+| Storage         | Without the path argument, data is disposable, as today; with it, a restart keeps a changed role and a removal and does not reseed; a persistent path set in the environment does not reach the browser runner or the tests; a second start on the same path is refused before touching the database, and a crashed owner does not block the next start                 |
 | Initialization  | Interrupting initialization after migration and after seeding leaves no database at the target; interrupting it after the link leaves a complete database at the target, and the next startup removes the leftover temporary name; two concurrent initializations leave one seeded database with one set of fixtures; an existing database is migrated and never seeded |
 | Reset           | Reset is refused while the API or another initialization holds the database; otherwise it removes every database-owned file, including `-wal` and `-shm` when present, and a browser session from before the reset is no longer valid afterwards                                                                                                                        |
-| Migrations      | A modified applied migration stops startup with a message naming the reset; an added migration applies to an existing database                                                                                                                                                                                                                                          |
+| Migrations      | A modified applied migration stops startup without resetting, with a message naming the path and version and offering restoration before the reset; after restoring the migration, the retained data is intact; an added migration applies to an existing database                                                                                                      |
 | Journal mode    | A newly created database reports the configured mode; an existing database in another mode, including one switched to WAL elsewhere, is refused, not converted                                                                                                                                                                                                          |
-| Tasks, shutdown | Session cleanup removes expired rows on a persistent database; a task that panics stops the process with a message; SIGTERM ends in-flight requests within the deadline, and no task starts new work after the signal                                                                                                                                                   |
-| Command         | A taken port refuses startup before anything starts; readiness waits for all three; any child's unexpected exit stops the others and exits non-zero; SIGINT stops all three process groups; the frozen experiments and the browser runner behave as before                                                                                                              |
+| Tasks, shutdown | Session cleanup removes expired rows on a persistent database; a task that panics stops the process with a message; cooperative completion and inner-deadline expiry are tested separately, each within the outer kill bound; no task starts new work after the signal; a mutation interrupted by shutdown is reported as unconfirmed, never acknowledged               |
+| Command         | A taken port refuses startup before anything starts; with a conflicting `IRIS_API_TARGET` inherited, a sentinel at that address receives no requests; readiness waits for all three; any child's unexpected exit stops the others and exits non-zero; SIGINT stops all three process groups; the frozen experiments and the browser runner behave as before             |
 
 ### Lifecycle choices for the owner
 
-| Choice                                   | Recommended                                             | Alternative                                                                   |
-| ---------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Default for the development binary       | Disposable unless given an explicit path                | Persistent by default, disposable by flag                                     |
-| How the path is given                    | Command-line argument                                   | Environment variable, removed from the browser runner's environment           |
-| Where the development command keeps data | Gitignored `apps/reference/.dev/`                       | The operating system's per-user data directory                                |
-| When seeds run                           | Only during atomic initialization of a new database     | An explicit seed command, idempotent against an existing database             |
-| Migration policy after persistence       | Append-only; a checksum refusal names the reset         | Keep editing `0001_initial.sql` and reset on every schema change              |
-| Journal mode                             | Rollback everywhere, checked at startup                 | WAL for the persistent database, set once at initialization                   |
-| Development command                      | A Node supervisor script, optionally also an npm script | A process-runner dependency, a Rust binary, or a Makefile without supervision |
-| Session cleanup                          | A supervised periodic task once storage persists        | None while development data stays small                                       |
+| Choice                                   | Recommended                                                        | Alternative                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Default for the development binary       | Disposable unless given an explicit path                           | Persistent by default, disposable by flag                                     |
+| How the path is given                    | Command-line argument                                              | Environment variable, removed from the browser runner's environment           |
+| Where the development command keeps data | Gitignored `apps/reference/.dev/`                                  | The operating system's per-user data directory                                |
+| When seeds run                           | Only during atomic initialization of a new database                | An explicit seed command, idempotent against an existing database             |
+| Migration policy after persistence       | Append-only; a checksum refusal names the reset                    | Keep editing `0001_initial.sql` and reset on every schema change              |
+| Journal mode                             | Rollback everywhere, checked at startup                            | WAL for the persistent database, set once at initialization                   |
+| Development command                      | A Node supervisor script, optionally also an npm script            | A process-runner dependency, a Rust binary, or a Makefile without supervision |
+| Session cleanup                          | A supervised periodic task once storage persists                   | None while development data stays small                                       |
+| Owners of a persistent database          | One API at a time; a second start is refused                       | Concurrent starts converge on one initialized database                        |
+| Shutdown budget                          | An inner drain deadline inside the outer kill bound, with a margin | A coarse process-stop bound that promises no drain                            |
+
+### Review of the lifecycle proposal
+
+The oracle, Astra (GPT-6 through Codex), reviewed S18 at `f83688e` under the
+[design review brief](design-review-brief.md), covering all three tracks, as
+[`astra-s18-all-01`](reviews/astra-s18-all-01.md). It was not a fresh reviewer:
+it had reviewed the step's plan and diff, whose three P2 and two P3 findings
+were addressed before that commit, and its report says so. It found no critical
+contradiction and recommended keeping the direction. The driver accepted all
+four findings and revised this section:
+
+| Finding                                                        | Disposition                                                                                                                                                            |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AS18-B-01, significant: bind the proxy to the owned API        | Accepted. Recommendation 6 sets Vite's proxy target and the API's addresses explicitly, overriding inherited values; a sentinel acceptance check covers it             |
+| AS18-B-02, significant: compose the shutdown deadlines         | Accepted. Recommendation 8 gives one shutdown timeline with the inner deadline inside the outer kill bound; interrupted mutations stay unconfirmed; a new owner choice |
+| AS18-A-01, limited: one owner per development database         | Accepted. Recommendation 2 names the Rust application as lifecycle owner and refuses a second start on the same path; concurrent convergence becomes the alternative   |
+| AS18-C-01, limited: explain non-destructive migration recovery | Accepted. Recommendation 5's refusal names the path and version and offers restoring the migration before the reset; startup never resets                              |
+
+These dispositions are the driver's and remain proposed with the rest of S18.
+One model's review is not owner approval or consensus.
 
 ### Explicit exclusions
 
@@ -2633,9 +2679,10 @@ contracts; upstream branches may change. Recheck them before copying an API.
   application's lifecycle: current behavior with source citations, a
   journal-mode probe, recommendations for storage, initialization, seeds, reset,
   migrations, journal mode, task supervision and one development command,
-  acceptance checks and eight choices for the owner. Pointed S10, S11 and S17 at
-  it and corrected the "Last updated" date. Documentation only; no
-  implementation, dependency, CI, migration or wire change.
+  acceptance checks and ten choices for the owner, revised after the oracle's
+  design review, preserved as `astra-s18-all-01`. Pointed S10, S11 and S17 at it
+  and corrected the "Last updated" date. Documentation only; no implementation,
+  dependency, CI, migration or wire change.
 - **2026-09-27, documentation hygiene:** Recorded the current-state read's first
   GitHub Actions run, which passed every step, in S17's status paragraph.
   Documentation only; no design, wire or code change. The top-level README, the

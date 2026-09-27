@@ -1075,8 +1075,14 @@ issuer, API and Vite. Session cleanup, and later any worker, runs as a
 supervised task with a bounded shutdown. Worker restart policy and send
 uncertainty are left to the invitations design.
 
-Alternatives are recorded with S18's eight owner choices. No runtime,
-dependency, CI, migration or wire change accompanies this record.
+The oracle's design review of S18 under the design review brief,
+[`astra-s18-all-01`](reviews/astra-s18-all-01.md), found no critical
+contradiction; its reviewer had also reviewed the step's plan and diff. Its four
+findings were accepted: the development command binds Vite's proxy to the API it
+owns, shutdown follows one timeline inside the supervisor's kill bound, one API
+owns a persistent database at a time, and a migration refusal offers restoration
+before a reset. Alternatives are recorded with S18's ten owner choices. No
+runtime, dependency, CI, migration or wire change accompanies this record.
 
 ## Maintaining this record
 

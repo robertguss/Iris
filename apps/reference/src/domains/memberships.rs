@@ -22,7 +22,7 @@ impl MemberRole {
         }
     }
 
-    fn parse(stored: &str) -> Option<Self> {
+    pub(crate) fn parse(stored: &str) -> Option<Self> {
         match stored {
             "owner" => Some(Self::Owner),
             "editor" => Some(Self::Editor),

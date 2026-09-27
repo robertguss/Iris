@@ -11,6 +11,7 @@ export const DOMAIN_OPERATIONS = [
   "changeMemberRole",
   "removeMember",
   "listProjectMembers",
+  "listMyProjects",
 ] as const;
 export type Operation = (typeof DOMAIN_OPERATIONS)[number];
 /** The operations that change state; reads have no request body. */
@@ -22,6 +23,7 @@ const METHODS: Record<Operation, "get" | "post"> = {
   changeMemberRole: "post",
   removeMember: "post",
   listProjectMembers: "get",
+  listMyProjects: "get",
 };
 
 /** Response bodies are read up to this many bytes; declared bodies are far smaller. */

@@ -1,7 +1,7 @@
 //! HTTP adapter for membership operations, ported from the S16 experiment.
 use super::{
-    Mount, PAGE_READ, PageQuery, classify, decode_cursor, encode_cursor, parse_id, parse_limit,
-    read_reply,
+    Mount, PAGE_READ, PageQuery, classify, decode_cursor, encode_cursor, open, parse_id,
+    parse_limit, read_reply,
 };
 use crate::{
     app::AppState,
@@ -24,7 +24,6 @@ use axum::{
 };
 use iris::{Collected, Mapping, Operation, Recovery, RequestId, Shared, shared, success_schemas};
 use serde::{Deserialize, Serialize};
-use sqlx::SqliteConnection;
 use strum::VariantArray;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -34,6 +33,16 @@ pub enum Role {
     Owner,
     Editor,
     Viewer,
+}
+
+impl From<MemberRole> for Role {
+    fn from(role: MemberRole) -> Self {
+        match role {
+            MemberRole::Owner => Self::Owner,
+            MemberRole::Editor => Self::Editor,
+            MemberRole::Viewer => Self::Viewer,
+        }
+    }
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -112,11 +121,7 @@ fn member_page(page: Page<action::MemberSummary>) -> MemberPage {
             .map(|member| MemberSummary {
                 user_id: member.user_id.to_string(),
                 display_name: member.display_name,
-                role: match member.role {
-                    MemberRole::Owner => Role::Owner,
-                    MemberRole::Editor => Role::Editor,
-                    MemberRole::Viewer => Role::Viewer,
-                },
+                role: member.role.into(),
             })
             .collect(),
         next_cursor: page.next.map(encode_cursor),
@@ -227,17 +232,6 @@ fn reply<S: Serialize>(
         }) => op.render(&shared(Shared::Unavailable), id, None),
         Err(ActionError::Failed { .. }) => op.render(&shared(Shared::Internal), id, None),
     }
-}
-
-/// A fresh connection, or the shared failure for not opening one.
-async fn open(state: &AppState) -> Result<SqliteConnection, Shared> {
-    crate::app::connect(&state.database).await.map_err(|e| {
-        if crate::app::is_busy(&e) {
-            Shared::Unavailable
-        } else {
-            Shared::Internal
-        }
-    })
 }
 
 #[utoipa::path(post, path = "/api/memberships/role", request_body = ChangeRoleRequest, security(("BrowserSession" = [])))]
@@ -389,6 +383,6 @@ pub(crate) fn collect() -> Vec<(Collected<AppState>, Mount)> {
 }
 
 #[cfg(test)]
-mod list_tests;
+pub(crate) mod list_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

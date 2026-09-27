@@ -39,11 +39,15 @@ fn independent_inventory() {
             "/api/projects/{project_id}/members",
             "listProjectMembers",
         ),
+        ("get", "/api/projects", "listMyProjects"),
     ];
     expected.sort();
     assert_eq!(actual, expected);
-    use iris_reference::http::memberships::{change_role, list_members, remove_member};
-    for operation in [change_role(), remove_member(), list_members()] {
+    use iris_reference::http::{
+        memberships::{change_role, list_members, remove_member},
+        projects::list_mine,
+    };
+    for operation in [change_role(), remove_member(), list_members(), list_mine()] {
         let operation: Value = serde_json::to_value(operation.api).unwrap();
         for (path, item) in operation["paths"].as_object().unwrap() {
             assert_eq!(

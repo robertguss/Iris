@@ -28,7 +28,7 @@ fn members(project: &str, query: &str) -> String {
 
 /// A same-origin browser read carries its cookie and nothing else: no Origin
 /// and no CSRF token.
-fn read_request(method: &str, cookie: Option<&str>, uri: &str) -> HttpRequest<Body> {
+pub(crate) fn read_request(method: &str, cookie: Option<&str>, uri: &str) -> HttpRequest<Body> {
     let mut builder = HttpRequest::builder().method(method).uri(uri);
     if let Some(cookie) = cookie {
         builder = builder.header("cookie", cookie);
@@ -46,7 +46,7 @@ async fn list(f: &Fixture, cookie: Option<&str>, uri: &str) -> (u16, Value) {
     .await
 }
 
-async fn raw(
+pub(crate) async fn raw(
     f: &Fixture,
     method: &str,
     cookie: Option<&str>,
@@ -101,7 +101,7 @@ fn next_cursor(response: &(u16, Value)) -> Option<String> {
 
 /// Every user gets a canary address; `collect` fails on any body containing
 /// "canary", so a disclosed contact would show.
-async fn contacts(f: &Fixture) {
+pub(crate) async fn contacts(f: &Fixture) {
     sqlx::query(
         "INSERT INTO user_contacts (user_id, email)
          SELECT id, 'user-' || id || '-email-canary@example.test' FROM users",

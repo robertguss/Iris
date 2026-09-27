@@ -1155,6 +1155,314 @@
         }
       }
     },
+    "/api/projects": {
+      "get": {
+        "operationId": "listMyProjects",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 100, written without leading zeros; defaults to 50.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(100|[1-9][0-9]?)$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "An earlier page's `next_cursor`, echoed verbatim.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "pattern": "^c1\\.[1-9][0-9]*$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "data"
+                      ],
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ProjectPage"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "success"
+                          ]
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "projects.list_mine"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.invalid_request"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "projects.list_mine"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "http.unauthenticated"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "refused"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "projects.list_mine"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "iris.internal"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "failure"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "projects.list_mine"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Iris response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "schema_version",
+                        "operation",
+                        "request_id",
+                        "kind",
+                        "code",
+                        "message"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "iris.unavailable"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "failure"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "projects.list_mine"
+                          ]
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "pattern": "^req_[0-9a-f]{32}$"
+                        },
+                        "schema_version": {
+                          "type": "integer",
+                          "enum": [
+                            1
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-iris": {
+          "operation": "projects.list_mine",
+          "prerequisites": {},
+          "schema_version": 1
+        }
+      }
+    },
     "/api/projects/{project_id}/members": {
       "get": {
         "operationId": "listProjectMembers",
@@ -1649,6 +1957,51 @@
           },
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectPage": {
+        "type": "object",
+        "description": "Present state when read, not a snapshot of the collection.",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null when no further projects existed when this page was read."
+          }
+        }
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "description": "The caller's own membership in one project.",
+        "required": [
+          "project_id",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
           }
         }
       },

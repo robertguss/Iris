@@ -1,6 +1,7 @@
 //! Application HTTP adapters. Shared envelope, bridge, boundary and assembly
 //! checks live in the `iris` crate; session markers and wire IDs stay here.
 pub mod memberships;
+pub mod projects;
 
 use crate::{
     app::AppState,
@@ -11,6 +12,7 @@ use crate::{
 use axum::{Router, response::Response};
 use iris::{Mapping, Operation, RequestId, Shared, shared};
 use serde::{Deserialize, Serialize};
+use sqlx::SqliteConnection;
 
 /// Positive canonical decimal IDs only; the caller maps failure to its refusal.
 pub(crate) fn parse_id(value: &str) -> Result<i64, ()> {
@@ -19,6 +21,17 @@ pub(crate) fn parse_id(value: &str) -> Result<i64, ()> {
         .ok()
         .filter(|n| *n > 0 && n.to_string() == value);
     parsed.ok_or(())
+}
+
+/// A fresh connection, or the shared failure for not opening one.
+pub(crate) async fn open(state: &AppState) -> Result<SqliteConnection, Shared> {
+    crate::app::connect(&state.database).await.map_err(|e| {
+        if crate::app::is_busy(&e) {
+            Shared::Unavailable
+        } else {
+            Shared::Internal
+        }
+    })
 }
 
 /// Page sizes are canonical decimals from 1 to 100, so `05` is refused;

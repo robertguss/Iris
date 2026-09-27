@@ -15,11 +15,13 @@ const NAMES = {
   changeMemberRole: "memberships.change_role",
   removeMember: "memberships.remove_member",
   listProjectMembers: "memberships.list",
+  listMyProjects: "projects.list_mine",
 } as const;
 const PATHS = {
   changeMemberRole: "/api/memberships/role",
   removeMember: "/api/memberships/remove",
   listProjectMembers: "/api/projects/{project_id}/members",
+  listMyProjects: "/api/projects",
 } as const;
 // How many responses of each status, kind and code each Rust test captures.
 const SHARED = {
@@ -50,6 +52,13 @@ const CAPTURED: Record<Operation, Record<string, number>> = {
     "500 failure iris.internal": 1,
     "503 failure iris.unavailable": 1,
   },
+  listMyProjects: {
+    "200 success": 2,
+    "400 refused http.invalid_request": 3,
+    "401 refused http.unauthenticated": 2,
+    "500 failure iris.internal": 1,
+    "503 failure iris.unavailable": 1,
+  },
 };
 
 // Linkage: the boundary accepts exactly the export's domain operations, each
@@ -69,10 +78,21 @@ delete role(method).post;
 const readAsPost = copy();
 members(readAsPost).post = members(readAsPost).get;
 delete members(readAsPost).get;
+const mine = (doc: Document) => doc.paths[PATHS.listMyProjects];
+const otherReadAsPost = copy();
+mine(otherReadAsPost).post = mine(otherReadAsPost).get;
+delete mine(otherReadAsPost).get;
 const mutationAsGet = copy();
 role(mutationAsGet).get = role(mutationAsGet).post;
 delete role(mutationAsGet).post;
-for (const doc of [extra, unmarked, method, readAsPost, mutationAsGet])
+for (const doc of [
+  extra,
+  unmarked,
+  method,
+  readAsPost,
+  otherReadAsPost,
+  mutationAsGet,
+])
   assert.throws(() => client(doc), /Reference operation linkage mismatch/);
 // Session responses may omit a body; a domain response may not.
 const bodiless = copy();
@@ -92,8 +112,10 @@ for (const op of MUTATIONS) {
   });
 }
 // Reads declare no recovery capabilities and have no prerequisites.
-assert.equal(api.recovery("listProjectMembers"), undefined);
-assert.deepEqual(api.prerequisites("listProjectMembers"), {});
+for (const op of ["listProjectMembers", "listMyProjects"] as const) {
+  assert.equal(api.recovery(op), undefined);
+  assert.deepEqual(api.prerequisites(op), {});
+}
 
 let checks = 0;
 const attempts = new Set<string>();

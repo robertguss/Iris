@@ -8,14 +8,15 @@ Observed September 27, 2026, by the outgoing driver.
   `robertguss/Iris`).
 - Branch: `s17-checkpoint-a`, tracking `origin/s17-checkpoint-a`. `main` is
   unchanged at `9235c6e`, locally and on the remote.
-- Reviewed through `0b50249` (step 1 of this chunk). Step 2 changed no
-  repository file. This handoff is committed after `0b50249`.
+- Reviewed through `bdf8513`, this chunk's one step. This handoff is committed
+  after `bdf8513`.
 - Pushed through `0b50249`, which is `origin/s17-checkpoint-a` and the head of
-  pull request #1 (https://github.com/robertguss/Iris/pull/1). The owner
-  approved that push this session. This handoff's own commit is not pushed.
-- PR #1 is open and **ready for review** (no longer a draft), titled "S17
-  reference application: checkpoints A and B and the current-state read",
-  mergeable, not merged. Its description holds merge notes for the owner.
+  pull request #1 (https://github.com/robertguss/Iris/pull/1). Not pushed:
+  `90caff5` (the previous handoff), `bdf8513`, and this handoff's commit. No
+  push was authorized this session.
+- PR #1 is open, ready for review, mergeable (`mergeStateStatus` `CLEAN`), and
+  not merged. CI run 36348053700 passed on its head. GitHub Actions has not run
+  `90caff5` or `bdf8513`.
 - The working tree was clean apart from this handoff before its commit.
 
 Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
@@ -23,13 +24,13 @@ Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 
 ## 2. Read these first
 
+- `docs/decisions.md`: "Proposed architecture, not yet selected" (its status
+  notes are this chunk's work), "Open decisions", then the last three entries:
+  "Reference application current-state read", "Documentation hygiene" and
+  "Architecture table status".
 - `docs/design-spec.md`: "How to interpret and maintain this spec", S10, S11,
   then S17: "Operation sequence" (its follow-up row), "Ownership boundaries"
-  (the "Deferred to a lifecycle pass" bullet), "Owner decisions" and
-  "Current-state read evidence".
-- `docs/decisions.md`: "Open decisions" (annotated this session), then the last
-  two entries, "Reference application current-state read" and "Documentation
-  hygiene".
+  (the "Deferred to a lifecycle pass" bullet) and "Owner decisions".
 - PR #1's description: the "Merging (not yet authorized)" section.
 - `apps/reference/README.md`: commands, operations, verification matrix, probes
   and limits.
@@ -39,112 +40,93 @@ Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 
 ## 3. Context
 
-The owner answered the previous handoff's two questions, one at a time: the next
-chunk is documentation hygiene, and PR #1 should be prepared for merging ("Get
-it ready (description, marked ready for review) but don't merge. Merging stays
-unauthorized until you say so."). Both answers came from options the driver
-offered; the hygiene option named the four items in the previous handoff's
-remaining-work list.
+The owner answered the previous handoff's two questions, one at a time, each
+from options the driver offered:
 
-- **The frozen experiment sentence:** that option named the API guide's "durable
-  email delivery" item, so its choice was treated as authorization for that one
-  documentation sentence in `experiments/api-slice/README.md`. The oracle agreed
-  at plan review. It does not lift the general exclusion on editing
-  `experiments/`.
-- **Open decisions:** the record's rule is to keep superseded reasoning visible,
-  so each original question stays word for word and gains a `_Status:_` clause
-  linking the entry that settled or narrowed it. The clauses separate
-  settlements for the experiments or the reference application from open
-  framework choices. Two oracle P3s narrowed them: existence hiding is per
-  concealed pair, and only the absence of an automatic transaction-retry policy
-  is claimed, not that retries are never exercised.
-- **CI records:** CI results live in S17's status paragraph, a dated decision
-  entry and the reference guide's last limit. Run 36345360713 (at `12227aa`) was
-  recorded in all three; dated evidence records that say "has not run" stay as
-  written.
-- **PR #1:** its description leads with the application's behavior and limits,
-  groups the 26 commits, and gives a conditional recommendation: if merging is
-  authorized, fast-forward only while `main` is an ancestor, which keeps `main`
-  linear and keeps the SHAs the design record cites. GitHub's rebase merge would
-  create new SHAs. `HANDOFF.md` is not on `main`, and any merge adds it. The PR
-  head carries `fc3d17f`'s copy, not this one; a merge must target the revision
-  the owner approves.
+- **Next chunk:** "Architecture table hygiene". The option read: update the
+  stale "Proposed architecture, not yet selected" table in `docs/decisions.md`
+  (Axum, SQLx/SQLite and utoipa have since been used); documentation only, like
+  the last chunk.
+- **PR #1:** "Not yet". The option read: keep PR #1 open and unmerged; the table
+  fix goes on this branch, and the owner decides the merge once, over the final
+  revision, after this chunk. That decision is now due (section 9). Putting the
+  new commits on PR #1 needs a push, which needs its own go-ahead.
+
+How the chunk was shaped:
+
+- **Table notes:** the record keeps superseded reasoning visible, so the heading
+  and all eight rows are unchanged. Below the table, each row gains a
+  `_Status:_` bullet, in the style the open decisions received in `0b50249`. The
+  statuses separate settlements for the experiments or the reference application
+  from framework choices.
+- **Turso migration history:** `experiments/embedded-db/README.md:64-66` still
+  says Turso uses a "one-version migration". Since `2b1e820` the migrator
+  (`experiments/embedded-db/turso/src/lib.rs:20-42`) applies both shared
+  migrations. The oracle caught this at plan review. The table note states the
+  current fact; the frozen README was not edited.
+- **Spec untouched:** no design decision changed, so `docs/design-spec.md` has
+  no change-record entry for this pass. The oracle judged this consistent with
+  both documents' maintenance rules. The spec's "Last updated: September 26,
+  2026" line predates its September 27 change-record entries; it was out of
+  scope (section 6).
 
 ## 4. Agreed chunk and acceptance
 
-- **Objective:**
-  - the previous handoff's four hygiene items: the top-level README's next
-    milestone, the API guide's email-delivery item, the settled open decisions,
-    and the reference guide's CI status;
-  - recording run 36345360713 where CI results are recorded;
-  - preparing PR #1 for merging: push, CI on the exact head, a reviewed title
-    and description, ready for review.
+- **Objective:** dated status notes for the eight rows of "Proposed
+  architecture, not yet selected" in `docs/decisions.md`, and a dated entry
+  recording the pass.
 - **Exclusions:**
-  - invitations, the lifecycle pass and retiring frozen experiments;
-  - any code change, and any edit in `experiments/` beyond the one sentence;
-  - the CI flake;
+  - any code, contract, CI or generated change;
+  - `docs/design-spec.md`, and any edit in `experiments/`;
   - `docs/research.md`, `docs/first-experiment.md`,
-    `docs/embedded-db-findings.md`, and the "Proposed architecture, not yet
-    selected" table in `docs/decisions.md`;
-  - dated evidence records;
-  - merging, approving the PR, changing its base, labels or reviewers, rerunning
-    CI without the owner, and pushes without the owner's go-ahead.
-- **Stopping condition:** step 2 done (PR #1 ready for review, CI green on its
-  head, not merged), then this handoff. The boundary did not move.
-- **Disposition:** `accepted`:
-  - step 1, `0b50249`: five documentation files (`README.md`,
-    `experiments/api-slice/README.md`, `docs/decisions.md`,
-    `apps/reference/README.md`, `docs/design-spec.md`);
-  - step 2, no commit: the push, CI run 36348053700, and PR #1's new title,
-    description and ready-for-review state.
+    `docs/embedded-db-findings.md`;
+  - dated entries and the open decisions in `docs/decisions.md`;
+  - merging, approving or editing PR #1, and any push;
+  - the CI flake, invitations and the lifecycle pass.
+- **Stopping condition:** step 1 committed after sign-off, then this handoff.
+  The boundary did not move.
+- **Disposition:** `accepted`: step 1, `bdf8513`, `docs/decisions.md` only (74
+  lines added, none removed).
 
 ## 5. Verification and review
 
-Environment: macOS, `gh` against GitHub, Prettier 3.9.9 through `bunx`. Driver
+Environment: macOS, Prettier 3.9.9 through `bunx`, `gh` against GitHub. Driver
 evidence is in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/c354486e-9630-4d4b-9720-c4deb5e23ee7/scratchpad/`
-(temporary; below, `scratchpad/`). No application suite was run locally this
-session: no code, contract or generated file changed, as agreed at plan review.
+`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/730b5501-295c-4a77-86e8-91f6df19f8c8/scratchpad/`
+(temporary; below, `scratchpad/`). No application suite was run: no code,
+contract or generated file changed, as agreed at plan review.
 
-| Claim                          | Commit and evidence                                                                                                                                                                                                                                             | Checked by                                                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Formatting                     | `0b50249`: `bunx prettier@3.9.9 --check --print-width 80 --prose-wrap always` on the five files passes; `git diff --check` clean                                                                                                                                | Oracle reran both                                                                                          |
-| Links and anchors              | `0b50249`: `scratchpad/links.py` (GitHub-style slugs, fenced code skipped): 125 local links, 0 broken, including all 17 distinct new links. A copy with two seeded bad anchors reported both                                                                    | Oracle's own check: 125 links, 62 anchors, 0 broken                                                        |
-| Status clauses and new entries | `0b50249`: each claim traced to a cited source (listed in `scratchpad/diff-step1.txt`)                                                                                                                                                                          | Oracle inspected the sources, including transaction boundaries and delivery retries                        |
-| CI at `12227aa`                | Run 36345360713: attempt 1, every step successful, including all three reference browser workflows                                                                                                                                                              | Oracle inspected the run and its logs                                                                      |
-| Push                           | `git ls-remote origin` and PR #1's `headRefOid` both `0b50249`                                                                                                                                                                                                  | Oracle verified                                                                                            |
-| CI at `0b50249`                | Run 36348053700 (event `pull_request`): attempt 1, all 25 reported steps successful, including the agent-interface check and the reference browser workflow (`scratchpad/ci-36348053700.json`)                                                                  | Oracle verified the run and logs; it tested synthetic merge `d3003b3`, whose tree matches `0b50249`        |
-| PR #1 text and state           | Title and body posted from the reviewed files (`scratchpad/pr-title.txt`, `pr-body.md`) after rechecking the head; the readback (`pr-body.posted.md`) is identical apart from the trailing newline; `isDraft` false, `mergeStateStatus` `CLEAN`, head `0b50249` | Oracle reviewed the text before posting, and verified the live title, body and state during handoff review |
+| Claim             | Commit and evidence                                                                                                                                                                                                                                                           | Checked by                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Rows unchanged    | `bdf8513`: `git diff --numstat` 74 added, 0 deleted; `git diff --word-diff=porcelain` has no deleted words (`scratchpad/diff-step1.patch`)                                                                                                                                    | Oracle: removing the two additions restores the base file byte for byte           |
+| Formatting        | `bunx prettier@3.9.9 --check --print-width 80 --prose-wrap always docs/decisions.md` passes; `git diff --check` clean                                                                                                                                                         | Oracle reran both                                                                 |
+| Links and anchors | `scratchpad/links.py docs/decisions.md`: 58 local links (38 before), 0 broken. On a `git archive` copy of the tree with the edited file, two seeded bad anchors were both reported                                                                                            | Oracle's own check: 58 links, 0 broken, both seeded anchors detected              |
+| Status claims     | Each traced to its cited record and to source: `Cargo.lock` pins (not written into the notes), no `sqlx::query!`-family macro in the repository, session-store pools exercised by demo and test setup, the Turso migrator, domain `MemberSummary` against its HTTP conversion | Oracle checked the final wording against the cited records and the implementation |
 
 Oracle verdicts and dispositions, all applied:
 
-1. Chunk proposal and step 1 plan: sign-off.
-   - P3: scope the existence-hiding clause per concealed pair. Applied.
-   - It judged the frozen-experiment sentence authorized by the owner's choice,
-     and the README intro, list entry and CI records in scope.
-2. Step 1 diff: sign-off.
-   - P3: claim only that the invitation and membership actions have no automatic
-     transaction-retry policy (a shared test does retry acceptance after
-     contention, and the delivery worker repeats after database failures).
-     Applied.
-   - P3: keep "disposable demo databases" beside the delivery experiment in the
-     new decision entry. Applied.
-3. Step 2 plan: sign-off, with advice, all followed: a conditional
-   fast-forward-only recommendation; lead with behavior and limits; describe
-   earlier reviews as recorded history; recheck the head before posting and read
-   the body back; write inclusive commit ranges as "A through B"; use
-   `gh run watch <id> --exit-status`.
-4. Step 2 review of the PR text and CI record: sign-off.
-   - P3: say that the four domain operations use the envelope and the session
-     endpoints keep their contracts. Applied.
-   - P3: distinguish plan and diff reviews of work steps from handoff reviews.
-     Applied.
+1. Chunk proposal and step 1 plan: changes requested.
+   - P2: the Turso note carried forward stale migration history ("one-version
+     migration", "later work did not use it"). Applied: the note says the custom
+     migrator was since extended to the shared second migration and lacks SQLx's
+     checksum and history tooling, and that the API slice, S16 and the reference
+     application use SQLite.
+   - P3: name the demonstrated boundary as domain/wire separation and explicit
+     projections, not a persistence-model convention, and say "Project-member
+     reads". Applied.
+   - P3: say "the API slice's original invitation actions", since the frozen API
+     now has four operations. Applied.
+   - Advice, followed: "Session-store pools"; keep the new dated entry; leave
+     the spec untouched. It judged the one-step boundary coherent.
+2. Plan re-review: sign-off; all three findings resolved.
+3. Step 1 diff: sign-off, no findings.
 
 ## 6. Remaining work
 
-1. **The owner's choice of the next chunk (section 9).**
-2. **The owner's merge decision for PR #1 (section 9),** including whether
+1. **The owner's decision on PR #1 (section 9):** whether to push `90caff5`,
+   `bdf8513` and this handoff to PR #1, whether to merge, how, and whether
    `main` should carry `HANDOFF.md`.
+2. **The owner's choice of the next chunk (section 9).**
 3. **A follow-up design for invitation issuance and acceptance** (S17's
    follow-up row).
 4. **A lifecycle design pass:** persistent storage, seed policy, journal mode,
@@ -156,10 +138,12 @@ Oracle verdicts and dispositions, all applied:
    scenario (`concurrent_last_owner_and_authority` in
    `experiments/embedded-db/sqlite/tests/members.rs`, run through
    `reproduce_scenario`). The experiment is frozen, so any fix needs the owner.
-7. **Documentation hygiene, carried forward:** the "Proposed architecture, not
-   yet selected" table in `docs/decisions.md` has the same staleness as the open
-   decisions had (Axum, SQLx/SQLite and utoipa have since been exercised). It
-   was excluded because neither the owner nor the handoff named it.
+7. **Documentation hygiene, carried forward:**
+   - `docs/design-spec.md`'s "Last updated: September 26, 2026" line is older
+     than its change record's September 27 entries.
+   - `experiments/embedded-db/README.md:64-66` describes Turso's migration as
+     one-version; the migrator applies two since `2b1e820`. The experiment is
+     frozen, so an edit needs the owner.
 8. **Precompiled validators:** needed if a content security policy without
    `unsafe-eval` is adopted.
 9. **Caller loss beyond the browser:** a real disconnect or cancellation during
@@ -170,59 +154,78 @@ Oracle verdicts and dispositions, all applied:
 `proposed`. Nothing beyond this chunk is authorized.
 
 - **First action:** ask the owner the open questions in section 9, one at a
-  time, and wait for each answer before asking the next. Then propose the chunk
-  the answers authorize, in the first plan review.
-- **Acceptance:** set by that choice.
+  time, in that order, and wait for each answer before asking the next. Then
+  propose the chunk the answers authorize, in the first plan review.
+- **Acceptance:** set by those answers.
+  - If a push is authorized: push exactly the approved commits, confirm PR #1's
+    head through `gh`, and watch CI on it to completion. A push-only answer
+    stays push-only: it authorizes no merge.
+  - If a merge is authorized: merge exactly the approved revision, named by its
+    SHA, with the owner's chosen treatment of `HANDOFF.md` and as the owner
+    directs (the PR recommends fast-forward only while `main` is an ancestor),
+    then confirm `main` and the PR's state.
   - If the invitations design is chosen: a design section in S17's style,
     documentation only, reviewed through the design-review brief, authorizing no
     implementation until the owner says so.
-  - If a merge is authorized: merge exactly the approved revision, as the owner
-    directs (the PR recommends fast-forward only), then confirm `main` and the
-    PR's state.
 
 ## 8. Decisions and authorizations in force
 
 - **The seven S17 owner decisions** in S17's "Owner decisions".
 - **Authorized and complete:** the CI prerequisite, checkpoints A and B, the
-  mutations' current-state read, this documentation hygiene pass, and preparing
-  PR #1 (ready for review). Commits go on `s17-checkpoint-a`.
-- **Pushes:** the owner approved one push this session, through `0b50249`. Every
-  later push needs a fresh go-ahead.
+  mutations' current-state read, the documentation hygiene pass, preparing PR #1
+  (ready for review), and this architecture table pass. Commits go on
+  `s17-checkpoint-a`.
+- **PR #1:** stays open and unmerged. The owner decides the merge once, over the
+  final revision, now that this chunk is done.
+- **Pushes:** none authorized. The previous session's one push, through
+  `0b50249`, is spent; every push needs a fresh go-ahead.
+- **CI reruns:** rerunning a CI job or workflow needs the owner, even after an
+  authorized push whose run fails. Watching and recording a run that a push
+  triggers needs nothing further.
 - **Not authorized:** merging PR #1 or anything into `main`; invitations; the
-  lifecycle pass; retiring frozen experiments; editing `experiments/` (this
-  session's one sentence was covered by the owner's choice, and nothing more).
+  lifecycle pass; retiring frozen experiments; editing `experiments/`.
 - **Decided in earlier chunks:** the choices in the decision record's dated
   entries.
-- **Workflow:** the owner asked for oracle review before every commit. This
-  session also had the PR text reviewed before posting.
+- **Workflow:** the owner asked for oracle review before every commit. PR text
+  is reviewed before posting.
 
 ## 9. Open questions for the user
 
-Ask one at a time.
+Ask one at a time, in this order: the answer to the first decides whether the
+next chunk's commits go on this branch or on a new one from `main`.
 
+- Should `90caff5`, `bdf8513` and this handoff be pushed to PR #1, and should PR
+  #1 then be merged into `main`, and if so, how, and with or without
+  `HANDOFF.md`? This blocks any push and the merge. The PR recommends
+  fast-forward only; its head is `0b50249`. Offer choices that keep apart
+  keeping the commits local, pushing only, and pushing then merging.
 - Which follow-up should come next: the invitations design, the lifecycle pass,
-  or something else? This blocks the next chunk.
-- Should PR #1 be merged into `main`, and if so, how, and with or without
-  `HANDOFF.md`? This blocks the merge only. The PR is ready for review, its
-  description recommends fast-forward only, and its head does not yet include
-  this handoff's commit.
+  the remaining documentation hygiene (section 6, item 7), or something else?
+  This blocks the next chunk.
 
 ## 10. Operational state
 
-- **Running processes:** none. The CI watcher exited (0). No servers or browser
-  sessions (checked: ports 4001, 3003 and 5175 free;
-  `agent-browser session list` empty).
-- **PR #1:** open, ready for review, at `0b50249`. Don't merge it without the
-  owner's go-ahead.
+- **Running processes:** none. No servers or browser sessions (checked: ports
+  4001, 3003 and 5175 free; `agent-browser session list` empty).
+- **PR #1:** open, ready for review, at `0b50249`. Don't merge it, or push to
+  its branch, without the owner's go-ahead.
 - **Local installs:** `experiments/agent-interface/node_modules` (gitignored) is
   still present from an earlier session.
-- **Retained evidence:** temporary, and possibly already deleted: this session's
-  `scratchpad/` (section 5; review prompts, replies, the CI record, the PR text
-  and `links.py`), and the previous driver's scratchpad
-  `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/8700f9fe-cfa6-4749-b371-63bb1793592f/scratchpad/`
-  (about 2 GB, mostly `step1/mutation-target`, a Cargo target safe to delete).
+- **Local branches:** `docs/s17-reference-app` at `5ad417d` is an older branch;
+  leave it.
+- **Retained evidence:** temporary, and possibly already deleted, under
+  `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`:
+  - this session's `730b5501-295c-4a77-86e8-91f6df19f8c8/scratchpad/` (section
+    5: review prompts and replies, the diff, `links.py`, and `seed/`, a
+    `git archive` copy of the tree used for the link control);
+  - the previous session's `c354486e-9630-4d4b-9720-c4deb5e23ee7/scratchpad/`
+    (the CI record for run 36348053700, the PR text);
+  - `8700f9fe-cfa6-4749-b371-63bb1793592f/scratchpad/` (about 2 GB, mostly
+    `step1/mutation-target`, a Cargo target safe to delete).
+
   Any review directories the oracle created are under the system temp
   directories.
+
 - **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
   `target/` and can leave a mutated artifact that a later run treats as current.
   The experiment is frozen, so the risk is recorded rather than fixed.
@@ -247,6 +250,17 @@ Ask one at a time.
   - TypeScript under `apps/reference/web/src` is Prettier-formatted, except
     `generated.ts`, which is never formatted. `style.css` keeps its compact,
     unformatted style.
+- **Link checking:** `links.py` (in this session's scratchpad) takes Markdown
+  paths relative to the repository root and applies GitHub-style slugs. A seeded
+  control needs a full copy of the tree (`git archive HEAD | tar -x -C <dir>`,
+  then the edited file copied over it); in a partial copy, links to files not
+  copied are reported as broken.
+- **Frozen guides can be stale:** check the source before citing an experiment
+  guide's description of its own implementation (see the Turso migration in
+  section 3).
+- **Reading oracle replies:** `herdr agent read` output can splice the echoed
+  prompt's first line into the middle of the reply. Take the text after the last
+  `Verdict:` line, and re-read if a finding looks cut.
 - **Contract changes need two regenerations:** `export-openapi`, then
   `npm --prefix apps/reference/web run generate`. `generate` runs the whole
   `verify` after writing, so a stale client test fails it; that does not mean
@@ -342,8 +356,8 @@ Ask one at a time.
   `gh pr edit 1 --title "$(cat <file>)" --body-file <file>`, then read the body
   back with `gh pr view 1 --json body --jq .body` and diff it. Pin repository
   links in a PR body to a commit SHA so they do not drift.
-- **After a push:** in this session, `refs/pull/1/head` in `git ls-remote` still
-  showed the old head just after the push, while
+- **After a push:** in an earlier session, `refs/pull/1/head` in `git ls-remote`
+  still showed the old head just after the push, while
   `gh pr view 1 --json headRefOid` already showed the new one; check the PR's
   head through `gh`. Verify also runs on pushes to `main`. The pull-request runs
   observed here were `pull_request` events on GitHub's synthetic merge commit,

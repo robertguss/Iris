@@ -1,13 +1,16 @@
-// The reference console's browser workflow against the local issuer. It builds
+// The reference console's browser workflows against the local issuer. It builds
 // and owns the issuer, the development binary and a preview of the production
-// client, then drives both membership operations from the member directory
-// through agent-browser.
+// client, then drives checkpoint A's membership operations and checkpoint B's
+// reads from the member directory through agent-browser.
 //
 //   node apps/reference/scripts/browser.mjs [--artifacts DIR]
 //
 // It refuses to start if any of its ports is taken, treats a server as ready
 // only when its own child reports the bound address, and stops at once when a
-// server exits or SIGINT/SIGTERM arrives. Every child it spawns (builds,
+// server exits unexpectedly or SIGINT/SIGTERM arrives. The one expected exit
+// is the API's: between the two workflows it is retired and replaced, so
+// checkpoint B starts from the seed data, and nothing is started once a stop
+// has begun. Every child it spawns (builds,
 // servers, browser commands) runs in its own process group; cleanup sends
 // SIGTERM, escalates to SIGKILL after 5 s and awaits each exit. The browser
 // session is unique to this invocation and closed only if this run opened it.
@@ -30,6 +33,8 @@ const SESSION = `iris-reference-${randomUUID().slice(0, 8)}`;
 // Written independently of present.ts: the page must say exactly this.
 const UNCONFIRMED =
   "Outcome unconfirmed: the change may or may not have been applied. No automatic retry was sent; a new submission needs current authority and intent.";
+const NOT_LOADED = (noun) =>
+  `${noun} were not loaded. No automatic retry was sent; loading them again is a new read.`;
 
 const flag = process.argv.indexOf("--artifacts");
 const artifacts =
@@ -124,11 +129,16 @@ async function build(command, args, options = {}) {
 
 const logs = [];
 let cleaning = false;
+/** Servers whose exit is expected: only the API, once, when it is replaced. */
+const retired = new Set();
 /**
  * A server: output goes to `<artifacts>/<name>.log` and is scanned for the
- * child's own readiness line; its exit before cleanup stops the workflow.
+ * child's own readiness line; its exit before cleanup stops the workflow,
+ * unless it was retired. Returns the owned server and its readiness.
  */
 function start(name, command, args, readiness, options = {}) {
+  // Checked just before spawning: nothing starts once a stop has begun.
+  if (stop.signal.aborted) throw stop.signal.reason;
   const log = createWriteStream(join(artifacts, `${name}.log`));
   logs.push(log);
   const server = own(command, args, {
@@ -136,7 +146,7 @@ function start(name, command, args, readiness, options = {}) {
     ...options,
   });
   server.exited.then((result) => {
-    if (!cleaning)
+    if (!cleaning && !retired.has(server))
       stop.abort(new Error(`${name} ${describe(result)}; see ${name}.log`));
   });
   let seen = "";
@@ -160,7 +170,7 @@ function start(name, command, args, readiness, options = {}) {
     server.child.stderr?.on("data", scan);
     server.exited.then(() => clearTimeout(timer));
   });
-  return Promise.race([ready, stopped]);
+  return { server, ready: Promise.race([ready, stopped]) };
 }
 let opened = false;
 async function cleanup() {
@@ -189,6 +199,46 @@ function listening(port) {
       done(true);
     });
   });
+}
+
+const target = process.env.CARGO_TARGET_DIR ?? join(root, "target");
+const startApi = (name) =>
+  start(
+    name,
+    join(target, "debug/reference-dev"),
+    ["--local-oidc-demo"],
+    /listening on http:\/\/127\.0\.0\.1:3003\b/,
+    {
+      env: {
+        ...process.env,
+        IRIS_PUBLIC_ORIGIN: ORIGIN,
+        IRIS_OIDC_ISSUER: ISSUER,
+        IRIS_LISTEN: API,
+      },
+    },
+  );
+/** One bounded request through the preview proxy to the owned API. */
+async function throughPreview() {
+  const session = await fetch(`${ORIGIN}/api/auth/session`, {
+    signal: AbortSignal.any([stop.signal, AbortSignal.timeout(10_000)]),
+  });
+  if (!session.ok)
+    throw new Error(`Session through the preview: ${session.status}`);
+}
+/**
+ * Retires the API and starts a fresh one on its port, so the next workflow
+ * starts from the seed data. The port must be free again first.
+ */
+async function restartApi(api) {
+  retired.add(api);
+  await terminate(api);
+  if (stop.signal.aborted) throw stop.signal.reason;
+  if (await listening(3003))
+    throw new Error(
+      "Port 3003 was taken during the API restart; this workflow must own it",
+    );
+  await startApi("api-b").ready;
+  await throughPreview();
 }
 
 const browser = (...args) =>
@@ -279,7 +329,7 @@ async function retained(path, target, detail) {
   );
 }
 
-async function workflow() {
+async function checkpointA() {
   // Anonymous, then a failed and recovered session bootstrap.
   opened = true;
   await browser("open", ORIGIN);
@@ -422,7 +472,152 @@ async function workflow() {
   await outcome("409 · Last owner must remain", "memberships.remove_member");
   await wait("Another owner is required first.");
   await capture("last-owner");
+}
 
+/** A panel's listed names, in order; none when it lists no rows. */
+function rows(panel, names) {
+  return check(
+    `JSON.stringify([...document.querySelectorAll("${panel} .rows .row-name")].map((e) => e.textContent)) === ${JSON.stringify(JSON.stringify(names))}`,
+    `${panel} lists ${names.join(", ") || "nothing"}`,
+  );
+}
+function pageLine(panel, text) {
+  return check(
+    `document.querySelector("${panel} .read-status")?.textContent === ${JSON.stringify(text)}`,
+    `${panel}: ${text}`,
+  );
+}
+/** A panel's read failed with this title and wording; no rows, no next page. */
+function refused(panel, title, detail) {
+  return check(
+    `document.querySelector("${panel} .status strong")?.textContent === ${JSON.stringify(title)} && document.querySelector("${panel} .status p").textContent === ${JSON.stringify(detail)} && !document.querySelector("${panel} .rows") && document.querySelector("${panel} .next").disabled`,
+    `${panel}: ${title}`,
+  );
+}
+async function click(selector, panel) {
+  await browser("click", selector);
+  await settled(panel);
+}
+
+async function checkpointB() {
+  // The restarted API has a fresh database, so the old session is gone.
+  await browser("reload");
+  await wait("Not signed in");
+
+  // The projects read that signing in starts is lost: shown as not loaded,
+  // and never resent, until the user reloads.
+  await browser("network", "requests", "--clear");
+  await browser("network", "route", "**/api/projects*", "--abort");
+  await login("Alice", "11");
+  await settled("#projects");
+  await refused("#projects", "No usable response", NOT_LOADED("Projects"));
+  await browser("wait", "2000");
+  const initial = await requests("/api/projects");
+  if (initial !== 1)
+    throw new Error(`Expected one projects read, saw ${initial}`);
+  await capture("b-projects-not-loaded");
+  await browser("network", "unroute", "**/api/projects*");
+  await click("#projects .reload", "#projects");
+  await rows("#projects", ["Launch plan"]);
+  await pageLine(
+    "#projects",
+    "Page 1 · No further projects existed when this page was read.",
+  );
+
+  // One member per page: forward traversal lists each once, in key order.
+  await browser("select", "#page-size", "1");
+  await settled("#projects");
+  await openProject("Launch plan");
+  await rows("#members", ["Alice Example"]);
+  await pageLine(
+    "#members",
+    "Page 1 · More members existed when this page was read.",
+  );
+  await click("#members .next", "#members");
+  await rows("#members", ["Bob Example"]);
+  await pageLine(
+    "#members",
+    "Page 2 · No further members existed when this page was read.",
+  );
+  await check(
+    `document.querySelector("#members .next").disabled`,
+    "no page after the last",
+  );
+  await capture("b-traversal");
+
+  // A lost members read: not loaded, one request, no resend.
+  await browser("network", "requests", "--clear");
+  await browser("network", "route", "**/api/projects/41/members*", "--abort");
+  await click("#members .reload", "#members");
+  await refused("#members", "No usable response", NOT_LOADED("Members"));
+  await browser("wait", "2000");
+  const lost = await requests("/api/projects/41/members");
+  if (lost !== 1) throw new Error(`Expected one members read, saw ${lost}`);
+  await capture("b-members-not-loaded");
+  await browser("network", "unroute", "**/api/projects/41/members*");
+  await click("#members .reload", "#members");
+  await rows("#members", ["Alice Example"]);
+
+  // Alice makes Bob an owner, so that Bob can later leave the project.
+  await click("#members .next", "#members");
+  await select("Bob Example");
+  await browser("select", "#role", "owner");
+  await button("Change member role");
+  await outcome("200 · Role change acknowledged", "memberships.change_role");
+
+  // Bob's own projects, one per page.
+  await logout();
+  await login("Bob", "29");
+  await settled("#projects");
+  await browser("select", "#page-size", "1");
+  await settled("#projects");
+  await rows("#projects", ["Launch plan"]);
+  await click("#projects .next", "#projects");
+  await rows("#projects", ["Field notes"]);
+  await pageLine(
+    "#projects",
+    "Page 2 · No further projects existed when this page was read.",
+  );
+  await capture("b-own-projects");
+
+  // Removed between pages: with page 1 shown, Bob removes their own membership. Reading
+  // the next page is a new read, authorized again, and refused; the removal
+  // keeps its own outcome.
+  await click("#projects .reload", "#projects");
+  await openProject("Launch plan");
+  await click("#members .next", "#members");
+  await select("Bob Example");
+  await click("#members .reload", "#members");
+  await rows("#members", ["Alice Example"]);
+  await browser("select", "#operation", "removeMember");
+  await check(
+    `document.querySelector("#change .target").textContent.startsWith("Bob Example (user 29)")`,
+    "Bob still selected on page 1",
+  );
+  await browser("check", "#change input[type=checkbox]");
+  await button("Remove member");
+  await outcome("200 · Removal acknowledged", "memberships.remove_member");
+  await check(
+    `document.querySelector("#members .stale") !== null`,
+    "page 1 may predate the removal",
+  );
+  await click("#members .next", "#members");
+  await refused(
+    "#members",
+    "Project not available",
+    "This operation is not permitted.",
+  );
+  await check(
+    `document.querySelector("#outcome .status strong").textContent === "200 · Removal acknowledged" && document.querySelector("#outcome .target").textContent.includes("Bob Example")`,
+    "the removal keeps its own outcome",
+  );
+  await capture("b-removed-between-pages");
+  await click("#projects .reload", "#projects");
+  await rows("#projects", ["Field notes"]);
+}
+
+/** Checks on the last page load: validation cost, layout and storage. */
+async function finish() {
   // eval prints its result as JSON.
   const compile = JSON.parse(
     await browser(
@@ -479,38 +674,23 @@ try {
       `${ORIGIN}/api/auth/callback`,
     ],
     /listening on 127\.0\.0\.1:4001\b/,
-  );
-  const target = process.env.CARGO_TARGET_DIR ?? join(root, "target");
-  await start(
-    "api",
-    join(target, "debug/reference-dev"),
-    ["--local-oidc-demo"],
-    /listening on http:\/\/127\.0\.0\.1:3003\b/,
-    {
-      env: {
-        ...process.env,
-        IRIS_PUBLIC_ORIGIN: ORIGIN,
-        IRIS_OIDC_ISSUER: ISSUER,
-        IRIS_LISTEN: API,
-      },
-    },
-  );
+  ).ready;
+  const api = startApi("api");
+  await api.ready;
   await start(
     "web",
     vite,
     ["preview", "--host", "127.0.0.1", "--port", "5175", "--strictPort"],
     /Local:\s+http:\/\/127\.0\.0\.1:5175\//,
     { cwd: web },
-  );
-  // One bounded request through the preview proxy to the owned API.
-  const session = await fetch(`${ORIGIN}/api/auth/session`, {
-    signal: AbortSignal.any([stop.signal, AbortSignal.timeout(10_000)]),
-  });
-  if (!session.ok)
-    throw new Error(`Session through the preview: ${session.status}`);
-  const compile = await Promise.race([workflow(), stopped]);
+  ).ready;
+  await throughPreview();
+  await Promise.race([checkpointA(), stopped]);
+  await Promise.race([restartApi(api.server), stopped]);
+  await Promise.race([checkpointB(), stopped]);
+  const compile = await Promise.race([finish(), stopped]);
   console.log(
-    `PASS: OIDC sign-in and bootstrap recovery; from the member directory: role change with the listing marked at send time, one unconfirmed attempt kept across a reload and a new selection, non-owner refusal; removal with per-member confirmation, absence from a stale row and last-owner protection; HttpOnly session; narrow layout; nothing stored. Validator compile ${compile.toFixed(1)} ms (production build). Artifacts: ${artifacts}`,
+    `PASS: OIDC sign-in and bootstrap recovery. Checkpoint A from the member directory: role change with the listing marked at send time, one unconfirmed attempt kept across a reload, a new selection and refreshes, non-owner refusal; removal with per-member confirmation, absence from a stale row and last-owner protection. Checkpoint B on fresh data: a lost initial projects read and a lost members read, each shown once and never resent; member and own-project traversal one row per page to the end; a member who left the project refused their next page. HttpOnly session; narrow layout; nothing stored. Validator compile ${compile.toFixed(1)} ms (production build). Artifacts: ${artifacts}`,
   );
 } finally {
   await cleanup();

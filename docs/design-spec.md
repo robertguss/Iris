@@ -369,7 +369,7 @@ boundaries; a tool allowlist is not a sandbox.
 | Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below               |
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                             |
 | Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration          |
-| Reference application, multi-operation contracts and first reads        | S17 checkpoint A and checkpoint B's server side implemented; B's client pending; [guide](../apps/reference/README.md)           |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow; [guide](../apps/reference/README.md)            |
 | Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                     |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                   |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                               |
@@ -1791,13 +1791,13 @@ was added.
 
 ## S17 — Reference application and first reads
 
-**Proposed; checkpoint A and checkpoint B's server side are implemented
-experiments.** The owner settled its seven open choices on September 26, 2026,
-then authorized the CI prerequisite and checkpoint A, and on September 27
-checkpoint B. Checkpoint A's [server-side](#checkpoint-a-server-side-evidence)
-and [client](#checkpoint-a-client-evidence) evidence, and checkpoint B's
-[server-side](#checkpoint-b-server-side-evidence) evidence, record what was
-built; checkpoint B stays partial until its client and browser acceptance. This
+**Proposed; checkpoints A and B are implemented experiments.** The owner settled
+its seven open choices on September 26, 2026, then authorized the CI
+prerequisite and checkpoint A, and on September 27 checkpoint B. Checkpoint A's
+[server-side](#checkpoint-a-server-side-evidence) and
+[client](#checkpoint-a-client-evidence) evidence, and checkpoint B's
+[server-side](#checkpoint-b-server-side-evidence) and
+[client](#checkpoint-b-client-evidence) evidence, record what was built. This
 section was first written as a proposal authorizing no implementation,
 dependency, CI or wire change. It was drafted after independent assessments of
 `9235c6e` by Claude (Opus 5.5) and Astra (GPT-6-Astra through Codex), then
@@ -1963,7 +1963,9 @@ state only: absence from a page or a traversal does not prove removal, and a 403
 after a lost self-removal response does not resolve that earlier invocation
 (S14). Read operations declare no recovery capabilities; repeating a read is a
 new observation, not a replay. _Status:_ both reads omit `recovery` from
-`x-iris`; the mutations do not yet declare a current-state read.
+`x-iris`. The mutations declare no current-state recovery read; that declaration
+awaits the owner. In the member directory, manual reloads provide new state
+observations and do not alter earlier attempt outcomes.
 
 ### Read conventions
 
@@ -2025,10 +2027,10 @@ against the exported document. The session endpoints keep their existing
 contracts. Query parameters are validated by the server adapter, not the client
 boundary. Body reads are bounded, so an oversize body becomes `ClientUnknown`.
 Measure the bundle and startup cost of runtime validation. Generated TypeScript
-remains static assistance, not validation. _Status:_ implemented for checkpoint
-A's two operations ([evidence](#checkpoint-a-client-evidence)). The boundary
-also accepts both reads and validates their captured responses; my projects and
-members wait for checkpoint B's client.
+remains static assistance, not validation. _Status:_ implemented for all four
+operations: checkpoint A's two ([evidence](#checkpoint-a-client-evidence)), and
+both reads with my projects, members and the member directory
+([evidence](#checkpoint-b-client-evidence)).
 
 ### Acceptance checks
 
@@ -2190,9 +2192,8 @@ harness is now reproduced, but its other omission probes are not.
 
 ### Checkpoint B server-side evidence
 
-**Implemented experiment for the server side, September 27, 2026.** Checkpoint B
-stays partial: its client (read decoder, narrowing and presentation cases and
-the React member directory) and its browser workflow are the next chunk. Each
+**Implemented experiment for the server side, September 27, 2026.** The
+[client evidence](#checkpoint-b-client-evidence) completes checkpoint B. Each
 step was plan- and diff-reviewed by Astra before commit. The
 [reference application guide](../apps/reference/README.md) owns the commands and
 measured results; the
@@ -2237,7 +2238,7 @@ records the choices and limits.
 | B pagination and input | Forward traversal returns every row once in key order for both reads; the default of 50, 1 and 100 are accepted; foreign and forged cursors stay within the caller's rows; limit 0, 101, `05` or non-integer, malformed, overlong or wrong-version cursors, and unknown or duplicate parameters return 400; HEAD mirrors GET without a body   |
 | B cleanup              | A rejection and a page-query failure finalize with an acknowledged rollback, after which a writer commits; dropping a `read::run` future that holds SQLite's shared lock releases a writer it had blocked; `query_only` fails an attempted write, and the next mutation commits                                                               |
 | Probes                 | A widened runtime or exported GET limit bound, and each read's omitted visibility predicate, pass the compiler and fail a named independent test; checkpoint A's probes are unchanged                                                                                                                                                         |
-| React (B)              | Pending: both reads' captured responses decode; read-specific decoder, narrowing and presentation cases, the member directory and a browser workflow are the next chunk                                                                                                                                                                       |
+| React (B)              | Implemented; see the [client evidence](#checkpoint-b-client-evidence): decoder, narrowing and presentation cases for both reads, including oversize and unusable bodies; the member directory; unchanged session bootstrap; one checkpoint B browser workflow against the local issuer                                                        |
 
 Not established: these steps ran on macOS with Node 24.20.0 and have not run on
 GitHub Actions. The 503 captures use the operation's own mount with an injected
@@ -2247,6 +2248,58 @@ guards mistakes and is not a security boundary. The explicit 32-byte cursor
 check cannot change behavior while keys are canonical i64 values, so that bound
 is documented rather than observed. Only SQLite's default rollback-journal mode
 was exercised. No productivity claim follows.
+
+### Checkpoint B client evidence
+
+**Implemented experiment, September 27, 2026.** This completes checkpoint B.
+Each step was plan- and diff-reviewed by Astra before commit. The
+[reference application guide](../apps/reference/README.md) owns the commands and
+measurements; the
+[decision record](decisions.md#reference-application-checkpoint-b-client--september-27-2026)
+records the choices and limits.
+
+- **Reads in the client:** `read` sends one GET with no body and no CSRF header,
+  through the same whole-request boundary as the mutations. It has one overload
+  per read, so a caller must narrow the operation first. The project ID is
+  encoded into its path segment, and `limit` and `cursor` are sent only when
+  given, the cursor exactly as received. Read presentation is exhaustive over
+  both reads' codes. It shows only declared fields, and every sentence is scoped
+  to the page as read. A 403 is one response for an unknown project and a
+  non-member. A failed read says it was not loaded and that no retry was sent.
+- **Member directory:** the console lists the caller's projects, then a
+  project's members, page by page (1, 10 or 50 rows), with forward navigation
+  and reload. A role change or removal starts from a listed member and sends
+  checkpoint A's request. The directory's state is pure, tested transitions: a
+  result is accepted only under the token it was requested with. When an attempt
+  is sent, a shown listing of its project is marked as possibly predating it.
+  That records ordering only, and only a later read clears it. No read follows a
+  mutation automatically. An attempt's operation and target are captured when it
+  is sent and its outcome is added when it completes; all three then stay
+  unchanged until the next attempt or a session change. Confirmation belongs to
+  one member and action. Session bootstrap is unchanged.
+- **Evidence:** decoder cases for both reads, including additive fields,
+  mismatches, undeclared statuses, and oversize and unusable bodies, with every
+  body-handling case tallied per operation; compile-time narrowing and read
+  parameters; read presentation, including an empty continuation page; request
+  construction; directory transitions; and seeded mutations of each.
+- **Browser workflows:** checkpoint A's workflow now runs from the directory.
+  The runner then restarts the API, so checkpoint B's workflow starts from the
+  seed data. That workflow covers: a lost initial projects read and a lost
+  members read, each shown as not loaded and sent once; member and own-project
+  traversal one row per page to the end; and a member who, after leaving the
+  project, is refused their next page.
+- **Cost of runtime validation:** the production bundle is 389.42 kB (114.41 kB
+  gzip), 7.03 kB (1.86 kB gzip) more than at checkpoint B's server side.
+  Compiling four operations' validators took 18.0–20.0 ms (median 19.1 ms)
+  across five runs in headless Chrome 154.
+
+Not established: local runs used macOS, Node 24.20.0 and 26.8.1, and headless
+Chrome 154; GitHub Actions has not run these commits. The workflows check
+selected paths, not every code. The API restart's failure window was probed with
+an injected delay in a copy of the runner. The refused next page shows
+authorization on a new read; it resolves nothing about the removal, which has
+its own outcome. The mutations still declare no current-state read. No frozen
+experiment was retired, and no productivity claim follows.
 
 ## References and design provenance
 
@@ -2287,6 +2340,13 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, checkpoint B client:** Under the owner's authorization of
+  checkpoint B, added both reads to the reference client with page-scoped
+  presentation, replaced the console's ID form with a member directory whose
+  paging and pairing rules are pure tested transitions, and added checkpoint B's
+  browser workflow after an API restart. Recorded the client evidence and
+  validation cost in S17; checkpoint B is complete. The mutations still declare
+  no current-state read. No frozen experiment was retired; no wire change.
 - **2026-09-27, checkpoint B server side:** With the owner's authorization,
   added `listProjectMembers` and `listMyProjects` to the reference application:
   owned `query_only` read transactions finalized explicitly, keyset pages with a

@@ -682,6 +682,109 @@ shown for the read future, not an HTTP disconnect; only SQLite's
 rollback-journal mode was exercised; there is no read UI or browser acceptance
 yet. No frozen experiment was retired. No productivity claim follows.
 
+## Reference application checkpoint B, client — September 27, 2026
+
+**Implemented experiment; checkpoint B is complete.** Under the owner's
+authorization of checkpoint B, three further steps on `s17-checkpoint-a` added
+the reads to the reference client, replaced the checkpoint A console's ID form
+with a member directory, and added checkpoint B's browser workflow. Astra
+reviewed each plan and diff before its commit. The
+[S17 client evidence](design-spec.md#checkpoint-b-client-evidence) summarizes
+the result, and the [guide](../apps/reference/README.md) owns the commands.
+
+Local results on macOS with Rust 1.98.1, Node 24.20.0, `agent-browser` 0.38.1
+and headless Chrome 154:
+
+```sh
+npm --prefix apps/reference/web run verify   # 231 runtime cases, 49 presentations, 9 requests, 11 directory transitions; build
+node apps/reference/scripts/browser.mjs      # checkpoint A, API restart, checkpoint B; five consecutive passes, about 13 s each
+```
+
+`verify` also passed under Node 26.8.1. No Rust, export or seed changed, so the
+workspace results in the server-side entry still describe the server (106
+tests). The production bundle is 389.42 kB (114.41 kB gzip), and compiling the
+four operations' validators took 18.0–20.0 ms (median 19.1 ms) across the final
+runs of both workflows.
+
+Decisions and the alternatives not taken:
+
+- `read` sits beside `send` in `membership.ts`, with one overload per read. A
+  caller holding either read must narrow it first, because a union would drop
+  the members' path parameter and their 403. A generic signature, first
+  proposed, accepted a union-typed caller without a project ID.
+- Read presentation projects rows to their declared fields and scopes every
+  sentence to the page as read. An empty page says "No members on this page when
+  it was read", never "no members", since a continuation can be empty while
+  earlier pages had rows. A failed read says it was not loaded and that no retry
+  was sent.
+- The directory's state is pure transitions in `directory.ts`, tested under
+  Node, because the client has no DOM test harness. Tokens come from one counter
+  that nothing resets, and a result is accepted only under its own token, so a
+  late page never lands under another project, list or session.
+- An attempt marks a shown listing of its project when it is sent, whatever its
+  outcome, and an accepted page is marked when an attempt followed its request.
+  This records ordering only, and the note says the listing "may predate your
+  last attempt". "Listed before your last change", first proposed, implied a
+  change even after an unconfirmed attempt. At send time only a shown members
+  listing of the attempt's project is marked; either list whose pending request
+  preceded an attempt is marked when that result arrives. The projects list's
+  wording is scoped to its read.
+- No read follows a mutation automatically, and no read starts while an attempt
+  is in flight. A reload is a new observation and never rewrites an attempt's
+  outcome.
+- An attempt is recorded when sent: its operation, its target and later its
+  outcome. Only the next attempt or a session change replaces it; a same-user or
+  failed refresh keeps it. Removal confirmation belongs to one member and
+  action.
+- Next-page navigation uses a rows-per-page select (1, 10 or 50) rather than new
+  seed rows.
+- The browser runner restarts the API once between the two workflows, so
+  checkpoint B starts from the seed data. Any other server exit still stops the
+  run, and nothing starts once a stop has begun. Not taken: changing the
+  development seed; a second API and preview; two full start and cleanup cycles.
+- The mutations still do not declare `listProjectMembers` as their current-state
+  read (S15 says "may"). The owner has not decided.
+
+Mutations seeded while building, each failing its intended check:
+
+- Reads (17): a read's 403 schema accepting CSRF refusal; `presentRead`
+  spreading the raw item, claiming every member was listed, saying "No members."
+  on an empty page, or naming non-membership in its 403 title; `read` sending
+  POST, adding the CSRF header, dropping the cursor, leaving the project ID
+  unencoded, or always sending `limit`; a member summary widened with `email`,
+  the narrowing's CSRF literal widened, `ReadParams` making the project ID
+  optional, or an overload admitting an unnarrowed read; `READS` omitting a
+  read; body cases skipped for the reads, or one dropped for a mutation.
+- Directory (10): the token check dropped; `reload` continuing the page count;
+  an attempt issuing a read, or not marking the listing; a result clearing the
+  mark unconditionally; a page-size change skipping the members; opening a
+  project keeping the selection; tokens reset on sign-out; `next` while pending;
+  a first page keeping the previous rows.
+- Page, through the browser (13): a reload clearing the outcome; the stale note
+  missing; the attempt marked after its response; confirmation following another
+  member; the endpoint following the form; a refresh clearing the attempt;
+  sign-out keeping it; a removal sending the wrong member; a second page
+  ignoring its cursor; a lost members read or a lost initial projects read
+  resent; a refused next page keeping the rows; the projects' page line
+  overclaiming.
+
+The runner's API restart was probed on disposable copies. A foreign listener
+taking port 3003 inside the restart window fails the run and survives it; the
+replacement API killed after it is ready stops the run, naming it; SIGTERM
+inside the window stops the run with no replacement started. None printed a PASS
+or left a process, port or browser session behind.
+
+No frozen experiment was retired: S16's remaining omission probes are still not
+reproduced, so S16 stays in CI.
+
+Limitations: macOS and one headless browser only; GitHub Actions has not run the
+checkpoint B commits, because pushing them awaits the owner; the workflows check
+selected paths, not every code; the restart window was probed with an injected
+delay in a copy of the runner; one step 2 browser run measured a 31.1 ms
+compile, not investigated. Bob's refused next page shows authorization on a new
+read; it is not evidence about the removal, which has its own outcome. No
+productivity claim follows.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

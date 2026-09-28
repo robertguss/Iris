@@ -229,13 +229,13 @@ framework default.
   Existence hiding is decided per concealed pair (see the
   [open decisions](#open-decisions)); a framework-wide error-code policy remains
   open ([S11](design-spec.md#s11--open-design-agenda)).
-- One supervised development command. _Status:_ open, deferred to a lifecycle
-  design pass with persistent storage, seed policy, journal mode and worker
-  supervision ([S17 ownership boundaries](design-spec.md#ownership-boundaries)).
-  The reference application has a development server and a browser runner that
-  owns its processes, not one command for the issuer, API and Vite.
-  [S18](design-spec.md#s18--reference-application-lifecycle) now proposes one, a
-  Node supervisor script; the row stays open until the owner decides.
+- One supervised development command. _Status:_ decided for the reference
+  application, not yet implemented: a Node supervisor script starts the issuer,
+  API and Vite, with persistent storage, seed policy, journal mode and task
+  supervision settled alongside it
+  ([S18 owner decisions](design-spec.md#lifecycle-owner-decisions)). The
+  reference application has a development server and a browser runner that owns
+  its processes, not yet one command for the issuer, API and Vite.
 
 ## Deferred infrastructure
 
@@ -1083,6 +1083,22 @@ owns, shutdown follows one timeline inside the supervisor's kill bound, one API
 owns a persistent database at a time, and a migration refusal offers restoration
 before a reset. Alternatives are recorded with S18's ten owner choices. No
 runtime, dependency, CI, migration or wire change accompanies this record.
+
+The owner then settled the first choice as recommended: the development binary
+stays disposable unless given an explicit path. At the owner's request, the
+oracle settled the other nine, choosing each recommended option: a command-line
+path argument; data in a gitignored `apps/reference/.dev/`; seeds only during
+atomic initialization; append-only migrations with a checksum refusal that
+offers restoration before a reset; the rollback journal everywhere, checked at
+startup; a Node supervisor script as the development command; a supervised
+session-cleanup task once storage persists; one API at a time per persistent
+database; and an inner drain deadline inside the supervisor's kill bound. The
+oracle also reviewed S18, so these nine are not an independent approval. The
+owner then authorized implementing S18 in reviewed steps: storage and
+initialization, reset and migrations, shutdown and session cleanup, then the
+development command. Still not authorized: pushing `lifecycle-design`, a pull
+request, and invitations. No runtime, dependency, CI, migration or wire change
+accompanies this record.
 
 ## Maintaining this record
 

@@ -35,7 +35,7 @@ evidence lifecycle. S14 defines the caller-loss recommendation and failure
 table; S15 gives a concrete result, response and recovery reference contract.
 S16 compares two authoring paths with one annotated membership vertical slice.
 S17 proposes the next bounded step: a reference application that generalizes S16
-across operations and adds the first reads. S18 proposes that application's
+across operations and adds the first reads. S18 sets that application's
 development lifecycle: storage, seeds, journal mode, task supervision and one
 development command. S10 distinguishes implementation from proposals. Use the
 [independent review brief](design-review-brief.md) for assignments, three review
@@ -371,7 +371,7 @@ boundaries; a tool allowlist is not a sandbox.
 | Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                  |
 | Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                               |
 | Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md) |
-| Reference application lifecycle                                         | Proposed in S18: storage, seeds, journal mode, tasks, development command; not implemented                                                                           |
+| Reference application lifecycle                                         | Decided in S18: storage, seeds, journal mode, tasks, development command; implementation authorized in steps, not yet implemented                                    |
 | Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                          |
 | Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                        |
 | Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                    |
@@ -402,7 +402,8 @@ observations motivate shared definitions, not productivity claims.
   semantics.
 - Runtime evidence collection, correlation, bounded retention and disclosure.
 - Configuration, startup, migrations, jobs and service lifecycle conventions.
-  S18 proposes a first slice for the reference application.
+  S18 decides a first slice for the reference application; its implementation is
+  authorized and pending.
 - Packaging, generators and compile-loop improvements justified by experience.
 
 Do not interpret this agenda as approval to implement all items. Generic action
@@ -1881,7 +1882,8 @@ packaging and naming remain open (S11).
 - **Deferred to a lifecycle pass:** persistent storage, seed policy, SQLite
   journal mode, worker supervision, and one development command for the issuer,
   API and Vite. The delivery worker is not ported.
-  [S18](#s18--reference-application-lifecycle) now proposes that pass.
+  [S18](#s18--reference-application-lifecycle) now decides that pass; its
+  implementation is authorized and pending.
 
 ### Operation sequence
 
@@ -2400,15 +2402,20 @@ experiment was retired, and no productivity claim follows.
 
 ## S18 — Reference application lifecycle
 
-**Proposed; documentation only.** On September 27, 2026, the owner chose this
-lifecycle pass as the chunk after the pull request #1 merge. It covers the five
-items that S17 [deferred](#ownership-boundaries): persistent storage, seed
-policy, SQLite journal mode, worker supervision, and one development command for
-the issuer, API and Vite. It authorizes no implementation, dependency, CI,
-migration or wire change. The recommendations are the driver's (Claude, Opus
-5.5); the [open choices](#lifecycle-choices-for-the-owner) await the owner, and
-no recommendation is accepted direction until the owner decides it. Source
-citations are to `8d2cfc7`.
+**Decided; implementation authorized, not yet implemented.** On September 27,
+2026, the owner chose this lifecycle pass as the chunk after the pull request #1
+merge. It covers the five items that S17 [deferred](#ownership-boundaries):
+persistent storage, seed policy, SQLite journal mode, worker supervision, and
+one development command for the issuer, API and Vite. It was first written as a
+proposal authorizing no implementation, dependency, CI, migration or wire
+change. The recommendations are the driver's (Claude, Opus 5.5). The same day,
+the owner settled the first of the ten [choices](#lifecycle-owner-decisions) and
+delegated the other nine to the oracle (Astra, GPT-6-Astra through Codex), which
+chose each recommended option. The oracle is also this section's design reviewer
+and reviewed its plans and diffs, so its nine choices are not an independent
+approval. The owner then authorized implementation in reviewed steps: storage
+and initialization, reset and migrations, shutdown and session cleanup, then the
+development command. Source citations are to `8d2cfc7`.
 
 ### Current behavior
 
@@ -2480,7 +2487,8 @@ evidence.
 
 ### Recommendations
 
-Proposed; each names the choice it depends on.
+Accepted direction through the [owner decisions](#lifecycle-owner-decisions);
+not yet implemented. Each names the choice it depends on.
 
 1. **Storage stays disposable by default; persistence is an explicit path.** The
    development binary gains an explicit database path argument, for example
@@ -2593,9 +2601,13 @@ Proposed; each names the choice it depends on.
 | Tasks, shutdown | Session cleanup removes expired rows on a persistent database; a task that panics stops the process with a message; cooperative completion and inner-deadline expiry are tested separately, each within the outer kill bound; no task starts new work after the signal; a mutation interrupted by shutdown is reported as unconfirmed, never acknowledged               |
 | Command         | A taken port refuses startup before anything starts; with a conflicting `IRIS_API_TARGET` inherited, a sentinel at that address receives no requests; readiness waits for all three; any child's unexpected exit stops the others and exits non-zero; SIGINT stops all three process groups; the frozen experiments and the browser runner behave as before             |
 
-### Lifecycle choices for the owner
+### Lifecycle owner decisions
 
-| Choice                                   | Recommended                                                        | Alternative                                                                   |
+On September 27, 2026, the owner settled the first choice as recommended and
+asked the oracle to settle the rest; it chose each recommended option and
+flagged none for the owner. The alternatives stay recorded for their rationale.
+
+| Choice                                   | Decision                                                           | Alternative not chosen                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
 | Default for the development binary       | Disposable unless given an explicit path                           | Persistent by default, disposable by flag                                     |
 | How the path is given                    | Command-line argument                                              | Environment variable, removed from the browser runner's environment           |
@@ -2625,8 +2637,10 @@ four findings and revised this section:
 | AS18-A-01, limited: one owner per development database         | Accepted. Recommendation 2 names the Rust application as lifecycle owner and refuses a second start on the same path; concurrent convergence becomes the alternative   |
 | AS18-C-01, limited: explain non-destructive migration recovery | Accepted. Recommendation 5's refusal names the path and version and offers restoring the migration before the reset; startup never resets                              |
 
-These dispositions are the driver's and remain proposed with the rest of S18.
-One model's review is not owner approval or consensus.
+These dispositions are the driver's. They became accepted direction with the
+[owner decisions](#lifecycle-owner-decisions), in which the owner delegated nine
+choices to this same reviewer; one model's review and delegated choices are not
+an independent approval or consensus.
 
 ### Explicit exclusions
 
@@ -2675,6 +2689,13 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, lifecycle decisions:** Recorded S18's ten choices as settled:
+  the first by the owner, the other nine by the oracle at the owner's request,
+  each as recommended. Replaced the choices table with "Lifecycle owner
+  decisions", marked the recommendations as accepted direction, and recorded the
+  owner's authorization to implement S18 in reviewed steps. Updated the S18
+  pointers in the introduction, S10, S11 and S17. Documentation only; no
+  implementation yet.
 - **2026-09-27, lifecycle pass:** Added proposed S18 for the reference
   application's lifecycle: current behavior with source citations, a
   journal-mode probe, recommendations for storage, initialization, seeds, reset,

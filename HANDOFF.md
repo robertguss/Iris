@@ -12,12 +12,21 @@ Observed September 27, 2026, by the outgoing driver.
 - This chunk's commits: `858bcf8` (S18 decisions recorded) and `d0ae9d8`
   (storage and initialization implemented), on top of the previous handoff
   `1c3aa65`.
-- Pushed through `8594777` only: `main`, `origin/main` and
-  `origin/s17-checkpoint-a` are at `8594777`. Local `s17-checkpoint-a` is at
-  `8d2cfc7`, one ahead of its upstream. Nothing on `lifecycle-design` beyond
-  `8d2cfc7` is pushed. No push was authorized.
-- PR #1 is merged (`8594777`). No new pull request exists.
-- The working tree was clean apart from this handoff before its commit.
+- Pushed through `c810f91` (the previous handoff commit) to `main`, by
+  fast-forward, at the owner's instruction "skip the pr and go straight to
+  main". `origin/main` and local `main` include every commit through `c810f91`;
+  the commit carrying this correction is pushed to `main` as well.
+  `origin/s17-checkpoint-a` stays at `8594777`; local `s17-checkpoint-a` is at
+  `8d2cfc7`, one ahead of its upstream. `lifecycle-design` still has no
+  upstream; its commits reach GitHub only through `main`.
+- PR #1 is merged (`8594777`). No new pull request exists; the owner chose to
+  skip one.
+- CI: GitHub Actions run 36364999959 (Verify, push event) on `c810f91` passed on
+  its first attempt, every step green, including the new storage tests on Linux.
+- The working tree was clean apart from this handoff before its commit. This
+  correction of sections 1, 5, 6, 8, 9 and 10 after the push was made without an
+  oracle review, at the owner's instruction ("fix handoff and don't worry about
+  the review just do it now").
 
 Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 `git ls-remote origin`) before relying on any of this.
@@ -92,14 +101,14 @@ for the browser workflow. Evidence in
 `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/a1086d40-571b-4bc2-91e9-0105bb9d9d75/scratchpad/`
 (temporary; below, `scratchpad/`).
 
-| Claim (step 2 unless noted) | Command and result                                                                                                                                                                                      | Evidence                                        | Checked by                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------- |
-| Rust suite                  | `cargo test --workspace --locked`: 150 passed, 0 failed                                                                                                                                                 | `evidence/03-cargo-test.txt`                    | Driver; the oracle reran the 21 storage and 4 binary tests |
-| Lint and format             | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `cargo fmt --all --check`: clean                                                                                       | `evidence/04-clippy.txt`, `05-fmt.txt`          | Driver-reported                                            |
-| Client and browser          | `npm --prefix apps/reference/web run verify`: PASS; `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>`: PASS (disposable path through `Storage`)                     | `evidence/06-web-verify.txt`, `07-browser.txt`  | Driver-reported                                            |
-| Mutations                   | `mutate.py`: 12 of 12 caught (journal check, lock, seed existing, hard link to rename, reclaim ×2, migrate existing, sidecar, symlink, link count, owner record, case-sensitive names)                  | `evidence/08-mutations.txt`, `mutate.py`        | Oracle inspected, did not rerun                            |
-| Markdown (both steps)       | Prettier 3.9.9 check clean; `links.py`: 156 (step 1), then 169 local links, 0 broken; step 1 seeded control reported all three breaks                                                                   | `evidence/01-links.txt`, `02-links-control.txt` | Oracle reran Prettier and the link check                   |
-| Limits                      | Linux and GitHub Actions not run (nothing pushed); publication-after-close is source-reviewed only; a failure while opening a pool or connection is outside the closure guarantee; torn `owner` refused | S18 "Storage and initialization evidence"       | Oracle agreed with the limits                              |
+| Claim (step 2 unless noted) | Command and result                                                                                                                                                                                                            | Evidence                                        | Checked by                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------- |
+| Rust suite                  | `cargo test --workspace --locked`: 150 passed, 0 failed                                                                                                                                                                       | `evidence/03-cargo-test.txt`                    | Driver; the oracle reran the 21 storage and 4 binary tests |
+| Lint and format             | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `cargo fmt --all --check`: clean                                                                                                             | `evidence/04-clippy.txt`, `05-fmt.txt`          | Driver-reported                                            |
+| Client and browser          | `npm --prefix apps/reference/web run verify`: PASS; `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>`: PASS (disposable path through `Storage`)                                           | `evidence/06-web-verify.txt`, `07-browser.txt`  | Driver-reported                                            |
+| Mutations                   | `mutate.py`: 12 of 12 caught (journal check, lock, seed existing, hard link to rename, reclaim ×2, migrate existing, sidecar, symlink, link count, owner record, case-sensitive names)                                        | `evidence/08-mutations.txt`, `mutate.py`        | Oracle inspected, did not rerun                            |
+| Markdown (both steps)       | Prettier 3.9.9 check clean; `links.py`: 156 (step 1), then 169 local links, 0 broken; step 1 seeded control reported all three breaks                                                                                         | `evidence/01-links.txt`, `02-links-control.txt` | Oracle reran Prettier and the link check                   |
+| Limits                      | GitHub Actions run 36364999959 on Linux passed after the push to `main`; publication-after-close is source-reviewed only; a failure while opening a pool or connection is outside the closure guarantee; torn `owner` refused | S18 "Storage and initialization evidence"       | Oracle agreed with the limits                              |
 
 Oracle verdicts:
 
@@ -152,9 +161,10 @@ None disputed, so none went to the owner.
    a mutation (S14's focused validation items 2 and 3) is still untested.
 10. **Detecting a database created against another issuer:** documented in the
     README only.
-11. **Publishing `lifecycle-design`:** push and any pull request need the
-    owner's go-ahead; CI has not run on this chunk's code (the new storage tests
-    spawn subprocesses and have only run on macOS).
+11. **Stale CI statements in the design record:** S18's "Storage and
+    initialization evidence" and the decision record's storage entry say Linux
+    and GitHub Actions were not run; run 36364999959 on `c810f91` has since
+    passed. Correct them in the next reviewed step.
 
 ## 7. Next chunk
 
@@ -175,9 +185,10 @@ yet agreed.
 - **Authorized:** implementing S18 in reviewed steps: storage and initialization
   (done), reset and migrations, shutdown and session cleanup, the development
   command.
-- **Pushes:** none authorized; every push needs a fresh go-ahead. CI reruns need
-  the owner.
-- **Not authorized:** any push or merge; a new pull request; deleting
+- **Pushes:** the owner authorized pushing this chunk's work straight to `main`
+  without a pull request; that was done. Every later push needs a fresh
+  go-ahead. CI reruns need the owner.
+- **Not authorized:** any further push or merge; a new pull request; deleting
   `s17-checkpoint-a`, `lifecycle-design` or `docs/s17-reference-app`;
   invitations; retiring frozen experiments; editing `experiments/`; editing PR
   #1.
@@ -187,8 +198,8 @@ yet agreed.
 
 ## 9. Open questions for the user
 
-- Should `lifecycle-design` be pushed, and is a pull request wanted? Blocks CI
-  evidence for this chunk (Linux, GitHub Actions) and publishing.
+- Should later chunks also go straight to `main` without a pull request? Blocks
+  the next push.
 - Is the next chunk (step 3 alone, then a handoff) the right size, or should
   steps 3–5 run in one chunk? Blocks only the chunk boundary; the plan review
   can settle it if the owner has no preference.
@@ -201,11 +212,12 @@ yet agreed.
   driver was started, because the owner paused for the night. Next session:
   restart the oracle and start a fresh driver from this file, or have the
   current pair continue.
-- **Remote:** `main` and `s17-checkpoint-a` at `8594777`; PR #1 merged. Don't
-  edit or delete without the owner.
-- **Local branches:** `lifecycle-design` (this work, unpushed);
-  `s17-checkpoint-a` at `8d2cfc7`; `main` at `8594777`; `docs/s17-reference-app`
-  at `5ad417d` (older; leave it).
+- **Remote:** `main` at this handoff's commit (through `c810f91` and this
+  correction); `s17-checkpoint-a` at `8594777`; PR #1 merged. Don't edit or
+  delete without the owner.
+- **Local branches:** `lifecycle-design` (this work, no upstream; pushed only
+  through `main`); `s17-checkpoint-a` at `8d2cfc7`; `main` tracking
+  `origin/main`; `docs/s17-reference-app` at `5ad417d` (older; leave it).
 - **Local installs:** `experiments/agent-interface/node_modules` and
   `apps/reference/web/node_modules` (gitignored).
 - **Retained evidence (temporary, possibly already deleted):**
@@ -333,8 +345,11 @@ yet agreed.
 - **`crates/iris`:** add to it only what two operations demonstrably share,
   naming both.
 - **History and pushes:** history on `main` is linear. Never push without the
-  owner's go-ahead. `s17-checkpoint-a` tracks `origin/s17-checkpoint-a`;
-  `lifecycle-design` has no upstream. Push only by explicit SHA and refspec.
+  owner's go-ahead. In zsh, brace a variable before a colon in a refspec
+  (`"${SHA}:refs/heads/main"`): `$SHA:r` is a history modifier that strips an
+  extension and mangles the refspec. `s17-checkpoint-a` tracks
+  `origin/s17-checkpoint-a`; `lifecycle-design` has no upstream. Push only by
+  explicit SHA and refspec.
 - **Panes:** the driver works in the left pane and the oracle in the right. The
   driver sends oracle prompts through a file.
 - **Scripted edits to wrapped Markdown:** Prettier's prose wrap moves line

@@ -48,7 +48,8 @@ pub fn is_busy(error: &sqlx::Error) -> bool {
 /// The application schema, including the session tables.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
-/// Disposable fixtures only; do not call this against an application database.
+/// Test and development fixtures, only for a database created for them; the
+/// development binary applies them through `storage` when it initializes one.
 pub async fn seed(conn: &mut SqliteConnection, issuer: &str) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "INSERT INTO users (id, display_name) VALUES (11, 'Alice Example'), (29, 'Bob Example');

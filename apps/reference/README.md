@@ -55,23 +55,40 @@ IRIS_PUBLIC_ORIGIN=http://127.0.0.1:5175 IRIS_OIDC_ISSUER=http://127.0.0.1:4001 
 npm --prefix apps/reference/web run dev
 ```
 
-The development server listens on `127.0.0.1:3003` (`IRIS_LISTEN` overrides it),
-uses a disposable SQLite database, and seeds Bob as an editor of Alice's project
-41 so a role change or removal can succeed without invitations. Restarting it
-resets the data.
+The development server listens on `127.0.0.1:3003` (`IRIS_LISTEN` overrides it)
+and seeds Bob as an editor of Alice's project 41 so a role change or removal can
+succeed without invitations. By default it uses a disposable SQLite database, so
+restarting it resets the data.
+
+To keep data across restarts, pass a path after the flag, for example
+`-- --local-oidc-demo --database /tmp/iris-reference.db` (a path outside the
+checkout until the development command's gitignored directory exists). The path
+is only ever an argument, never an environment variable, so the tests and the
+browser workflow stay disposable. The parent directory must exist. On the first
+start the server builds, migrates and seeds the database in a staging directory
+next to it (`<name>.iris-init`) and publishes it only when complete; later
+starts apply new migrations and never seed again. The seeded identities are
+bound to the issuer in use when the database was created. One server owns a path
+at a time: a lock on `<name>.iris-lock`, released when the process exits even
+after a crash, refuses a second start. The server also refuses a database that
+is a symbolic link, has another hard link, is not in SQLite's rollback journal
+mode, or is missing while its `-journal`, `-wal` or `-shm` files remain. Until a
+reset command exists (S18), start over by using a fresh path rather than
+deleting database files.
 
 ## Layout
 
 | Path                                | Owns                                                                                                                                                      |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/app.rs`                        | State, connections, the migration, seeds, and the one checked assembly behind `app()` and `openapi()`                                                     |
+| `src/app.rs`                        | State, connections, the migration, seed fixtures, and the one checked assembly behind `app()` and `openapi()`                                             |
 | `src/identity.rs`                   | Session/OIDC identity copied as application code; session endpoints keep their `{code,message}` bodies                                                    |
 | `src/domains/mod.rs`                | The stage, failure and cleanup vocabulary that mutations and reads share                                                                                  |
 | `src/domains/memberships.rs`        | Commands, rejection types, one private SQLite transaction for both mutations, and member listing                                                          |
 | `src/domains/projects.rs`           | The caller's own projects, filtered by actor                                                                                                              |
 | `src/read.rs`                       | One owned `query_only` connection and deferred transaction per read, finalized and classified                                                             |
 | `src/http/`                         | DTOs, declarations, endpoints, mounts, the session-marker classifier, wire IDs, page parameters                                                           |
-| `src/bin/reference-dev.rs`          | The disposable `--local-oidc-demo` development server                                                                                                     |
+| `src/storage.rs`                    | The development database: one owner per path, atomic initialization with the development fixtures, the rollback journal check                             |
+| `src/bin/reference-dev.rs`          | The `--local-oidc-demo` development server, disposable unless given `--database PATH`                                                                     |
 | `web/src/client.ts`                 | The whole-request boundary: linkage, the recovery parse, single bounded reads and validation against the bundled export                                   |
 | `web/src/membership.ts`             | One attempt per domain request: mutations as POST with the CSRF token, reads as a bodiless GET with one overload per read; the declared readback's inputs |
 | `web/src/session.ts`, `main.tsx`    | Session bootstrap over the existing session contracts, and the member directory console with its readback                                                 |

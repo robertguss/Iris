@@ -54,10 +54,12 @@ fn issuer() -> (Owned, String) {
 }
 
 fn server(issuer: &str, flag: bool) -> (Owned, mpsc::Receiver<String>) {
+    server_with(issuer, if flag { &["--local-oidc-demo"] } else { &[] })
+}
+
+fn server_with(issuer: &str, args: &[&str]) -> (Owned, mpsc::Receiver<String>) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_reference-dev"));
-    if flag {
-        command.arg("--local-oidc-demo");
-    }
+    command.args(args);
     let mut child = Owned(
         command
             .env("IRIS_PUBLIC_ORIGIN", ORIGIN)
@@ -87,6 +89,77 @@ fn refuses_to_start_without_the_demo_flag() {
     // The child has exited, so its stderr ends and the channel closes.
     let output = stderr.iter().collect::<Vec<_>>().join("\n");
     assert!(output.contains("requires --local-oidc-demo"), "{output}");
+}
+
+/// Waits for the child to exit and returns its status and whole stderr.
+fn exited(child: &mut Owned, stderr: mpsc::Receiver<String>) -> (bool, String) {
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            break status;
+        }
+        assert!(started.elapsed() < WAIT, "still running");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    (
+        status.success(),
+        stderr.iter().collect::<Vec<_>>().join("\n"),
+    )
+}
+
+/// Reads stderr until the server reports its address, returning every line.
+fn listening(stderr: &mpsc::Receiver<String>) -> Vec<String> {
+    let started = Instant::now();
+    let mut seen = Vec::new();
+    loop {
+        let line = stderr
+            .recv_timeout(WAIT.saturating_sub(started.elapsed()))
+            .unwrap_or_else(|_| panic!("server did not report its address: {seen:?}"));
+        let done = line.starts_with("listening on ");
+        seen.push(line);
+        if done {
+            return seen;
+        }
+    }
+}
+
+#[test]
+fn refuses_an_unknown_argument() {
+    let (_provider, issuer) = issuer();
+    let (mut child, stderr) = server_with(&issuer, &["--local-oidc-demo", "--persist"]);
+    let (success, output) = exited(&mut child, stderr);
+    assert!(!success);
+    assert!(output.contains("usage: reference-dev"), "{output}");
+}
+
+#[test]
+fn a_database_path_persists_across_a_kill_and_admits_one_process() {
+    let (_provider, issuer) = issuer();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dev.db");
+    let path = path.to_str().unwrap();
+    let args = ["--local-oidc-demo", "--database", path];
+
+    let (mut first, stderr) = server_with(&issuer, &args);
+    let lines = listening(&stderr);
+    assert!(
+        lines.iter().any(|line| line.contains("persistent data at")),
+        "{lines:?}"
+    );
+    let (mut second, second_err) = server_with(&issuer, &args);
+    let (success, output) = exited(&mut second, second_err);
+    assert!(!success);
+    assert!(
+        output.contains("in use by another reference-dev process"),
+        "{output}"
+    );
+
+    // SIGKILL runs no destructors; the operating system releases the lock.
+    first.0.kill().unwrap();
+    first.0.wait().unwrap();
+    let (_third, stderr) = server_with(&issuer, &args);
+    listening(&stderr);
+    assert!(!dir.path().join("dev.db.iris-init").exists());
 }
 
 #[tokio::test]

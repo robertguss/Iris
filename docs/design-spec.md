@@ -360,21 +360,21 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                              | Status and evidence                                                                                                                                                  |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                          |
-| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                              |
-| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                      |
-| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                       |
-| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                 |
-| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                    |
-| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                  |
-| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                               |
-| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md) |
-| Reference application lifecycle                                         | Decided in S18: storage, seeds, journal mode, tasks, development command; implementation authorized in steps, not yet implemented                                    |
-| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                          |
-| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                        |
-| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                    |
+| Capability                                                              | Status and evidence                                                                                                                                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                    |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                        |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                 |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                           |
+| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                              |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                            |
+| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                         |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)           |
+| Reference application lifecycle                                         | Decided in S18; storage, initialization and the journal-mode check implemented; reset, migrations, shutdown, tasks and the development command authorized, not yet implemented |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                    |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                  |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                              |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
@@ -2402,20 +2402,22 @@ experiment was retired, and no productivity claim follows.
 
 ## S18 — Reference application lifecycle
 
-**Decided; implementation authorized, not yet implemented.** On September 27,
-2026, the owner chose this lifecycle pass as the chunk after the pull request #1
-merge. It covers the five items that S17 [deferred](#ownership-boundaries):
-persistent storage, seed policy, SQLite journal mode, worker supervision, and
-one development command for the issuer, API and Vite. It was first written as a
-proposal authorizing no implementation, dependency, CI, migration or wire
-change. The recommendations are the driver's (Claude, Opus 5.5). The same day,
-the owner settled the first of the ten [choices](#lifecycle-owner-decisions) and
-delegated the other nine to the oracle (Astra, GPT-6-Astra through Codex), which
-chose each recommended option. The oracle is also this section's design reviewer
-and reviewed its plans and diffs, so its nine choices are not an independent
-approval. The owner then authorized implementation in reviewed steps: storage
-and initialization, reset and migrations, shutdown and session cleanup, then the
-development command. Source citations are to `8d2cfc7`.
+**Decided; storage and initialization implemented, the rest authorized.** On
+September 27, 2026, the owner chose this lifecycle pass as the chunk after the
+pull request #1 merge. It covers the five items that S17
+[deferred](#ownership-boundaries): persistent storage, seed policy, SQLite
+journal mode, worker supervision, and one development command for the issuer,
+API and Vite. It was first written as a proposal authorizing no implementation,
+dependency, CI, migration or wire change. The recommendations are the driver's
+(Claude, Opus 5.5). The same day, the owner settled the first of the ten
+[choices](#lifecycle-owner-decisions) and delegated the other nine to the oracle
+(Astra, GPT-6-Astra through Codex), which chose each recommended option. The
+oracle is also this section's design reviewer and reviewed its plans and diffs,
+so its nine choices are not an independent approval. The owner then authorized
+implementation in reviewed steps: storage and initialization, reset and
+migrations, shutdown and session cleanup, then the development command. The
+first step's [evidence](#storage-and-initialization-evidence) records what was
+built. Source citations in the sections before it are to `8d2cfc7`.
 
 ### Current behavior
 
@@ -2488,7 +2490,8 @@ evidence.
 ### Recommendations
 
 Accepted direction through the [owner decisions](#lifecycle-owner-decisions);
-not yet implemented. Each names the choice it depends on.
+recommendations 1, 2 and 3 and the startup check of 7 are implemented, the rest
+not yet. Each names the choice it depends on.
 
 1. **Storage stays disposable by default; persistence is an explicit path.** The
    development binary gains an explicit database path argument, for example
@@ -2620,6 +2623,80 @@ flagged none for the owner. The alternatives stay recorded for their rationale.
 | Owners of a persistent database          | One API at a time; a second start is refused                       | Concurrent starts converge on one initialized database                        |
 | Shutdown budget                          | An inner drain deadline inside the outer kill bound, with a margin | A coarse process-stop bound that promises no drain                            |
 
+### Storage and initialization evidence
+
+The first implementation step, under the owner's authorization, covers
+recommendations 1, 2 and 3 and the startup check of 7.
+[`storage.rs`](../apps/reference/src/storage.rs) owns the development database;
+[`reference-dev`](../apps/reference/src/bin/reference-dev.rs) takes
+`--database PATH` after `--local-oidc-demo`, refuses any other argument, and
+stays disposable without it through the same code path. No dependency was added:
+the ownership lock is Rust 1.98.1's `File::try_lock` on a never-deleted sibling,
+`<name>.iris-lock`, which the operating system releases when the process ends.
+
+The plan review added the protocol's safety rules. A path is resolved to one
+identity first: the parent must exist and is canonicalized, and a symbolic link
+as the database, a name ending in `.iris-lock` or `.iris-init` in any case (with
+or without a SQLite sidecar suffix), or a parent inside a staging directory is
+refused before the lock file is created. A new database is built in a staging
+directory, `<name>.iris-init/`, claimed with `create_dir` under the lock and
+holding an `owner` record with the canonical target path; the database is
+migrated, seeded with the development fixture set (`seed` plus the editor row),
+closed with its closure awaited, then published with a hard link that fails if
+the target exists. A later start reclaims a staging directory only if it is
+empty or holds a matching `owner` record and nothing but the initializer's own
+files, deleting the database files before the record and never recursively; any
+other occupant is refused and kept. An existing target with two links is
+accepted only when the second is the owned staged database with the same device
+and inode, and must have one link after reclamation. A missing target whose
+`-journal`, `-wal` or `-shm` file remains is refused, since a hot journal could
+replay old content into a new database. An existing database is checked for the
+rollback journal (`delete`) before any migration write, migrated, and never
+seeded. Paths, the staging directory and link counts are validated before any
+staging file is deleted; the journal check follows reclamation of a valid
+staging directory. Connections and the server's session pool that were
+successfully opened are closed, their closure awaited, before the lock is
+released on the handled return paths; a failure while opening one is not
+covered.
+
+Local run on macOS (APFS), Rust 1.98.1, Node 24.20.0 for the browser workflow:
+
+```sh
+cargo test --workspace --locked              # 150 passed, 0 failed
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo fmt --all --check
+npm --prefix apps/reference/web run verify   # passed
+mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>   # passed
+```
+
+| Acceptance row | Test                                                                                                                                                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Storage        | Without `--database` the smoke tests, the browser workflow and a disposable `Storage` behave as before; a restart keeps a changed role and a removal without reseeding; a second owner, in-process or a second `reference-dev` process, is refused before the database changes; after `SIGKILL` of a running server the next start succeeds |
+| Initialization | A child process of the test binary is killed at barriers after migration, after seeding and after publication; the first two leave no target and the next start reclaims the staging directory and seeds once; the third leaves two links, and the next start restores one without reseeding; concurrent opens leave one seeded database    |
+| Aliases, names | A directory alias contends for the same lock; a symbolic link, a foreign hard link, and a publication leftover beside a foreign alias are refused with every name kept; reserved names in mixed case are refused; unrelated siblings survive reclamation                                                                                    |
+| Journal mode   | A new database reports `delete`; a database switched to WAL elsewhere is refused and still reports `wal`; a missing database with a stale sidecar is refused                                                                                                                                                                                |
+| Migration      | A valid SQLite file without the schema is migrated to version 1, keeps its unrelated table and receives no fixtures                                                                                                                                                                                                                         |
+
+The barriers and an injected failure after migration exist only in the library's
+test build. Twelve mutations, each on a disposable copy with its own Cargo
+target directory, were each caught by at least one storage test: dropping the
+journal check, the lock, the migration of an existing database, the sidecar,
+symbolic-link, link-count or owner-record check, or the reclamation before
+initialization or beside an existing database; seeding an existing database;
+publishing with `rename` instead of a hard link; and case-sensitive reserved
+names.
+
+Limits: closing before publication is source-reviewed, not tested, because an
+idle connection in rollback mode leaves no observable file state; the failed
+initialization test shows lock reacquisition and recovery, not that no
+descriptor lingered. A torn `owner` write is refused, never reclaimed, and needs
+removal by hand. External SQLite tools and processes that ignore the lock are
+not excluded; only the no-clobber link protects the target. A database created
+against another issuer is not detected. Linux and GitHub Actions were not run;
+nothing was pushed. Reset, migration refusal messages, graceful shutdown,
+session cleanup and the development command are later steps; until reset lands,
+the guide says to start over with a fresh path.
+
 ### Review of the lifecycle proposal
 
 The oracle, Astra (GPT-6 through Codex), reviewed S18 at `f83688e` under the
@@ -2689,6 +2766,11 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-09-27, lifecycle storage and initialization:** Implemented S18's first
+  step in the reference application: `--database PATH`, one owner per path,
+  atomic initialization with an owned staging directory, seeds only for a new
+  database, and the rollback-journal check. Recorded the evidence in S18 and
+  updated S10. No dependency, contract, CI or frozen-experiment change.
 - **2026-09-27, lifecycle decisions:** Recorded S18's ten choices as settled:
   the first by the owner, the other nine by the oracle at the owner's request,
   each as recommended. Replaced the choices table with "Lifecycle owner

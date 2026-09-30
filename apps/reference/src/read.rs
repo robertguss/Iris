@@ -4,6 +4,7 @@
 //! own proof.
 use crate::domains::{Cleanup, FailureKind, Stage, failure_kind};
 use sqlx::{Connection, SqliteConnection};
+use std::borrow::BorrowMut;
 
 /// Why a read stopped before its page was complete.
 #[derive(Debug, PartialEq, Eq)]
@@ -46,15 +47,23 @@ impl<T> Page<T> {
     }
 }
 
+/// A connection a read takes and drops: a plain one, or the server's tracked
+/// one. A `&mut` borrow does not qualify, so the caller cannot keep it.
+pub trait OwnedConnection: BorrowMut<SqliteConnection> {}
+impl OwnedConnection for SqliteConnection {}
+impl OwnedConnection for crate::lifecycle::Tracked {}
+
 /// Runs `body` in one deferred transaction, then awaits `COMMIT` or
 /// `ROLLBACK` so cleanup is classified rather than assumed. Takes the
 /// connection and drops it, so neither `query_only` nor an unfinished
 /// transaction can reach a later mutation. Dropping this future mid-read drops
 /// both; SQLx queues that rollback rather than acknowledging it.
 pub async fn run<T, R>(
-    mut conn: SqliteConnection,
+    mut conn: impl OwnedConnection,
     body: impl AsyncFnOnce(&mut SqliteConnection) -> Result<T, Stop<R>>,
 ) -> Result<T, ReadError<R>> {
+    // The owner, plain or tracked, lives until this function returns.
+    let conn = conn.borrow_mut();
     let unstarted = |error| ReadError::Failed {
         primary: execution(Stage::Begin, error),
         cleanup: Cleanup::Unconfirmed {
@@ -63,7 +72,7 @@ pub async fn run<T, R>(
     };
     // Guards mistakes; not a security boundary or compile-time guarantee.
     sqlx::query("PRAGMA query_only = ON")
-        .execute(&mut conn)
+        .execute(&mut *conn)
         .await
         .map_err(unstarted)?;
     let mut tx = conn.begin().await.map_err(unstarted)?;

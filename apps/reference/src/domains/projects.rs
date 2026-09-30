@@ -4,7 +4,6 @@ use crate::{
     identity::Actor,
     read::{self, Page, ReadError, Stop},
 };
-use sqlx::SqliteConnection;
 
 pub struct ListMine {
     pub limit: u32,
@@ -27,7 +26,7 @@ pub enum ListMineRejection {}
 /// Filter-style visibility: the page query itself selects only the actor's
 /// memberships, so there is nothing to refuse.
 pub async fn list_mine(
-    conn: SqliteConnection,
+    conn: impl read::OwnedConnection,
     actor: &Actor,
     query: ListMine,
 ) -> Result<Page<ProjectSummary>, ReadError<ListMineRejection>> {

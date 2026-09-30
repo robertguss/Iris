@@ -3,6 +3,7 @@
 pub mod memberships;
 pub mod projects;
 
+use crate::lifecycle::Tracked;
 use crate::{
     app::AppState,
     domains::FailureKind,
@@ -12,7 +13,6 @@ use crate::{
 use axum::{Router, response::Response};
 use iris::{Mapping, Operation, RequestId, Shared, shared};
 use serde::{Deserialize, Serialize};
-use sqlx::SqliteConnection;
 
 /// Positive canonical decimal IDs only; the caller maps failure to its refusal.
 pub(crate) fn parse_id(value: &str) -> Result<i64, ()> {
@@ -23,9 +23,10 @@ pub(crate) fn parse_id(value: &str) -> Result<i64, ()> {
     parsed.ok_or(())
 }
 
-/// A fresh connection, or the shared failure for not opening one.
-pub(crate) async fn open(state: &AppState) -> Result<SqliteConnection, Shared> {
-    crate::app::connect(&state.database).await.map_err(|e| {
+/// A fresh connection, tracked until its closure is acknowledged, or the
+/// shared failure for not opening one.
+pub(crate) async fn open(state: &AppState) -> Result<Tracked, Shared> {
+    state.connections.open(&state.database).await.map_err(|e| {
         if crate::app::is_busy(&e) {
             Shared::Unavailable
         } else {

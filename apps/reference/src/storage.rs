@@ -672,7 +672,7 @@ static PROCESSES: std::sync::RwLock<()> = std::sync::RwLock::new(());
 /// Held by a storage test that spawns no child. A failed test must not fail the rest,
 /// so a poisoned lock is still taken.
 #[cfg(test)]
-fn shared() -> std::sync::RwLockReadGuard<'static, ()> {
+pub(crate) fn shared() -> std::sync::RwLockReadGuard<'static, ()> {
     PROCESSES
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

@@ -1,9 +1,10 @@
 //! Smoke test for the development binary: flag enforcement, startup, the
-//! served session and domain boundary, and the database reset. The browser
-//! workflow covers the rest.
+//! served session and domain boundary, the database reset, and shutdown on a
+//! signal with the session cleanup task. The browser workflow covers the rest.
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read, Write},
+    net::TcpStream,
     process::{Child, Command, Stdio},
     sync::mpsc,
     time::{Duration, Instant},
@@ -470,4 +471,305 @@ fn the_reset_command_in_a_refusal_runs_as_printed() {
             "{name}"
         );
     }
+}
+
+/// Sends `name` (TERM or INT) to a running server.
+fn signal(child: &Owned, name: &str) {
+    let status = Command::new("kill")
+        .args([format!("-{name}"), child.0.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+/// Waits for the child's own exit and returns its code and whole stderr.
+fn code(child: &mut Owned, stderr: mpsc::Receiver<String>) -> (Option<i32>, String) {
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            break status;
+        }
+        assert!(started.elapsed() < WAIT, "still running");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    (status.code(), stderr.iter().collect::<Vec<_>>().join("\n"))
+}
+
+/// Bob's role in project 41, read directly from the database.
+async fn role(path: &str) -> String {
+    use sqlx::Connection;
+    let mut conn = iris_reference::app::connect(std::path::Path::new(path))
+        .await
+        .unwrap();
+    let role =
+        sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=41 AND user_id=29")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+    conn.close().await.unwrap();
+    role
+}
+
+async fn csrf(http: &reqwest::Client, address: &str, cookie: &str) -> String {
+    let session = http
+        .get(format!("{address}/api/auth/session"))
+        .header("cookie", cookie)
+        .send()
+        .await
+        .unwrap();
+    session.json::<Value>().await.unwrap()["csrf_token"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn no_redirects() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_signal_stops_an_idle_server_cleanly_and_releases_its_database() {
+    let (_provider, issuer) = issuer();
+    for name in ["TERM", "INT"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dev.db");
+        let path = path.to_str().unwrap();
+        let args = ["--local-oidc-demo", "--database", path];
+        let http = no_redirects();
+
+        let (mut server, stderr) = server_with(&issuer, &args);
+        let address = address(&listening(&stderr));
+        let cookie = sign_in(&http, &address).await;
+        let changed = http
+            .post(format!("{address}/api/memberships/role"))
+            .header("origin", ORIGIN)
+            .header("x-iris-csrf", csrf(&http, &address, &cookie).await)
+            .header("cookie", &cookie)
+            .json(&json!({"project_id": "41", "user_id": "29", "role": "viewer"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(changed.status(), 200);
+
+        let signalled = Instant::now();
+        signal(&server, name);
+        let (code, output) = code(&mut server, stderr);
+        let elapsed = signalled.elapsed();
+        assert_eq!(code, Some(0), "{name}: {output}");
+        assert!(elapsed < Duration::from_secs(2), "{name}: {elapsed:?}");
+        assert!(output.contains(&format!("received SIG{name}")), "{output}");
+        assert!(output.contains("stopped after draining"), "{output}");
+        assert!(!dir.path().join("dev.db-journal").exists());
+        assert!(!dir.path().join("dev.db.iris-init").exists());
+
+        // The lock is free at once, and the change was kept.
+        let (_server, stderr) = server_with(&issuer, &args);
+        listening(&stderr);
+        assert_eq!(role(path).await, "viewer");
+    }
+}
+
+/// A role change whose headers the server has admitted, shown by its
+/// `100 Continue`, and whose body is still partly unsent. What the interim
+/// response shows is that the server began reading the body; it says nothing
+/// about authentication or the transaction.
+struct Admitted {
+    stream: TcpStream,
+    rest: Vec<u8>,
+}
+
+fn admit(address: &str, cookie: &str, csrf: &str) -> Admitted {
+    let host = address.strip_prefix("http://").unwrap();
+    let body = json!({"project_id": "41", "user_id": "29", "role": "viewer"}).to_string();
+    let mut stream = TcpStream::connect(host).unwrap();
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    write!(
+        stream,
+        "POST /api/memberships/role HTTP/1.1\r\nhost: {host}\r\norigin: {ORIGIN}\r\n\
+         x-iris-csrf: {csrf}\r\ncookie: {cookie}\r\ncontent-type: application/json\r\n\
+         content-length: {}\r\nexpect: 100-continue\r\n\r\n",
+        body.len()
+    )
+    .unwrap();
+    // The interim response, read to its end and parsed on its own.
+    let mut interim = Vec::new();
+    let mut byte = [0];
+    while !interim.ends_with(b"\r\n\r\n") {
+        assert_eq!(stream.read(&mut byte).unwrap(), 1, "no interim response");
+        interim.push(byte[0]);
+    }
+    let interim = String::from_utf8(interim).unwrap();
+    assert!(
+        interim.starts_with("HTTP/1.1 100 Continue\r\n"),
+        "{interim}"
+    );
+    let (first, rest) = body.as_bytes().split_at(10);
+    stream.write_all(first).unwrap();
+    Admitted {
+        stream,
+        rest: rest.to_owned(),
+    }
+}
+
+/// Everything the server sends from here until it closes the connection.
+fn remainder(stream: &mut TcpStream) -> String {
+    let mut bytes = Vec::new();
+    // A reset counts as the end: whatever arrived before it is kept.
+    let _ = stream.read_to_end(&mut bytes);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Waits for a stderr line containing `needle`.
+fn reported(stderr: &mpsc::Receiver<String>, needle: &str) {
+    let started = Instant::now();
+    loop {
+        let line = stderr
+            .recv_timeout(WAIT.saturating_sub(started.elapsed()))
+            .unwrap_or_else(|_| panic!("the server never reported {needle}"));
+        if line.contains(needle) {
+            return;
+        }
+    }
+}
+
+/// Waits, bounded, until a new connection to the server fails.
+fn refused(address: &str) {
+    let host = address.strip_prefix("http://").unwrap();
+    let started = Instant::now();
+    while TcpStream::connect(host).is_ok() {
+        assert!(started.elapsed() < WAIT, "still accepting connections");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[tokio::test]
+async fn a_mutation_in_flight_at_the_signal_completes_and_is_acknowledged() {
+    let (_provider, issuer) = issuer();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dev.db");
+    let path = path.to_str().unwrap();
+    let args = ["--local-oidc-demo", "--database", path];
+    let http = no_redirects();
+    let (mut server, stderr) = server_with(&issuer, &args);
+    let address = address(&listening(&stderr));
+    let cookie = sign_in(&http, &address).await;
+    let token = csrf(&http, &address, &cookie).await;
+    drop(http);
+
+    let mut admitted = admit(&address, &cookie, &token);
+    signal(&server, "TERM");
+    reported(&stderr, "received SIGTERM");
+    refused(&address);
+    assert!(server.0.try_wait().unwrap().is_none());
+
+    admitted.stream.write_all(&admitted.rest).unwrap();
+    let response = remainder(&mut admitted.stream);
+    assert!(response.starts_with("HTTP/1.1 200 "), "{response}");
+    let envelope: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(envelope["kind"], "success");
+    assert_eq!(envelope["operation"], "memberships.change_role");
+
+    let (code, output) = code(&mut server, stderr);
+    assert_eq!(code, Some(0), "{output}");
+    assert!(output.contains("stopped after draining"), "{output}");
+    let (_server, stderr) = server_with(&issuer, &args);
+    listening(&stderr);
+    assert_eq!(role(path).await, "viewer");
+}
+
+#[tokio::test]
+async fn a_mutation_never_finished_is_abandoned_at_the_deadline_without_an_answer() {
+    let (_provider, issuer) = issuer();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dev.db");
+    let path = path.to_str().unwrap();
+    let args = ["--local-oidc-demo", "--database", path];
+    let http = no_redirects();
+    let (mut server, stderr) = server_with(&issuer, &args);
+    let address = address(&listening(&stderr));
+    let cookie = sign_in(&http, &address).await;
+    let token = csrf(&http, &address, &cookie).await;
+    drop(http);
+
+    let mut admitted = admit(&address, &cookie, &token);
+    let signalled = Instant::now();
+    signal(&server, "TERM");
+    reported(&stderr, "received SIGTERM");
+    refused(&address);
+    // A second signal neither ends the drain nor extends it.
+    std::thread::sleep(Duration::from_secs(1));
+    signal(&server, "TERM");
+
+    let (code, output) = code(&mut server, stderr);
+    let elapsed = signalled.elapsed();
+    assert_eq!(code, Some(1), "{output}");
+    assert!(elapsed >= Duration::from_millis(2900), "{elapsed:?}");
+    // Inside the supervisor's 5 s kill, with a margin.
+    assert!(elapsed < Duration::from_millis(4500), "{elapsed:?}");
+    assert!(output.contains("unconfirmed"), "{output}");
+    assert!(output.contains("closure was not established"), "{output}");
+    assert!(
+        !output.contains("received SIGTERM"),
+        "a second drain: {output}"
+    );
+    // No final response follows the interim one: never acknowledged.
+    let response = remainder(&mut admitted.stream);
+    assert!(!response.contains("HTTP/1.1"), "{response}");
+
+    let (_server, stderr) = server_with(&issuer, &args);
+    listening(&stderr);
+    assert_eq!(role(path).await, "editor");
+}
+
+#[tokio::test]
+async fn a_start_deletes_expired_sessions_and_login_attempts_and_keeps_live_ones() {
+    use sqlx::Connection;
+    let (_provider, issuer) = issuer();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dev.db");
+    let args = ["--local-oidc-demo", "--database", path.to_str().unwrap()];
+    let (mut server, stderr) = server_with(&issuer, &args);
+    listening(&stderr);
+    signal(&server, "TERM");
+    assert_eq!(code(&mut server, stderr).0, Some(0));
+
+    let far = "4102444800";
+    let mut conn = iris_reference::app::connect(&path).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO iris_sessions(id,data,expires_at) VALUES('old','{{}}',1),('live','{{}}',{far});
+         INSERT INTO iris_login_attempts(state,browser_id,nonce,verifier,expires_at)
+         VALUES('old','b','n','v',1),('live','b','n','v',{far})"
+    )))
+    .execute(&mut conn)
+    .await
+    .unwrap();
+
+    let (_server, stderr) = server_with(&issuer, &args);
+    listening(&stderr);
+    let started = Instant::now();
+    loop {
+        let mut rows: Vec<String> = sqlx::query_scalar("SELECT id FROM iris_sessions")
+            .fetch_all(&mut conn)
+            .await
+            .unwrap();
+        rows.extend(
+            sqlx::query_scalar::<_, String>("SELECT state FROM iris_login_attempts")
+                .fetch_all(&mut conn)
+                .await
+                .unwrap(),
+        );
+        if rows == ["live", "live"] {
+            break;
+        }
+        // The first tick, at start; the next is a minute away.
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "still {rows:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    conn.close().await.unwrap();
 }

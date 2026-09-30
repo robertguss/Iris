@@ -360,21 +360,21 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                              | Status and evidence                                                                                                                                                                       |
-| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                               |
-| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                                   |
-| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                           |
-| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                            |
-| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                                      |
-| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                                         |
-| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                                       |
-| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                                    |
-| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)                      |
-| Reference application lifecycle                                         | Decided in S18; storage, initialization, the journal-mode check, reset and the migration refusal implemented; shutdown, tasks and the development command authorized, not yet implemented |
-| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                               |
-| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                             |
-| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                                         |
+| Capability                                                              | Status and evidence                                                                                                                                                                                       |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                                               |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                                                   |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                                           |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                                            |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                                                      |
+| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                                                         |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                                                       |
+| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                                                    |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)                                      |
+| Reference application lifecycle                                         | Decided in S18; storage, initialization, the journal-mode check, reset, the migration refusal, shutdown and the session cleanup task implemented; the development command authorized, not yet implemented |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                                               |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                                             |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                                                         |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
@@ -402,8 +402,9 @@ observations motivate shared definitions, not productivity claims.
   semantics.
 - Runtime evidence collection, correlation, bounded retention and disclosure.
 - Configuration, startup, migrations, jobs and service lifecycle conventions.
-  S18 decides a first slice for the reference application; storage, reset and
-  the migration refusal are implemented, the rest authorized and pending.
+  S18 decides a first slice for the reference application; storage, reset, the
+  migration refusal, shutdown and session cleanup are implemented, the
+  development command authorized and pending.
 - Packaging, generators and compile-loop improvements justified by experience.
 
 Do not interpret this agenda as approval to implement all items. Generic action
@@ -1883,8 +1884,8 @@ packaging and naming remain open (S11).
   journal mode, worker supervision, and one development command for the issuer,
   API and Vite. The delivery worker is not ported.
   [S18](#s18--reference-application-lifecycle) now decides that pass; storage,
-  reset and the migration refusal are implemented, the rest authorized and
-  pending.
+  reset, the migration refusal, shutdown and session cleanup are implemented,
+  the development command authorized and pending.
 
 ### Operation sequence
 
@@ -2403,10 +2404,11 @@ experiment was retired, and no productivity claim follows.
 
 ## S18 — Reference application lifecycle
 
-**Decided; storage, initialization, reset and the migration refusal implemented,
-the rest authorized.** On September 27, 2026, the owner chose this lifecycle
-pass as the chunk after the pull request #1 merge. It covers the five items that
-S17 [deferred](#ownership-boundaries): persistent storage, seed policy, SQLite
+**Decided; storage, initialization, reset, the migration refusal, shutdown and
+session cleanup implemented; the development command authorized.** On September
+27, 2026, the owner chose this lifecycle pass as the chunk after the pull
+request #1 merge. It covers the five items that S17
+[deferred](#ownership-boundaries): persistent storage, seed policy, SQLite
 journal mode, worker supervision, and one development command for the issuer,
 API and Vite. It was first written as a proposal authorizing no implementation,
 dependency, CI, migration or wire change. The recommendations are the driver's
@@ -2417,8 +2419,9 @@ oracle is also this section's design reviewer and reviewed its plans and diffs,
 so its nine choices are not an independent approval. The owner then authorized
 implementation in reviewed steps: storage and initialization, reset and
 migrations, shutdown and session cleanup, then the development command. The
-first step's [evidence](#storage-and-initialization-evidence) and the second's
-[evidence](#reset-and-migration-evidence) record what was built. Source
+first step's [evidence](#storage-and-initialization-evidence), the second's
+[evidence](#reset-and-migration-evidence) and the third's
+[evidence](#shutdown-and-session-cleanup-evidence) record what was built. Source
 citations in the sections before it are to `8d2cfc7`.
 
 ### Current behavior
@@ -2492,8 +2495,9 @@ evidence.
 ### Recommendations
 
 Accepted direction through the [owner decisions](#lifecycle-owner-decisions);
-recommendations 1 to 5 and the startup check of 7 are implemented, the rest not
-yet. Each names the choice it depends on.
+recommendations 1 to 5, the startup check of 7, and 8's supervision, session
+cleanup and shutdown timeline are implemented; 6 is not yet. Each names the
+choice it depends on.
 
 1. **Storage stays disposable by default; persistence is an explicit path.** The
    development binary gains an explicit database path argument, for example
@@ -2800,8 +2804,137 @@ consecutive runs of the library's tests passed. A process that did spawn
 children while owning a database would extend its ownership to them in the same
 way. The guide's `stat` command for Linux and its manual steps were not
 executed; the move of the file set was, through SQLx on macOS. Linux and GitHub
-Actions have not run on this step. Graceful shutdown, session cleanup and the
-development command are later steps.
+Actions had not run when this was written; the step was later pushed to `main`,
+and GitHub Actions run 36721898213 (Verify, on Ubuntu) passed on `66d0608` on
+its first attempt. Shutdown and session cleanup followed in the
+[next step](#shutdown-and-session-cleanup-evidence); the development command is
+a later step.
+
+### Shutdown and session cleanup evidence
+
+The third implementation step, on September 30, 2026, covers recommendation 8
+for the process itself: supervised tasks, session cleanup and the shutdown
+timeline. [`lifecycle.rs`](../apps/reference/src/lifecycle.rs) owns everything
+after the listener is bound, and
+[`reference-dev`](../apps/reference/src/bin/reference-dev.rs) builds its runtime
+by hand so that the module can end it. One dependency changed: Tokio's `signal`
+feature, which adds `signal-hook-registry` 1.4.8 to the lockfile.
+
+The handlers for SIGINT and SIGTERM are registered before the readiness lines
+are printed. Serving ends at the first of a signal, a task ending, or the server
+ending, and one timeline follows. The stop is published: the server stops
+accepting, and a periodic task starts no new unit, with the stop winning over a
+tick that is ready at the same time. Requests and units already in flight may
+finish until the drain deadline, 3 s after that first cause; a later signal does
+not move it. After a complete drain, the session pool is closed and every domain
+connection's closure awaited under one close deadline of 1 s, with the runtime
+still running. The outcome keeps the cause, the drain, the failures and the
+closure apart: a panic before or during the drain is kept, a task's return
+counts as normal only if the stop had been requested when it returned (read
+inside the task, so a return that races a signal is still an early return), and
+the exit code is 0 only for a stop that a signal requested, that drained, that
+had no failure and whose closure was acknowledged. Session cleanup runs
+`Store::cleanup` at start and every 60 s; a database error is printed and the
+next tick tries again.
+
+The plan review found that the first plan released the ownership lock after
+shutting the runtime down, which establishes nothing about SQLx: its SQLite
+connections run on their own threads, and the oracle's probe showed a second
+owner taking the lock while a worker was still inside an update. Closure is
+therefore acknowledged, not assumed. `http::open` returns a tracked connection:
+a ticket is taken before the opening is awaited, and only an awaited `close`
+that succeeds releases it. Dropping the connection queues that close on the
+runtime, so no handler can forget it; the two reads pass the tracked connection
+through `list_members`, `list_mine` and `read::run` without unwrapping it. When
+closure is not established, the process prints its diagnostics and calls
+`std::process::exit(1)` with the storage never dropped, so the lock lasts until
+the operating system ends the process and every connection with it. That is the
+forced-termination limit recommendation 8 allows. Forced termination happens
+after an expired drain, where no close is attempted because handlers still hold
+connections, and after an expired close deadline. The diff review found that a
+task's factory ran before its handle existed, so a panic there escaped
+supervision; the factory now runs inside the watched task.
+
+Tests were written against stub bodies first; that run failed all 19 library
+tests and all 4 binary tests then written, and is kept with the step's evidence;
+three library tests were added afterwards, one split out and two from the diff
+review. Local run on macOS (APFS), Rust 1.98.1, Node 24.20.0 for the browser
+workflow:
+
+```sh
+cargo test --workspace --locked              # 198 passed, 0 failed
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo fmt --all --check
+npm --prefix apps/reference/web run verify   # passed
+mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>   # passed
+```
+
+| Acceptance clause                                             | Test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session cleanup removes expired rows on a persistent database | In the library, on a database opened through `Storage::open` with an injected clock: expired sessions and login attempts go at the first tick and unexpired ones stay; rows that expire later go at a later tick; ticks that fail while a writer holds the database past the pool's busy timeout are reported and the task keeps running. Through the binary: rows planted while the server is stopped are gone after the next start, and live ones remain                                                                                                                                                                                                                                                   |
+| A task that panics stops the process with a message           | In the library: a panic, an early return, and a panic in a task's factory before it returns its future each stop the server and are recorded as that task's failure, and the other task stops. As a process (a child of the library's test binary running the same `serve` and `finish`): exit code 1 with `task doomed panicked`, and the database can be owned again                                                                                                                                                                                                                                                                                                                                       |
+| Cooperative completion, within the outer kill bound           | In the library: a request held inside its handler when the signal arrives completes with its response once released, new connections fail, and the stop is drained. A role change held between its write and its commit (a gate that exists only in the test build) is signalled, released, commits, answers 200, and the pool and tracker close inside the close deadline. Through the binary: SIGTERM and SIGINT on an idle server exit 0 in under 2 s, with the path free at once and a changed role kept; a role change admitted by the server (its `100 Continue` read) and completed after the signal is answered 200 and the process then exits 0                                                     |
+| Inner-deadline expiry, within the outer kill bound            | In the library: a request never released expires the drain at the deadline and not before, and is never answered; a task that ignores the stop does the same. Through the binary: a role change whose body is never completed ends with exit code 1 between 2.9 s and 4.5 s after the signal, a second SIGTERM one second in neither ending nor extending the drain, with no final response after the interim one and the role unchanged after a restart                                                                                                                                                                                                                                                     |
+| No task starts new work after the signal                      | A counting task starts no unit after the signal and the unit in flight finishes; a real cleanup blocked on a writer at the signal runs both its statements after the writer leaves; with the stop and a tick ready together at its select, no unit starts; a task started after the stop runs none; a subscriber created after the stop still sees it                                                                                                                                                                                                                                                                                                                                                        |
+| A mutation interrupted by shutdown is unconfirmed             | As a process: a role change is held between its write and its commit, the process is signalled, and at the drain deadline it terminates. While it waits at a test-only barrier just before exiting, the path is still in use for another owner and the request is unanswered; its own exit code is then 1 with the unconfirmed and unestablished-closure lines, the caller's request fails, and reopening shows the old role. The binary case above shows the same for a request abandoned before its transaction. The caller's side is the existing client case that a failed request decodes to `client_unknown` / `request_failed` ([`client.test.ts:333-335`](../apps/reference/web/src/client.test.ts)) |
+| Closure before the lock is released (from the plan review)    | A ticket is released only by an awaited close: in WAL mode the `-wal` file is present while the ticket is outstanding and gone once it is acknowledged; while the connection's own worker thread is held inside an update (through SQLx's update hook) the ticket stays outstanding, and it is acknowledged once the worker is released; a drop outside a runtime and a failed open keep their tickets. As processes: a session-pool connection that is never returned, and a tracked connection that is never dropped, each end in a forced exit with code 1 and the close-timeout line after the close deadline, the path in use until then and free afterwards                                            |
+| Outcomes kept apart (from the plan review)                    | A panic after the signal, a panic followed by an expired drain (both lines), a normal return after the signal, an early return in the same poll as the signal, and the message for each combination of drain and closure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+The browser workflow's runner stops the API with SIGTERM three times; each API
+log shows the drain and `stopped after draining`, and each restart found port
+3003 free. The library and binary suites passed 25 consecutive runs each on the
+final tree.
+
+Thirty-nine mutations, each on a disposable copy with its own Cargo target
+directory and with both suites green before and after, were each caught by at
+least one test. Four are on the timeline: no graceful shutdown, tasks never told
+to stop, no drain deadline, and a deadline a quarter as long. Two leave SIGINT
+or SIGTERM unhandled. Ten are on tasks: the factory run outside the watched
+task, handles not watched, a panic or an early return taken as a normal return,
+a panic during the drain discarded, completion classified when the handle is
+read, no first tick, a ready tick winning over the stop, a unit cut short by the
+stop, and a late subscriber missing the stop. Three are on cleanup: a database
+error ending the task, and either deletion dropped. Five are on closure: the
+close deadline removed, the pool not closed, the tracker not awaited, a close
+attempted after an expired drain, and a tracker wait that ignores the current
+count. Five are on the tracker: a ticket released without a close, released by a
+close that does not wait for the worker, released by a drop outside a runtime,
+released by a failed open, and never taken. Seven are on the exit: storage
+dropped before a forced termination, a forced termination exiting 0, a stop
+counted clean without acknowledged closure, with a failure or without a signal,
+a failed but closed stop exiting 0, and a clean stop exiting 1. Two are on the
+messages, and one leaves the binary's cleanup task unstarted. The previous
+step's 43 mutations, one adjusted for the binary's changed return, were run
+again on this tree and each caught.
+
+Limits:
+
+- The budgets are configured values with a measured margin, not a guarantee
+  covering output and the operating system: the expired drain through the binary
+  ended between 2.9 s and 4.5 s after the signal, inside the supervisor's 5 s.
+- A transaction interrupted by a forced exit is left to SQLite's rollback
+  journal, as after a kill. The unchanged role after reopening is evidence for
+  that gated transaction on that run, not for every forced exit. Losing the
+  response on either side of the commit, and cancelling during the commit, stay
+  open under S14's focused validation items 2 and 3.
+- `100 Continue` shows that hyper 1.11.1 had begun reading the request's body.
+  It shows nothing about authentication or the transaction. That hyper finishes
+  an admitted request and refuses new connections during a graceful shutdown is
+  observed for axum 0.8.9 and that hyper, not taken from documentation.
+- An opening that fails while serving keeps its ticket, because SQLx can create
+  a connection before `connect` returns an error and nothing is left to
+  acknowledge its closure. Every later stop of that process is then a forced one
+  with exit code 1 after the close deadline. The message says closure was not
+  acknowledged, not that a connection is known to be open. This applies to the
+  tracked domain opening only, not to a busy statement on an open connection or
+  to the session pool.
+- A forced exit leaves a disposable database's temporary directory behind.
+- That the handlers are registered before the readiness lines is
+  source-reviewed; no test hits the window. A signal before registration, during
+  storage opening or issuer discovery, ends the process as before.
+- A second signal is not a faster exit.
+- Linux and GitHub Actions have not run on this step. The development command is
+  a later step.
 
 ### Review of the lifecycle proposal
 
@@ -2871,6 +3004,16 @@ External references explain influences, not dependencies or permanent API
 contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
+
+- **2026-09-30, lifecycle shutdown and session cleanup:** Implemented S18's
+  third step in the reference application: SIGINT and SIGTERM handling, one
+  drain and close timeline, a supervised session cleanup task, and tracked
+  domain connections whose acknowledged closure decides whether the ownership
+  lock is released or the process terminates holding it. Recorded the evidence
+  in S18, updated S10, S11 and S17's pointers, and corrected the second step's
+  statement that CI had not run. One dependency change: Tokio's `signal`
+  feature, which adds `signal-hook-registry` to the lockfile. No contract,
+  client, CI, migration or frozen-experiment change.
 
 - **2026-09-30, lifecycle reset and migrations:** Implemented S18's second step
   in the reference application: `--reset`, which replaces a database under the

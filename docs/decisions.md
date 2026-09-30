@@ -1123,14 +1123,15 @@ Linux and GitHub Actions had not run when this was written; GitHub Actions run
 
 ## Reference application lifecycle reset and migrations — September 30, 2026
 
-**Implemented experiment; not pushed.** The second step of S18's implementation
-gives the development binary `--database PATH --reset`: under the same ownership
-lock as a start, it deletes the database and its SQLite sidecars and builds a
-newly seeded one, so every session ends. It is refused while a server or an
-initialization holds the path, validates everything before deleting anything,
-and never opens the old database. A start against a modified applied migration
-stops with a refusal naming the database, the version, restoration of the
-migration and then the reset; startup never resets.
+**Implemented experiment; pushed to `main` after this entry was written.** The
+second step of S18's implementation gives the development binary
+`--database PATH --reset`: under the same ownership lock as a start, it deletes
+the database and its SQLite sidecars and builds a newly seeded one, so every
+session ends. It is refused while a server or an initialization holds the path,
+validates everything before deleting anything, and never opens the old database.
+A start against a modified applied migration stops with a refusal naming the
+database, the version, restoration of the migration and then the reset; startup
+never resets.
 
 The plan review found, and reproduced, that a database created at another
 database's sidecar name would be deleted by that database's reset. Such names
@@ -1143,8 +1144,40 @@ Locally on macOS, `cargo test --workspace --locked` passed 171 tests; clippy,
 rustfmt, the web `verify` and the browser workflow passed. Forty-three
 mutations, twelve of them the first step's repeated, were each caught.
 [S18's evidence](design-spec.md#reset-and-migration-evidence) lists the checks
-and limits. No dependency, contract, CI or frozen-experiment change; Linux and
-GitHub Actions have not run on this step.
+and limits. No dependency, contract, CI or frozen-experiment change. Linux and
+GitHub Actions had not run when this was written; GitHub Actions run 36721898213
+(Verify, on Ubuntu) later passed on `66d0608` on its first attempt.
+
+## Reference application lifecycle shutdown and session cleanup — September 30, 2026
+
+**Implemented experiment; not pushed.** The third step of S18's implementation
+gives the development binary one shutdown timeline. On SIGINT or SIGTERM it
+stops accepting connections and starts no new periodic work, lets requests and
+work in flight finish for up to 3 s, then closes the session pool and waits up
+to 1 s for every domain connection's closure to be acknowledged. Only then is
+the ownership lock released and the exit code 0. Session cleanup is the first
+supervised task: it runs at start and every 60 s, and its panic or unexpected
+end stops the process with a message and exit code 1.
+
+The plan review found, and reproduced, that shutting the runtime down does not
+establish that SQLx's connections are closed: a second owner could take the lock
+while a worker of the first was still inside an update. Domain connections are
+therefore counted from before they are opened until an awaited close succeeds,
+and when closure is not established (an expired drain, an expired close
+deadline, or an opening that failed and left nothing to acknowledge) the process
+terminates with exit code 1 while still holding the lock, leaving a disposable
+directory behind. That is S18's forced-termination limit, chosen over promising
+a closure that cannot be shown. The exit is never an acknowledgment or a
+rollback receipt for a request in flight.
+
+Tests were written first and their failing run kept. Locally on macOS,
+`cargo test --workspace --locked` passed 198 tests; clippy, rustfmt, the web
+`verify` and the browser workflow passed. Thirty-nine mutations were each
+caught, as were the previous step's 43, run again.
+[S18's evidence](design-spec.md#shutdown-and-session-cleanup-evidence) lists the
+checks and limits. One dependency change: Tokio's `signal` feature, adding
+`signal-hook-registry` 1.4.8 to the lockfile. No contract, client, CI, migration
+or frozen-experiment change; Linux and GitHub Actions have not run on this step.
 
 ## Maintaining this record
 

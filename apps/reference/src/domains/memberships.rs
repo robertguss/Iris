@@ -218,17 +218,62 @@ async fn apply(
         Ok(())
     }.await;
     match body {
-        Ok(()) => tx
-            .commit()
-            .await
-            .map(|()| Acknowledged)
-            .map_err(|e| ActionError::Failed {
-                primary: execution(Stage::Commit, e),
-                cleanup: Cleanup::Unconfirmed {
-                    rollback_error: None,
-                },
-            }),
+        Ok(()) => {
+            #[cfg(test)]
+            gate::pass(&mut tx).await;
+            tx.commit()
+                .await
+                .map(|()| Acknowledged)
+                .map_err(|e| ActionError::Failed {
+                    primary: execution(Stage::Commit, e),
+                    cleanup: Cleanup::Unconfirmed {
+                        rollback_error: None,
+                    },
+                })
+        }
         Err(primary) => Err(finalize(primary, tx.rollback().await)),
+    }
+}
+
+/// Test-only: holds a mutation between its write and its commit, for the
+/// lifecycle tests that stop the process at that stage.
+#[cfg(test)]
+pub(crate) mod gate {
+    use crate::lifecycle::Gate;
+    use sqlx::SqliteConnection;
+    use std::{
+        path::{Path, PathBuf},
+        sync::{Arc, Mutex},
+    };
+
+    static GATES: Mutex<Vec<(PathBuf, Arc<Gate>)>> = Mutex::new(Vec::new());
+
+    /// Gates every mutation of the database at `path` from now on.
+    pub(crate) fn before_commit(path: &Path) -> Arc<Gate> {
+        let gate = Gate::new();
+        let path = std::fs::canonicalize(path).unwrap();
+        GATES.lock().unwrap().push((path, gate.clone()));
+        gate
+    }
+
+    pub(super) async fn pass(conn: &mut SqliteConnection) {
+        if GATES.lock().unwrap().is_empty() {
+            return;
+        }
+        let file: String =
+            sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name='main'")
+                .fetch_one(conn)
+                .await
+                .unwrap();
+        let gate = GATES
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(path, _)| path == Path::new(&file))
+            .map(|(_, gate)| gate.clone());
+        if let Some(gate) = gate {
+            gate.pass().await;
+        }
     }
 }
 
@@ -236,7 +281,7 @@ async fn apply(
 /// refused alike. Visibility is re-checked for every page, in the same read
 /// transaction as the page itself.
 pub async fn list_members(
-    conn: SqliteConnection,
+    conn: impl read::OwnedConnection,
     actor: &Actor,
     query: ListMembers,
 ) -> Result<Page<MemberSummary>, ReadError<ListMembersRejection>> {

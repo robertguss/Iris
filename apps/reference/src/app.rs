@@ -17,6 +17,8 @@ use crate::{
 pub struct AppState {
     pub database: PathBuf,
     pub now: fn() -> i64,
+    /// The process's domain connections; shutdown waits for their closure.
+    pub connections: crate::lifecycle::Connections,
 }
 
 pub fn unix_time() -> i64 {

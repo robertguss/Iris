@@ -36,41 +36,48 @@ pub(crate) struct Fixture {
     pub(crate) store: Store,
 }
 /// Owns the issuer from spawn, so a panic later in setup cannot leak it.
-struct Provider(Child);
+pub(crate) struct Provider(Child);
 impl Drop for Provider {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
 }
+/// Starts the issuer fixture and returns its URL. The caller holds
+/// `storage::exclusive()` around the call: a child shares any ownership lock
+/// held by another test until it execs.
+pub(crate) fn provider() -> (Provider, String) {
+    let script = format!(
+        "import {{startOidcProvider}} from '{}'; const p=await startOidcProvider({{port:0,redirectUri:'{ORIGIN}/api/auth/callback',testControls:true}}); console.log(p.issuer);",
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../experiments/api-slice/checks/oidc-provider.mjs")
+            .display()
+    );
+    let mut provider = Provider(
+        Command::new("node")
+            .args(["--input-type=module", "-e", &script])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut issuer = String::new();
+    BufReader::new(provider.0.stdout.take().unwrap())
+        .read_line(&mut issuer)
+        .unwrap();
+    (provider, issuer.trim().to_owned())
+}
 impl Fixture {
     pub(crate) async fn new() -> Self {
-        let script = format!(
-            "import {{startOidcProvider}} from '{}'; const p=await startOidcProvider({{port:0,redirectUri:'{ORIGIN}/api/auth/callback',testControls:true}}); console.log(p.issuer);",
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../experiments/api-slice/checks/oidc-provider.mjs")
-                .display()
-        );
         // The child would share any storage ownership lock held by another
         // test until it execs, so no storage test runs during the spawn.
         let processes = crate::storage::exclusive();
-        let mut provider = Provider(
-            Command::new("node")
-                .args(["--input-type=module", "-e", &script])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap(),
-        );
-        let mut issuer = String::new();
-        BufReader::new(provider.0.stdout.take().unwrap())
-            .read_line(&mut issuer)
-            .unwrap();
+        let (provider, issuer) = provider();
         drop(processes);
         let dir = tempfile::tempdir().unwrap();
         let database = dir.path().join("s16.db");
         let mut conn = connect(&database).await.unwrap();
         MIGRATOR.run(&mut conn).await.unwrap();
-        seed(&mut conn, issuer.trim()).await.unwrap();
+        seed(&mut conn, &issuer).await.unwrap();
         sqlx::query("INSERT INTO memberships VALUES (41,29,'editor')")
             .execute(&mut conn)
             .await
@@ -91,7 +98,7 @@ impl Fixture {
         let auth = Auth::discover(
             store.clone(),
             ORIGIN.into(),
-            issuer.trim().into(),
+            issuer,
             "iris-local".into(),
             None,
         )
@@ -103,6 +110,7 @@ impl Fixture {
             state: AppState {
                 database,
                 now: crate::app::unix_time,
+                connections: Default::default(),
             },
             auth,
             store,
@@ -434,6 +442,7 @@ async fn connection_and_session_load_failures_are_request_failures() {
     let app = authenticated(f.auth.clone()).with_state(AppState {
         database: f._dir.path().join("missing-directory/db"),
         now: crate::app::unix_time,
+        connections: Default::default(),
     });
     let response = collect(
         app.oneshot(request(&alice, &body(29, "owner")))
@@ -483,6 +492,7 @@ async fn refusal_rewrite_preserves_cookie_headers() {
         .with_state(AppState {
             database: "unused".into(),
             now: crate::app::unix_time,
+            connections: Default::default(),
         })
         .oneshot(request("", "{}"))
         .await
@@ -605,6 +615,7 @@ async fn unclassified_responses_stay_unclassified() {
             .with_state(AppState {
                 database: "unused".into(),
                 now: crate::app::unix_time,
+                connections: Default::default(),
             })
             .oneshot(request("", "{}"))
             .await

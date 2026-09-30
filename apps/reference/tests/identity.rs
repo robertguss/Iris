@@ -87,6 +87,7 @@ impl Fixture {
         let app = app(auth).with_state(AppState {
             database,
             now: unix_time,
+            connections: Default::default(),
         });
         Self {
             _dir: dir,
@@ -772,6 +773,7 @@ async fn https_cookie_and_invalid_origin_configuration() {
     let app = app(auth).with_state(AppState {
         database: f._dir.path().join("app.db"),
         now: unix_time,
+        connections: Default::default(),
     });
     let (_, headers, _) = send(
         &app,

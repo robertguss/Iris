@@ -11,18 +11,21 @@ Observed September 30, 2026, by the outgoing driver.
   happens.
 - Reviewed through `66d0608` (S18 step 3). This handoff is committed after it.
 - Pushed through `66d0608` to `main`, by fast-forward with an explicit SHA and
-  refspec, at the owner's instruction "go straight to main". This handoff's
-  commit is pushed the same way as part of the same chunk.
+  refspec, at the owner's instruction "go straight to main". This handoff is
+  pushed the same way as part of the same chunk, in two commits: `9b838a5` went
+  out without the handoff review's three P3 corrections, because the script
+  applying them failed and the commit ran anyway; the commit after it carries
+  them.
 - CI: GitHub Actions run 36721898213 (Verify, push event, Ubuntu) on `66d0608`
-  concluded `success` on its first attempt. Its log shows every step through
-  both browser workflows printing its PASS line, the 72 library tests including
-  the new storage tests, and the 8 development-binary tests. The API's per-step
-  metadata for that run still listed steps 11 onward as pending after the run
-  completed, so the step list is taken from the log (`evidence/09-ci-log.txt`),
-  not from `gh run view --json jobs`. The log's two `##[error]` lines are the
-  contract and S16 probes' intended seeded failures.
+  concluded `success` on its first attempt. All 25 steps report success. The log
+  (`evidence/09-ci-log.txt`) shows the 72 library tests, including the new
+  storage tests, the 8 development-binary tests, and both browser workflows
+  passing. The API's per-step metadata was incomplete for some minutes after the
+  run completed (steps 11 onward still pending) and caught up later. The log's
+  two `##[error]` lines are the contract and S16 probes' intended seeded
+  failures.
 - PR #1 is merged (`8594777`). No pull request is open.
-- The working tree was clean apart from this handoff before its commit.
+- The working tree was clean apart from this handoff before each of its commits.
 
 Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 `git ls-remote origin`) before relying on any of this.
@@ -111,6 +114,7 @@ Evidence in
 | Client and browser | `npm --prefix apps/reference/web run verify`: PASS; `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>`: PASS                                                             | `evidence/05-web-verify.txt`, `08-browser.txt`  | Driver-reported                                                                                        |
 | Mutations          | `mutate.py`: 43 of 43 caught, both controls green (12 repeating the first step's, 9 reset, 12 sidecar names, 5 migrations and message, 5 binary)                                                            | `evidence/04-mutations.txt`, `mutate.py`        | Driver-reported; the oracle ran two deletion-order variants itself                                     |
 | Markdown           | Prettier 3.9.9 check clean; `links.py`: 174 local links, 0 broken; a seeded control reported its three breaks                                                                                               | `evidence/06-links.txt`, `07-links-control.txt` | Oracle reran Prettier and the link check                                                               |
+| Linux              | GitHub Actions run 36721898213 on `66d0608`: success, first attempt, all 25 steps                                                                                                                           | `evidence/09-ci-log.txt`                        | Driver; the oracle compared the saved log with the live one                                            |
 | Limits             | See S18 "Reset and migration evidence", Limits: plausibility checks only; one signed-in session through the issuer fixture, not the browser; the guide's Linux `stat` command and manual steps not executed | S18                                             | Oracle agreed at plan level                                                                            |
 
 Oracle verdicts:
@@ -223,12 +227,14 @@ not yet agreed.
 - **Retained evidence (temporary, possibly already deleted):**
   - this session's
     `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/b04871ba-05ce-4ae0-87cf-13f508c093a3/scratchpad/`:
-    `evidence/01`–`08`, plan and review prompts `01`–`09`, `links.py`,
-    `mutate.py`, `browser-artifacts/`, `control/` (a `git archive` copy, safe to
-    delete), `mutants/` and `mutants-target/` (a source copy and its Cargo
-    target, safe to delete);
-  - the oracle's `/private/tmp/iris-s18-step3-*` directories (probe scripts and
-    logs for each finding).
+    `evidence/01`–`09` (`09-ci-log.txt` is the CI log), plan and review prompts
+    `01`–`10`, `links.py`, `mutate.py`, `browser-artifacts/`, `control/` (a
+    `git archive` copy, safe to delete), `mutants/` and `mutants-target/` (a
+    source copy and its Cargo target, safe to delete);
+  - the oracle's `/private/tmp/iris-s18-step3-*`,
+    `/private/tmp/iris-s18-diff-rereview2-3l198apt/` and
+    `/private/tmp/iris-s18-diff-rereview3-ougu01jz/` directories (probe scripts
+    and logs for each finding).
   - Earlier sessions' scratchpads, including the previous `links.py` and
     `mutate.py`, are gone; both were rewritten this session.
 - **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
@@ -398,18 +404,18 @@ not yet agreed.
   `--exact storage::tests::interrupted_child`, blocks it at a `cfg(test)`
   barrier and kills it. libtest prints `test <name> ... ` without a newline, so
   the child's marker shares that line; match it with `ends_with`. The barrier
-  names (`after-migrate`, `after-seed`, `after-link`) and the injected failure
-  exist only in the library's test build.
+  names (`after-migrate`, `after-seed`, `after-link`, and `after-remove` inside
+  a reset) and the injected failure exist only in the library's test build.
 - **`reference-dev` prints errors by message:** `main` reports
   `reference-dev: <message>` and exits 1. Returning `Box<dyn Error>` from `main`
   prints the `Debug` form (e.g. `InUse(...)`), which tests matching the message
   miss. Its data line is printed before `listening on`, so readers that stop at
   the address line still see it.
 - **Storage file names:** a database `<name>` owns `<name>.iris-lock` (never
-  deleted, also by the future reset) and, while initializing,
-  `<name>.iris-init/` holding `owner` and `reference.db`. Names ending in those
-  suffixes, in any case, are refused as databases. Don't use
-  `apps/reference/.dev/` by hand before step 5 adds it to `.gitignore`.
+  deleted, not even by a reset) and, while initializing, `<name>.iris-init/`
+  holding `owner` and `reference.db`. Names ending in those suffixes, in any
+  case, are refused as databases. Don't use `apps/reference/.dev/` by hand
+  before step 5 adds it to `.gitignore`.
 - **Mutation runner for storage:** `mutate.py` in this session's scratchpad
   (section 10) copies `git ls-files -co --exclude-standard` to a scratch
   directory, uses its own `CARGO_TARGET_DIR`, applies one exact-string mutation
@@ -444,9 +450,9 @@ not yet agreed.
   checksum as the embedded `MIGRATOR`; `Storage::open_with` and `reset_with`
   take one. SQLx returns `VersionMismatch` before applying any later migration
   and writes nothing to the file.
-- **A WAL-mode database loses its `-wal` and `-shm` when any connection opens
-  and closes it cleanly,** including a refused `Storage::open`. A test that
-  needs crash-left WAL files must not open the database before using them.
+- **A WAL-mode database loses its `-wal` and `-shm` when its last connection
+  closes cleanly,** including a refused `Storage::open`. A test that needs
+  crash-left WAL files must not open the database before using them.
 - **Refusal messages are matched by tests:** `reserved`, `separate database`,
   `SQLite database`, `--reset`, `hard link`, `unrecognized`, `symbolic link`.
   The reset command in a message is shell-quoted; `dev_binary.rs` runs it as

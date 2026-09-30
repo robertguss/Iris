@@ -51,6 +51,9 @@ impl Fixture {
                 .join("../../experiments/api-slice/checks/oidc-provider.mjs")
                 .display()
         );
+        // The child would share any storage ownership lock held by another
+        // test until it execs, so no storage test runs during the spawn.
+        let processes = crate::storage::exclusive();
         let mut provider = Provider(
             Command::new("node")
                 .args(["--input-type=module", "-e", &script])
@@ -62,6 +65,7 @@ impl Fixture {
         BufReader::new(provider.0.stdout.take().unwrap())
             .read_line(&mut issuer)
             .unwrap();
+        drop(processes);
         let dir = tempfile::tempdir().unwrap();
         let database = dir.path().join("s16.db");
         let mut conn = connect(&database).await.unwrap();

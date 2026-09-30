@@ -1102,22 +1102,49 @@ accompanies this record.
 
 ## Reference application lifecycle storage — September 27, 2026
 
-**Implemented experiment; not pushed.** Under the owner's authorization of S18,
-the first step gives the reference application's development binary an explicit
-`--database PATH`; without it, data stays disposable. One process owns a path
-through an operating-system lock on a never-deleted sibling file. A new database
-is built in an owned staging directory and published by a hard link that cannot
-replace an existing file; only a new database is seeded, an existing one is
-migrated, and any journal mode other than rollback is refused. The plan review
-added the ownership record for staging, refusal of aliases, stale sidecars and
-reserved names, and closing connections before the lock is released.
+**Implemented experiment; pushed to `main` after this entry was written.** Under
+the owner's authorization of S18, the first step gives the reference
+application's development binary an explicit `--database PATH`; without it, data
+stays disposable. One process owns a path through an operating-system lock on a
+never-deleted sibling file. A new database is built in an owned staging
+directory and published by a hard link that cannot replace an existing file;
+only a new database is seeded, an existing one is migrated, and any journal mode
+other than rollback is refused. The plan review added the ownership record for
+staging, refusal of aliases, stale sidecars and reserved names, and closing
+connections before the lock is released.
 
 Locally on macOS, `cargo test --workspace --locked` passed 150 tests, including
 kill-at-barrier recovery tests in subprocesses; clippy, rustfmt, the web
 `verify` and the browser workflow passed, and twelve mutations were each caught.
 [S18's evidence](design-spec.md#storage-and-initialization-evidence) lists the
-checks and limits. No dependency, contract, CI or frozen-experiment change;
-Linux and GitHub Actions were not run.
+checks and limits. No dependency, contract, CI or frozen-experiment change.
+Linux and GitHub Actions had not run when this was written; GitHub Actions run
+36364999959 (Verify, on Ubuntu) later passed on `c810f91` on its first attempt.
+
+## Reference application lifecycle reset and migrations — September 30, 2026
+
+**Implemented experiment; not pushed.** The second step of S18's implementation
+gives the development binary `--database PATH --reset`: under the same ownership
+lock as a start, it deletes the database and its SQLite sidecars and builds a
+newly seeded one, so every session ends. It is refused while a server or an
+initialization holds the path, validates everything before deleting anything,
+and never opens the old database. A start against a modified applied migration
+stops with a refusal naming the database, the version, restoration of the
+migration and then the reset; startup never resets.
+
+The plan review found, and reproduced, that a database created at another
+database's sidecar name would be deleted by that database's reset. Such names
+are now refused for a database, and a start or reset is refused when a sidecar
+name shows recognizable evidence of being another database. The reference
+guide's manual procedure for moving such a database went through three more
+review rounds.
+
+Locally on macOS, `cargo test --workspace --locked` passed 171 tests; clippy,
+rustfmt, the web `verify` and the browser workflow passed. Forty-three
+mutations, twelve of them the first step's repeated, were each caught.
+[S18's evidence](design-spec.md#reset-and-migration-evidence) lists the checks
+and limits. No dependency, contract, CI or frozen-experiment change; Linux and
+GitHub Actions have not run on this step.
 
 ## Maintaining this record
 

@@ -360,21 +360,21 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                              | Status and evidence                                                                                                                                                            |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                    |
-| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                        |
-| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                |
-| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                 |
-| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                           |
-| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                              |
-| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                            |
-| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                         |
-| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)           |
-| Reference application lifecycle                                         | Decided in S18; storage, initialization and the journal-mode check implemented; reset, migrations, shutdown, tasks and the development command authorized, not yet implemented |
-| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                    |
-| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                  |
-| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                              |
+| Capability                                                              | Status and evidence                                                                                                                                                                       |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                               |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                                   |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                           |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                            |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                                      |
+| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                                         |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                                       |
+| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                                    |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)                      |
+| Reference application lifecycle                                         | Decided in S18; storage, initialization, the journal-mode check, reset and the migration refusal implemented; shutdown, tasks and the development command authorized, not yet implemented |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                               |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                             |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                                         |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
@@ -402,8 +402,8 @@ observations motivate shared definitions, not productivity claims.
   semantics.
 - Runtime evidence collection, correlation, bounded retention and disclosure.
 - Configuration, startup, migrations, jobs and service lifecycle conventions.
-  S18 decides a first slice for the reference application; its implementation is
-  authorized and pending.
+  S18 decides a first slice for the reference application; storage, reset and
+  the migration refusal are implemented, the rest authorized and pending.
 - Packaging, generators and compile-loop improvements justified by experience.
 
 Do not interpret this agenda as approval to implement all items. Generic action
@@ -1882,8 +1882,9 @@ packaging and naming remain open (S11).
 - **Deferred to a lifecycle pass:** persistent storage, seed policy, SQLite
   journal mode, worker supervision, and one development command for the issuer,
   API and Vite. The delivery worker is not ported.
-  [S18](#s18--reference-application-lifecycle) now decides that pass; its
-  implementation is authorized and pending.
+  [S18](#s18--reference-application-lifecycle) now decides that pass; storage,
+  reset and the migration refusal are implemented, the rest authorized and
+  pending.
 
 ### Operation sequence
 
@@ -2402,10 +2403,10 @@ experiment was retired, and no productivity claim follows.
 
 ## S18 — Reference application lifecycle
 
-**Decided; storage and initialization implemented, the rest authorized.** On
-September 27, 2026, the owner chose this lifecycle pass as the chunk after the
-pull request #1 merge. It covers the five items that S17
-[deferred](#ownership-boundaries): persistent storage, seed policy, SQLite
+**Decided; storage, initialization, reset and the migration refusal implemented,
+the rest authorized.** On September 27, 2026, the owner chose this lifecycle
+pass as the chunk after the pull request #1 merge. It covers the five items that
+S17 [deferred](#ownership-boundaries): persistent storage, seed policy, SQLite
 journal mode, worker supervision, and one development command for the issuer,
 API and Vite. It was first written as a proposal authorizing no implementation,
 dependency, CI, migration or wire change. The recommendations are the driver's
@@ -2416,8 +2417,9 @@ oracle is also this section's design reviewer and reviewed its plans and diffs,
 so its nine choices are not an independent approval. The owner then authorized
 implementation in reviewed steps: storage and initialization, reset and
 migrations, shutdown and session cleanup, then the development command. The
-first step's [evidence](#storage-and-initialization-evidence) records what was
-built. Source citations in the sections before it are to `8d2cfc7`.
+first step's [evidence](#storage-and-initialization-evidence) and the second's
+[evidence](#reset-and-migration-evidence) record what was built. Source
+citations in the sections before it are to `8d2cfc7`.
 
 ### Current behavior
 
@@ -2490,8 +2492,8 @@ evidence.
 ### Recommendations
 
 Accepted direction through the [owner decisions](#lifecycle-owner-decisions);
-recommendations 1, 2 and 3 and the startup check of 7 are implemented, the rest
-not yet. Each names the choice it depends on.
+recommendations 1 to 5 and the startup check of 7 are implemented, the rest not
+yet. Each names the choice it depends on.
 
 1. **Storage stays disposable by default; persistence is an explicit path.** The
    development binary gains an explicit database path argument, for example
@@ -2692,10 +2694,114 @@ initialization test shows lock reacquisition and recovery, not that no
 descriptor lingered. A torn `owner` write is refused, never reclaimed, and needs
 removal by hand. External SQLite tools and processes that ignore the lock are
 not excluded; only the no-clobber link protects the target. A database created
-against another issuer is not detected. Linux and GitHub Actions were not run;
-nothing was pushed. Reset, migration refusal messages, graceful shutdown,
-session cleanup and the development command are later steps; until reset lands,
-the guide says to start over with a fresh path.
+against another issuer is not detected. Linux and GitHub Actions had not run
+when this was written; the step was later pushed to `main`, and GitHub Actions
+run 36364999959 (Verify, on Ubuntu) passed on `c810f91` on its first attempt,
+including these storage tests. Reset and the migration refusal followed in the
+[next step](#reset-and-migration-evidence); graceful shutdown, session cleanup
+and the development command are later steps.
+
+### Reset and migration evidence
+
+The second implementation step, on September 30, 2026, covers recommendations 4
+and 5. `Storage::reset` and
+`reference-dev --local-oidc-demo --database PATH --reset` replace a database
+with a newly seeded one; a modified applied migration stops startup with a
+refusal that names the path, the version, restoration and then the reset. No
+dependency was added.
+
+`open` and `reset` share one front half: the path is resolved, the ownership
+lock is taken, and the staging directory, the three sidecar names and the target
+are validated before anything is deleted or opened with SQLite. Reset then
+requires the target, if present, to be empty or to start with SQLite's 16-byte
+header; reclaims a valid staging directory; deletes the target, then its
+`-journal`, `-wal` and `-shm`; and initializes as a first start does. It never
+opens the old database, so it also works on one in WAL mode or with a modified
+migration. The database is deleted before its sidecars: an interruption then
+leaves a missing database with stale sidecars, which a start refuses, naming the
+reset, and a second reset completes. The other order could leave a database
+without its hot journal. The command needs `IRIS_OIDC_ISSUER`, since the seeded
+identities are bound to it, and reads nothing else: it does not contact the
+issuer or listen. The lock file is kept.
+
+The plan review found that a database could have been created at another
+database's sidecar name (`dev.db-wal` beside `dev.db`), each with its own lock,
+so that a reset of `dev.db`, or SQLite opening it, would treat the other
+database as a sidecar. The oracle reproduced the deletion for all three
+suffixes. A database name ending in `-journal`, `-wal` or `-shm`, in any case,
+is now refused. For databases created before that rule, a start or reset is
+refused, leaving the database and its neighbors as they are apart from possibly
+creating the target's empty lock file, when a sidecar name has an `.iris-lock`
+or `.iris-init` sibling (whether or not the sidecar itself exists, which covers
+an initializer that has not published yet), or when its occupant is not a
+regular file with one link or starts with SQLite's database header. The
+[guide](../apps/reference/README.md#a-database-at-a-sidecar-name) gives the
+manual procedure for moving such a database as a complete file set; three
+further review rounds corrected that procedure (recovery files must move with
+the database, a staging directory is removed only after the checks the code
+makes, and a symbolic link is not a staging directory).
+
+Local run on macOS (APFS), Rust 1.98.1, Node 24.20.0 for the browser workflow:
+
+```sh
+cargo test --workspace --locked              # 171 passed, 0 failed
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo fmt --all --check
+npm --prefix apps/reference/web run verify   # passed
+mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>   # passed
+```
+
+| Acceptance row      | Test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reset               | Refused with the in-use error while another owner holds the path, while a child process is blocked inside initialization, and, through the binary, while a server runs, which keeps serving; otherwise it discards changed memberships, sessions and login attempts and leaves the seeded fixtures, the rollback journal, no staging directory and the same lock file. It removes `-wal` and `-shm` left by a killed WAL-mode process, both asserted present immediately before the reset with nothing opening the database in between, and each sidecar planted alone. The reset command printed in a refusal, run as printed through `sh`, resets the database for names with spaces, quotes and shell metacharacters. Through the binary, a session signed in as Alice survives a restart and reports no user after a reset, for the same cookie |
+| Reset, interruption | A child killed between the database's deletion and the sidecars' leaves no database; a start refuses, naming the reset, and a second reset completes. A child killed while the reset initializes leaves no database, and the next start initializes. A reset reclaims the staging directory of an initialization killed before or after publication                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Reset, refusals     | A symbolic link, a reserved name, a missing parent, a foreign hard link, a file with a damaged header, a non-SQLite file, a directory and an unrecognized staging occupant are refused with every file unchanged; an empty file is replaced                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Sidecar names       | For each suffix, for both a start and a reset, with the whole directory compared before and after: a live database created by the earlier rules, a SQLite database with no lock sibling, an empty file with a lock sibling, a directory, a symbolic link and a two-link file at the sidecar name; and, with the sidecar absent, a lock sibling, a staging sibling and a live initializer blocked before publication. The three suffixes are refused as database names in mixed case without creating a lock file                                                                                                                                                                                                                                                                                                                                    |
+| Migrations          | A migrator whose version 1 differs is refused with a message naming the path and "migration 1", restoration before the reset command, and the file unchanged; with the original migrator the changed role and removal are intact and nothing is reseeded; the reset then succeeds. An added migration applies to an existing database and keeps its data. Another migration failure names the database                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Guide               | A WAL-mode database at `dev.db-wal`, left by a killed process with a committed change only in its write-ahead log, shows that change after the whole file set is moved, and the older value when the database is moved alone                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+
+The run-time migrators are built from copies of `0001_initial.sql` in a
+temporary directory; `migrations/` is unchanged. The test-only barrier
+`after-remove` joins the earlier three. Forty-three mutations, each on a
+disposable copy with its own Cargo target directory, were each caught by at
+least one test. Twelve repeat the first step's against the refactored source.
+Nine are on reset: leaving each sidecar, deleting sidecars before the database,
+dropping the header check, refusing an empty file, not initializing, not
+reclaiming staging, and not deleting the database. Twelve are on the sidecar
+names: dropping the checks for a reset only, for a start only, or running a
+reset's after the database is deleted; ignoring the file type, the link count,
+the header, the ownership siblings, either sibling alone, or the siblings of an
+absent sidecar; and admitting the suffixes as names, or only in lower case. Five
+are on migrations and their message: leaving the bare error, resetting at
+startup, offering the reset first, dropping the path, and printing the reset
+command's path unquoted. Five are on the binary: serving after a reset, reading
+the public origin, opening instead of resetting, printing a refusal whose
+command is not the reset, and accepting `--reset` without `--database`. The
+tests and the implementation were written together, so these mutations, not an
+observed failing run, are the evidence that the tests detect the behavior.
+
+Limits: the target check is a plausibility check, so a reset deletes an
+unrelated empty file, or one starting with SQLite's header, at the path it is
+given; a database whose header is damaged is refused and needs removal by hand.
+The sidecar checks detect recognizable database evidence; a foreign regular
+single-link file at a sidecar name with no ownership sibling and no database
+header is deleted by a reset. They run once, under the target's lock: only a
+binary from before this step can create a database at a sidecar name, and one
+started after the checks have passed is not excluded. The session evidence is
+one signed-in session through the issuer fixture, not the browser. The ownership
+lock belongs to the open file, so a child process spawned while it is held
+shares it until the child execs. The development binary spawns none. In the
+multi-threaded storage tests a spawn in one test made another test's path look
+in use for that instant, which the oracle reproduced as an intermittent failure;
+the storage tests that spawn a child now run alone for their whole length, under
+a lock the other storage tests share, and the membership fixture takes the same
+lock around its issuer spawn, the only other spawn in the library's tests. Forty
+consecutive runs of the library's tests passed. A process that did spawn
+children while owning a database would extend its ownership to them in the same
+way. The guide's `stat` command for Linux and its manual steps were not
+executed; the move of the file set was, through SQLx on macOS. Linux and GitHub
+Actions have not run on this step. Graceful shutdown, session cleanup and the
+development command are later steps.
 
 ### Review of the lifecycle proposal
 
@@ -2765,6 +2871,14 @@ External references explain influences, not dependencies or permanent API
 contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
+
+- **2026-09-30, lifecycle reset and migrations:** Implemented S18's second step
+  in the reference application: `--reset`, which replaces a database under the
+  ownership lock, and the refusal of a modified applied migration. Reserved
+  SQLite's sidecar names and added the checks that keep a reset, or SQLite, from
+  treating another database as a sidecar. Recorded the evidence in S18, updated
+  S10, S11 and S17's pointers, and corrected the first step's statement that CI
+  had not run. No dependency, contract, CI or frozen-experiment change.
 
 - **2026-09-27, lifecycle storage and initialization:** Implemented S18's first
   step in the reference application: `--database PATH`, one owner per path,

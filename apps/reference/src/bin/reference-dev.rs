@@ -1,6 +1,7 @@
 //! Local development server: disposable data unless given a database path, and
-//! allowlisted test identities against the local OIDC issuer fixture. Not a
-//! production entry point.
+//! allowlisted test identities against the local OIDC issuer fixture. With
+//! `--reset` it replaces that database with a newly seeded one and exits. Not
+//! a production entry point.
 use std::path::{Path, PathBuf};
 
 use iris_reference::{
@@ -9,9 +10,10 @@ use iris_reference::{
     storage::Storage,
 };
 
-const USAGE: &str = "usage: reference-dev --local-oidc-demo [--database PATH]; \
+const USAGE: &str = "usage: reference-dev --local-oidc-demo [--database PATH [--reset]]; \
 requires --local-oidc-demo: disposable data unless --database is given, \
-allowlisted test identities, not production";
+allowlisted test identities, not production; --reset replaces the database \
+at PATH with a newly seeded one and exits";
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
@@ -33,6 +35,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         [flag] if flag == "--local-oidc-demo" => None,
         [flag, option, path] if flag == "--local-oidc-demo" && option == "--database" => {
             Some(PathBuf::from(path))
+        }
+        [flag, option, path, reset]
+            if flag == "--local-oidc-demo" && option == "--database" && reset == "--reset" =>
+        {
+            // The new database's identities are bound to the issuer; nothing
+            // else of the server's configuration is read, and nothing listens.
+            let issuer = std::env::var("IRIS_OIDC_ISSUER")?;
+            let storage = Storage::reset(Path::new(path), &issuer).await?;
+            eprintln!(
+                "reference-dev: reset database at {}",
+                storage.path().display()
+            );
+            return Ok(());
         }
         _ => return Err(USAGE.into()),
     };

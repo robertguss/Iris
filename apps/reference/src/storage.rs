@@ -1,13 +1,17 @@
 //! Development database lifecycle (S18): one owner per database path, atomic
-//! initialization with the development fixtures, and the rollback journal.
+//! initialization with the development fixtures, the rollback journal, and
+//! reset.
 use std::{
     fmt, fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Path, PathBuf},
 };
 
-use sqlx::{Connection, SqliteConnection};
+use sqlx::{
+    Connection, SqliteConnection,
+    migrate::{MigrateError, Migrator},
+};
 
 use crate::app::{MIGRATOR, connect, seed};
 
@@ -28,7 +32,9 @@ pub enum StorageError {
     Refused(String),
     Io(io::Error),
     Database(sqlx::Error),
-    Migrate(sqlx::migrate::MigrateError),
+    /// A migration failure other than a modified applied migration, with the
+    /// database it happened on.
+    Migrate(PathBuf, MigrateError),
 }
 
 impl fmt::Display for StorageError {
@@ -42,7 +48,9 @@ impl fmt::Display for StorageError {
             Self::Refused(message) => f.write_str(message),
             Self::Io(error) => write!(f, "database storage: {error}"),
             Self::Database(error) => write!(f, "database: {error}"),
-            Self::Migrate(error) => write!(f, "migration: {error}"),
+            Self::Migrate(path, error) => {
+                write!(f, "migration of database {}: {error}", path.display())
+            }
         }
     }
 }
@@ -61,12 +69,6 @@ impl From<sqlx::Error> for StorageError {
     }
 }
 
-impl From<sqlx::migrate::MigrateError> for StorageError {
-    fn from(error: sqlx::migrate::MigrateError) -> Self {
-        Self::Migrate(error)
-    }
-}
-
 impl Storage {
     pub fn path(&self) -> &Path {
         &self.path
@@ -81,67 +83,96 @@ impl Storage {
     }
 
     /// Takes ownership of `path`, then migrates an existing database or
-    /// initializes and seeds a new one. Paths, the staging directory and link
-    /// counts are validated before any staging file is deleted; the journal
-    /// check runs after a valid staging directory is reclaimed.
+    /// initializes and seeds a new one. Paths, the staging directory, the
+    /// sidecar names and link counts are validated before any staging file is
+    /// deleted; the journal check runs after a valid staging directory is
+    /// reclaimed.
     pub async fn open(path: &Path, issuer: &str) -> Result<Self, StorageError> {
-        let paths = resolve(path)?;
-        let lock = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&paths.lock)?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(fs::TryLockError::WouldBlock) => return Err(StorageError::InUse(paths.target)),
-            Err(fs::TryLockError::Error(error)) => return Err(error.into()),
-        }
-        let staging = inspect_staging(&paths)?;
-        match fs::symlink_metadata(&paths.target) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let stale: Vec<String> = SIDECARS
-                    .iter()
-                    .map(|suffix| with_suffix(&paths.target, suffix))
-                    .filter(|sidecar| fs::symlink_metadata(sidecar).is_ok())
-                    .map(|sidecar| sidecar.display().to_string())
-                    .collect();
-                if !stale.is_empty() {
-                    return Err(StorageError::Refused(format!(
-                        "database {} does not exist, but {} remain from an earlier database; \
-                         use a fresh path",
-                        paths.target.display(),
-                        stale.join(", ")
-                    )));
-                }
-                reclaim(&paths, staging)?;
-                initialize(&paths, issuer).await?;
+        Self::open_with(path, issuer, &MIGRATOR).await
+    }
+
+    /// Takes ownership of `path`, deletes the database with its sidecars and
+    /// builds a seeded one in its place. Refused while another process owns
+    /// the path. Everything is validated before anything is deleted, and the
+    /// old database is never opened.
+    pub async fn reset(path: &Path, issuer: &str) -> Result<Self, StorageError> {
+        Self::reset_with(path, issuer, &MIGRATOR).await
+    }
+
+    async fn open_with(
+        path: &Path,
+        issuer: &str,
+        migrator: &Migrator,
+    ) -> Result<Self, StorageError> {
+        let Claim {
+            paths,
+            lock,
+            staging,
+            exists,
+        } = claim(path)?;
+        if exists {
+            reclaim(&paths, staging)?;
+            if fs::metadata(&paths.target)?.nlink() != 1 {
+                return Err(hard_link(&paths.target));
             }
-            Err(error) => return Err(error.into()),
-            Ok(meta) => {
-                if !meta.is_file() {
-                    return Err(StorageError::Refused(format!(
-                        "database {} is not a regular file",
-                        paths.target.display()
-                    )));
-                }
-                let published = meta.nlink() == 2
-                    && matches!(&staging, Staging::Owned(Some(staged))
-                        if staged.dev() == meta.dev() && staged.ino() == meta.ino());
-                if meta.nlink() != 1 && !published {
-                    return Err(hard_link(&paths.target));
-                }
-                reclaim(&paths, staging)?;
-                if fs::metadata(&paths.target)?.nlink() != 1 {
-                    return Err(hard_link(&paths.target));
-                }
-                let mut conn = connect(&paths.target).await?;
-                let migrated = migrate_existing(&mut conn, &paths.target).await;
-                let closed = conn.close().await;
-                migrated?;
-                closed?;
+            let mut conn = connect(&paths.target).await?;
+            let migrated = migrate_existing(&mut conn, &paths.target, migrator).await;
+            let closed = conn.close().await;
+            migrated?;
+            closed?;
+        } else {
+            let stale: Vec<String> = sidecars(&paths.target)
+                .filter(|sidecar| fs::symlink_metadata(sidecar).is_ok())
+                .map(|sidecar| sidecar.display().to_string())
+                .collect();
+            if !stale.is_empty() {
+                return Err(StorageError::Refused(format!(
+                    "database {} does not exist, but {} remain from an earlier database; \
+                     to delete them and start from a new database, run: {}",
+                    paths.target.display(),
+                    stale.join(", "),
+                    reset_command(&paths.target)
+                )));
             }
+            reclaim(&paths, staging)?;
+            initialize(&paths, issuer, migrator).await?;
         }
+        Ok(Self {
+            path: paths.target,
+            _lock: lock,
+            _dir: None,
+        })
+    }
+
+    async fn reset_with(
+        path: &Path,
+        issuer: &str,
+        migrator: &Migrator,
+    ) -> Result<Self, StorageError> {
+        let Claim {
+            paths,
+            lock,
+            staging,
+            exists,
+        } = claim(path)?;
+        if exists && !plausible_database(&paths.target)? {
+            return Err(StorageError::Refused(format!(
+                "{} does not look like a SQLite database (it is neither empty nor starts with \
+                 SQLite's header) and was left untouched; remove it by hand if it is not needed",
+                paths.target.display()
+            )));
+        }
+        reclaim(&paths, staging)?;
+        // The database goes before its sidecars: an interruption then leaves
+        // a missing database with stale sidecars, which `open` refuses and a
+        // second reset completes. The other order could leave a database
+        // without its hot journal.
+        remove_if_present(&paths.target)?;
+        checkpoint("after-remove", &paths.target)?;
+        for sidecar in sidecars(&paths.target) {
+            remove_if_present(&sidecar)?;
+        }
+        initialize(&paths, issuer, migrator).await?;
         Ok(Self {
             path: paths.target,
             _lock: lock,
@@ -150,12 +181,72 @@ impl Storage {
     }
 }
 
+/// An owned path whose surroundings passed every check, with nothing changed
+/// yet except the lock file's creation. A refusal while resolving the path
+/// comes before even that; a later one can leave a new, empty lock file.
+struct Claim {
+    paths: Paths,
+    lock: fs::File,
+    staging: Staging,
+    /// Whether a database exists at the target.
+    exists: bool,
+}
+
+/// The front half `open` and `reset` share: one identity for the path, the
+/// ownership lock, then validation of the staging directory, the sidecar
+/// names and the target.
+fn claim(path: &Path) -> Result<Claim, StorageError> {
+    let paths = resolve(path)?;
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&paths.lock)?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(fs::TryLockError::WouldBlock) => return Err(StorageError::InUse(paths.target)),
+        Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+    }
+    let staging = inspect_staging(&paths)?;
+    inspect_sidecars(&paths.target)?;
+    let exists = match fs::symlink_metadata(&paths.target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+        Ok(meta) => {
+            if !meta.is_file() {
+                return Err(StorageError::Refused(format!(
+                    "database {} is not a regular file",
+                    paths.target.display()
+                )));
+            }
+            let published = meta.nlink() == 2
+                && matches!(&staging, Staging::Owned(Some(staged))
+                    if staged.dev() == meta.dev() && staged.ino() == meta.ino());
+            if meta.nlink() != 1 && !published {
+                return Err(hard_link(&paths.target));
+            }
+            true
+        }
+    };
+    Ok(Claim {
+        paths,
+        lock,
+        staging,
+        exists,
+    })
+}
+
 /// SQLite's sidecar suffixes; the staging directory may hold them too.
 const SIDECARS: [&str; 3] = ["-journal", "-wal", "-shm"];
 /// The initializer's own names; a database may not use them, in any case.
 const RESERVED: [&str; 2] = [".iris-lock", ".iris-init"];
 const STAGED: &str = "reference.db";
 const OWNER: &str = "owner";
+/// The first bytes of every SQLite database file.
+const HEADER: &[u8; 16] = b"SQLite format 3\0";
+/// Where the guide explains what to do about a database at a sidecar name.
+const GUIDE: &str = "see \"A database at a sidecar name\" in apps/reference/README.md";
 
 /// The canonical database path and the names derived from it.
 struct Paths {
@@ -170,6 +261,33 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
     name.push(suffix);
     PathBuf::from(name)
+}
+
+fn sidecars(target: &Path) -> impl Iterator<Item = PathBuf> {
+    SIDECARS
+        .iter()
+        .map(move |suffix| with_suffix(target, suffix))
+}
+
+/// The command a refusal names for discarding a database, with the path
+/// quoted for a POSIX shell so that it can be pasted as printed.
+fn reset_command(target: &Path) -> String {
+    format!(
+        "reference-dev --local-oidc-demo --database {} --reset",
+        shell_quote(&target.display().to_string())
+    )
+}
+
+/// One shell word: left bare when every character is plainly safe, and
+/// otherwise single-quoted, with each embedded single quote closed, escaped
+/// and reopened.
+fn shell_quote(word: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+:=@,%".contains(c);
+    if !word.is_empty() && word.chars().all(safe) {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
 }
 
 fn reserved(name: &str) -> bool {
@@ -188,10 +306,32 @@ fn hard_link(target: &Path) -> StorageError {
     ))
 }
 
-/// Resolves one identity for the database before any lock is derived: the
-/// parent must exist and is canonicalized, and the file itself may not be a
-/// symbolic link.
+/// Resolves one identity for the database, and refuses a name that belongs to
+/// another database's sidecars: SQLite and a reset of that database would
+/// treat the file as theirs.
 fn resolve(path: &Path) -> Result<Paths, StorageError> {
+    let paths = derive(path)?;
+    // `derive` has checked that the file name is UTF-8.
+    let name = paths.target.file_name().and_then(|name| name.to_str());
+    let name = name.unwrap_or_default();
+    let folded = name.to_ascii_lowercase();
+    if let Some(suffix) = SIDECARS.iter().find(|suffix| folded.ends_with(*suffix)) {
+        let owner = paths
+            .target
+            .with_file_name(&name[..name.len() - suffix.len()]);
+        return Err(StorageError::Refused(format!(
+            "database path {}: a file name ending in -journal, -wal or -shm is reserved for the \
+             SQLite sidecars of {}; nothing was touched; {GUIDE}",
+            path.display(),
+            owner.display()
+        )));
+    }
+    Ok(paths)
+}
+
+/// Derives the names before any lock is taken: the parent must exist and is
+/// canonicalized, and the file itself may not be a symbolic link.
+fn derive(path: &Path) -> Result<Paths, StorageError> {
     let refuse =
         |why: String| StorageError::Refused(format!("database path {}: {why}", path.display()));
     let name = path
@@ -299,6 +439,63 @@ fn inspect_staging(paths: &Paths) -> Result<Staging, StorageError> {
     }
 }
 
+/// Refuses recognizable evidence that a sidecar name holds something other
+/// than this database's sidecar: the ownership siblings of a database at that
+/// name, whether or not the file exists yet, or an occupant that is not a
+/// regular single-link file or that starts with SQLite's database header. A
+/// file passing these checks is not proven to be a sidecar.
+fn inspect_sidecars(target: &Path) -> Result<(), StorageError> {
+    let refuse = |occupant: &Path| {
+        StorageError::Refused(format!(
+            "database {}: {} looks like a separate database or an unrecognized file, not this \
+             database's SQLite sidecar; the database and that file were left as they are; \
+             {GUIDE}",
+            target.display(),
+            occupant.display()
+        ))
+    };
+    for sidecar in sidecars(target) {
+        for suffix in RESERVED {
+            let sibling = with_suffix(&sidecar, suffix);
+            match fs::symlink_metadata(&sibling) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+                Ok(_) => return Err(refuse(&sibling)),
+            }
+        }
+        match fs::symlink_metadata(&sidecar) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+            Ok(meta) => {
+                if !meta.is_file() || meta.nlink() != 1 || starts_with_header(&sidecar)? {
+                    return Err(refuse(&sidecar));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The first bytes of a regular file, up to the length of SQLite's header.
+fn leading_bytes(path: &Path) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(HEADER.len() as u64)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn starts_with_header(path: &Path) -> io::Result<bool> {
+    Ok(leading_bytes(path)? == HEADER)
+}
+
+/// An empty file or one with SQLite's header intact. A plausibility check
+/// before a reset deletes the file, not proof that this application made it.
+fn plausible_database(path: &Path) -> io::Result<bool> {
+    let bytes = leading_bytes(path)?;
+    Ok(bytes.is_empty() || bytes == HEADER)
+}
+
 fn remove_if_present(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
@@ -324,7 +521,7 @@ fn reclaim(paths: &Paths, staging: Staging) -> io::Result<()> {
 
 /// Builds a database in the staging directory and publishes it under the
 /// target name only if that name is still free. Callers hold the lock.
-async fn initialize(paths: &Paths, issuer: &str) -> Result<(), StorageError> {
+async fn initialize(paths: &Paths, issuer: &str, migrator: &Migrator) -> Result<(), StorageError> {
     fs::create_dir(&paths.staging)?;
     let mut owner = fs::File::create_new(paths.staging.join(OWNER))?;
     owner.write_all(&owner_record(&paths.target))?;
@@ -332,7 +529,7 @@ async fn initialize(paths: &Paths, issuer: &str) -> Result<(), StorageError> {
     drop(owner);
     let staged = paths.staging.join(STAGED);
     let mut conn = connect(&staged).await?;
-    let built = build(&mut conn, &paths.target, issuer).await;
+    let built = build(&mut conn, &paths.target, issuer, migrator).await;
     // Closed, and its closure awaited, before publication or any return.
     let closed = conn.close().await;
     built?;
@@ -356,19 +553,44 @@ async fn build(
     conn: &mut SqliteConnection,
     target: &Path,
     issuer: &str,
+    migrator: &Migrator,
 ) -> Result<(), StorageError> {
     check_journal(conn, target).await?;
-    MIGRATOR.run(&mut *conn).await?;
+    migrate(conn, target, migrator).await?;
     checkpoint("after-migrate", target)?;
     seed_development(conn, issuer).await?;
     checkpoint("after-seed", target)
 }
 
 /// An existing database is migrated, never seeded, so a restart keeps its data.
-async fn migrate_existing(conn: &mut SqliteConnection, target: &Path) -> Result<(), StorageError> {
+async fn migrate_existing(
+    conn: &mut SqliteConnection,
+    target: &Path,
+    migrator: &Migrator,
+) -> Result<(), StorageError> {
     check_journal(conn, target).await?;
-    MIGRATOR.run(&mut *conn).await?;
-    Ok(())
+    migrate(conn, target, migrator).await
+}
+
+/// Applies pending migrations. A modified applied migration stops here and
+/// is never answered with a reset: the refusal offers restoring the
+/// migration, which keeps the data, before the reset, which discards it.
+async fn migrate(
+    conn: &mut SqliteConnection,
+    target: &Path,
+    migrator: &Migrator,
+) -> Result<(), StorageError> {
+    migrator.run(&mut *conn).await.map_err(|error| match error {
+        MigrateError::VersionMismatch(version) => StorageError::Refused(format!(
+            "database {} has migration {version} applied, but that migration's source has been \
+             modified since (its checksum differs), and startup never resets a database. To keep \
+             the data, restore the applied migration's source and put the intended change in a \
+             new migration. To discard the data instead, run: {}",
+            target.display(),
+            reset_command(target)
+        )),
+        error => StorageError::Migrate(target.to_owned(), error),
+    })
 }
 
 /// Refuses rather than converts: a file switched to WAL elsewhere keeps WAL.
@@ -412,7 +634,8 @@ const BARRIER: &str = "IRIS_STORAGE_BARRIER";
 static FAILURES: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
 
 /// Test-only interruption points: a child process blocks at `BARRIER` until
-/// it is killed, and a registered path fails after migration.
+/// it is killed, and a registered path fails after migration. `after-remove`
+/// lies between a reset's deletion of the database and of its sidecars.
 #[cfg(test)]
 fn checkpoint(stage: &str, target: &Path) -> Result<(), StorageError> {
     if std::env::var(BARRIER).as_deref() == Ok(stage) {
@@ -436,6 +659,33 @@ fn fail_after_migration(path: &Path, on: bool) {
     if on {
         failures.push(path.to_owned());
     }
+}
+
+/// The ownership lock belongs to the open file, so a child process spawned by
+/// any thread shares every lock then held until it execs, and a test that
+/// releases a path and takes it again in that instant is refused. Tests that
+/// spawn a child therefore run alone, for their whole length, and the others run
+/// together. Every spawn in the library's tests takes part.
+#[cfg(test)]
+static PROCESSES: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// Held by a storage test that spawns no child. A failed test must not fail the rest,
+/// so a poisoned lock is still taken.
+#[cfg(test)]
+fn shared() -> std::sync::RwLockReadGuard<'static, ()> {
+    PROCESSES
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Held by a storage test that spawns a child process, and by any other
+/// library test around its spawn: a child can inherit locks its spawner never
+/// took.
+#[cfg(test)]
+pub(crate) fn exclusive() -> std::sync::RwLockWriteGuard<'static, ()> {
+    PROCESSES
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]

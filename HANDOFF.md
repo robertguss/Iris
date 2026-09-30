@@ -2,31 +2,27 @@
 
 ## 1. State
 
-Observed September 27, 2026, by the outgoing driver.
+Observed September 30, 2026, by the outgoing driver.
 
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
   `robertguss/Iris`).
-- Branch: `lifecycle-design`, local only, with no upstream (created at `8d2cfc7`
-  at the owner's choice in the previous chunk).
-- Reviewed through `d0ae9d8`. This handoff is committed after it.
-- This chunk's commits: `858bcf8` (S18 decisions recorded) and `d0ae9d8`
-  (storage and initialization implemented), on top of the previous handoff
-  `1c3aa65`.
-- Pushed through `c810f91` (the previous handoff commit) to `main`, by
-  fast-forward, at the owner's instruction "skip the pr and go straight to
-  main". `origin/main` and local `main` include every commit through `c810f91`;
-  the commit carrying this correction is pushed to `main` as well.
-  `origin/s17-checkpoint-a` stays at `8594777`; local `s17-checkpoint-a` is at
-  `8d2cfc7`, one ahead of its upstream. `lifecycle-design` still has no
-  upstream; its commits reach GitHub only through `main`.
-- PR #1 is merged (`8594777`). No new pull request exists; the owner chose to
-  skip one.
-- CI: GitHub Actions run 36364999959 (Verify, push event) on `c810f91` passed on
-  its first attempt, every step green, including the new storage tests on Linux.
-- The working tree was clean apart from this handoff before its commit. This
-  correction of sections 1, 5, 6, 8, 9 and 10 after the push was made without an
-  oracle review, at the owner's instruction ("fix handoff and don't worry about
-  the review just do it now").
+- Branch: `main`, tracking `origin/main`. The work was committed directly on
+  `main`; `lifecycle-design` stays at `69c382b` and is no longer where work
+  happens.
+- Reviewed through `66d0608` (S18 step 3). This handoff is committed after it.
+- Pushed through `66d0608` to `main`, by fast-forward with an explicit SHA and
+  refspec, at the owner's instruction "go straight to main". This handoff's
+  commit is pushed the same way as part of the same chunk.
+- CI: GitHub Actions run 36721898213 (Verify, push event, Ubuntu) on `66d0608`
+  concluded `success` on its first attempt. Its log shows every step through
+  both browser workflows printing its PASS line, the 72 library tests including
+  the new storage tests, and the 8 development-binary tests. The API's per-step
+  metadata for that run still listed steps 11 onward as pending after the run
+  completed, so the step list is taken from the log (`evidence/09-ci-log.txt`),
+  not from `gh run view --json jobs`. The log's two `##[error]` lines are the
+  contract and S16 probes' intended seeded failures.
+- PR #1 is merged (`8594777`). No pull request is open.
+- The working tree was clean apart from this handoff before its commit.
 
 Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 `git ls-remote origin`) before relying on any of this.
@@ -34,148 +30,155 @@ Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 ## 2. Read these first
 
 - `docs/design-spec.md` S18 "Reference application lifecycle": the
-  recommendations, "Acceptance checks for a later implementation", "Lifecycle
-  owner decisions" and "Storage and initialization evidence".
-- `docs/decisions.md`: "Reference application lifecycle — September 27, 2026"
-  (with its appended decisions paragraph) and "Reference application lifecycle
-  storage — September 27, 2026".
-- `apps/reference/src/storage.rs` and `apps/reference/src/storage/tests.rs`: the
-  protocol and its tests; the next steps build on them.
-- `apps/reference/src/bin/reference-dev.rs` and `apps/reference/README.md` ("Run
-  it").
+  recommendations (8 for the next step), "Acceptance checks for a later
+  implementation" (row "Tasks, shutdown"), "Storage and initialization evidence"
+  and "Reset and migration evidence".
+- `docs/decisions.md`: the three "Reference application lifecycle" entries
+  (September 27 and 30).
+- `apps/reference/src/storage.rs` and `apps/reference/src/storage/tests.rs`:
+  `claim`, `open`, `reset`, the sidecar checks and the test-process guard at the
+  end of `storage.rs`.
+- `apps/reference/src/bin/reference-dev.rs` and
+  `apps/reference/tests/dev_binary.rs`: where shutdown and session cleanup land.
+- `apps/reference/README.md` "Run it" and "A database at a sidecar name".
 - `docs/design-spec.md` S14 (caller loss) and S17 "Ownership boundaries", for
-  steps 3–5.
+  steps 4 and 5.
 
 ## 3. Context
 
-- **How the ten S18 choices were settled:** the owner answered choice 1
-  ("Disposable unless given an explicit path") from offered options, then, asked
-  choice 2, replied "have the oracle answer your questions please." The oracle
-  chose the recommended option for choices 2–10 and flagged none for the owner.
-  S18 and the decision record disclose that the same model reviewed S18, so
-  those nine are not an independent approval.
-- **Authorization:** asked "With all ten S18 choices settled, is implementing
-  S18 authorized?", the owner chose "Record, then implement (Recommended)": a
-  reviewed documentation step, then implementation in reviewed steps (storage
-  and initialization; reset and migrations; shutdown and session cleanup; the
-  development command). Push and pull request were explicitly left out.
-- **Why the storage protocol is elaborate:** step 2's plan went through two
-  rounds of changes requested. The oracle reproduced with scratch probes that
-  (a) unconditional cleanup of a `.init` sibling can delete another database,
-  (b) publishing a new database beside a stale hot journal can replay old
-  content into it, (c) symlink and hard-link aliases get separate sibling locks,
-  (d) three-link recovery was admitted, and (e) APFS treats `.IRIS-INIT` and
-  `.iris-init` as one name. The owned staging directory with an `owner` record,
-  exact two-link recovery, sidecar refusal, canonical parent and case-folded
-  reserved names answer those.
-- **Pause:** the owner paused the session twice ("pause when you finish what you
-  are working on"; later "I need to pause this project for the night"). The
-  chunk was brought to its agreed stopping point before stopping. The oracle
-  restart and the fresh driver (end-of-chunk steps 4 and 5) were not done; see
-  section 10.
+- **Why reset grew sidecar-name rules:** the plan review reproduced that a
+  database created at another database's sidecar name (`dev.db-wal` beside
+  `dev.db`, each with its own lock) would be deleted by a reset of `dev.db`, and
+  that an initializer which had not published yet left only its `.iris-lock` and
+  `.iris-init` siblings as evidence. Hence the refused names, the sibling checks
+  that apply even when the sidecar is absent, and the occupant checks, all in
+  the front half that `open` and `reset` share (`claim`).
+- **Why the guide's manual procedure is so exact:** three plan re-reviews
+  corrected it. Moving a database without its `-wal` loses committed changes
+  (reproduced); `sqlite3 <db> .quit` does not clear a WAL (reproduced); a
+  staging directory may be removed only after the checks `inspect_staging`
+  makes, and a symbolic link to a directory passes naive checks (reproduced).
+  Don't simplify that paragraph without re-deriving these.
+- **Why library tests take a process guard:** the ownership lock belongs to the
+  open file, so a child spawned by any thread shares every held lock until it
+  execs. The oracle reproduced intermittent `InUse` failures twice: from the
+  storage tests' own child processes, and from the membership fixture's Node
+  spawn. Storage tests that spawn run exclusively for their whole length, the
+  others shared, and the fixture takes the exclusive guard around its spawn.
+- **Test-first was not followed in this step:** tests and implementation were
+  written together and passed on the first run. S18 says so; the 43 mutations
+  are the evidence that the tests detect the behavior. The oracle noted this as
+  disclosed, not as compliant.
+- **The owner said little this session:** "do it" and "whats next?" while work
+  was in progress, and "go straight to main" in answer to whether this step
+  should be pushed without a pull request.
 
 ## 4. Agreed chunk and acceptance
 
-- **Objective:** record S18's decisions and authorization (step 1); implement
-  S18's storage and initialization slice: recommendations 1, 2 and 3 and the
-  startup journal check of 7 (step 2); this handoff.
-- **Exclusions:** reset command, migration refusal messaging, graceful shutdown,
-  session cleanup, the development command and its `.gitignore` entry (steps
-  3–5); detecting a database created against another issuer; any contract,
-  client, CI, dependency or frozen-experiment change; push or pull request.
-- **Stopping condition:** after step 2 and this handoff. The boundary did not
+- **Objective:** S18 step 3, reset and migrations (recommendations 4 and 5;
+  acceptance rows Reset and Migrations), as one reviewed commit; then this
+  handoff.
+- **Scope added in plan review:** sidecar-name ownership for both `open` and
+  `reset`, and the guide's procedure for a database at a sidecar name. Added in
+  diff review: shell quoting of the printed reset command, and the test-process
+  guard.
+- **Exclusions:** graceful shutdown, signal handling, session cleanup (step 4);
+  the development command, `apps/reference/.dev/` and `.gitignore` (step 5);
+  detecting a database created against another issuer; WAL adoption; backups; a
+  confirmation prompt; any change to `migrations/0001_initial.sql`, the
+  contract, the client, CI, dependencies or `experiments/`.
+- **Stopping condition:** after step 3 and this handoff. The boundary did not
   move.
-- **Disposition:** `accepted`.
-  - Step 1, `858bcf8`: S18 status, "Lifecycle owner decisions" table (renamed
-    from "Lifecycle choices for the owner"), pointers in the introduction, S10,
-    S11, S17 and the decision record's open-decisions row; decision paragraph;
-    change record.
-  - Step 2, `d0ae9d8`: `storage.rs` (+ tests), `reference-dev --database PATH`,
-    two new `dev_binary.rs` tests, README, S18 evidence, S10 row, decision
-    entry, change record.
+- **Disposition:** `accepted`. Step 3 is `66d0608`: `storage.rs` and its tests,
+  `reference-dev --reset`, four new `dev_binary.rs` tests, the membership
+  fixture's guard, README, S18 evidence, S10, S11 and S17 pointers, the decision
+  entry, the change record, and the correction of the first step's stale CI
+  statements (the previous handoff's item 11).
 
 ## 5. Verification and review
 
-Environment: macOS (APFS), Rust 1.98.1, Node 26.8.1 for `verify`, Node 24.20.0
-for the browser workflow. Evidence in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/a1086d40-571b-4bc2-91e9-0105bb9d9d75/scratchpad/`
-(temporary; below, `scratchpad/`).
+Environment: macOS (APFS), Rust 1.98.1, Node 24.20.0 for the browser workflow.
+Evidence in
+`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/b04871ba-05ce-4ae0-87cf-13f508c093a3/scratchpad/evidence/`
+(temporary; below, `evidence/`). All results are for the tree committed as
+`66d0608`.
 
-| Claim (step 2 unless noted) | Command and result                                                                                                                                                                                                            | Evidence                                        | Checked by                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------- |
-| Rust suite                  | `cargo test --workspace --locked`: 150 passed, 0 failed                                                                                                                                                                       | `evidence/03-cargo-test.txt`                    | Driver; the oracle reran the 21 storage and 4 binary tests |
-| Lint and format             | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `cargo fmt --all --check`: clean                                                                                                             | `evidence/04-clippy.txt`, `05-fmt.txt`          | Driver-reported                                            |
-| Client and browser          | `npm --prefix apps/reference/web run verify`: PASS; `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>`: PASS (disposable path through `Storage`)                                           | `evidence/06-web-verify.txt`, `07-browser.txt`  | Driver-reported                                            |
-| Mutations                   | `mutate.py`: 12 of 12 caught (journal check, lock, seed existing, hard link to rename, reclaim ×2, migrate existing, sidecar, symlink, link count, owner record, case-sensitive names)                                        | `evidence/08-mutations.txt`, `mutate.py`        | Oracle inspected, did not rerun                            |
-| Markdown (both steps)       | Prettier 3.9.9 check clean; `links.py`: 156 (step 1), then 169 local links, 0 broken; step 1 seeded control reported all three breaks                                                                                         | `evidence/01-links.txt`, `02-links-control.txt` | Oracle reran Prettier and the link check                   |
-| Limits                      | GitHub Actions run 36364999959 on Linux passed after the push to `main`; publication-after-close is source-reviewed only; a failure while opening a pool or connection is outside the closure guarantee; torn `owner` refused | S18 "Storage and initialization evidence"       | Oracle agreed with the limits                              |
+| Claim              | Command and result                                                                                                                                                                                          | Evidence                                        | Checked by                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Rust suite         | `cargo test --workspace --locked`: 171 passed, 0 failed (38 storage, 8 development-binary)                                                                                                                  | `evidence/01-cargo-test.txt`                    | Driver; the oracle ran the library tests (72) 20 times and, earlier, the 38 storage and 8 binary tests |
+| No spawn race      | `cargo test --locked -p iris-reference --lib`, 40 consecutive default-parallel runs passed                                                                                                                  | not retained as a file                          | Driver; the oracle's 20 runs and a targeted probe with zero transient refusals                         |
+| Lint and format    | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `cargo fmt --all --check`: clean                                                                                           | `evidence/02-clippy.txt`, `03-fmt.txt`          | Driver; the oracle ran clippy on the reference crate and the format check                              |
+| Client and browser | `npm --prefix apps/reference/web run verify`: PASS; `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>`: PASS                                                             | `evidence/05-web-verify.txt`, `08-browser.txt`  | Driver-reported                                                                                        |
+| Mutations          | `mutate.py`: 43 of 43 caught, both controls green (12 repeating the first step's, 9 reset, 12 sidecar names, 5 migrations and message, 5 binary)                                                            | `evidence/04-mutations.txt`, `mutate.py`        | Driver-reported; the oracle ran two deletion-order variants itself                                     |
+| Markdown           | Prettier 3.9.9 check clean; `links.py`: 174 local links, 0 broken; a seeded control reported its three breaks                                                                                               | `evidence/06-links.txt`, `07-links-control.txt` | Oracle reran Prettier and the link check                                                               |
+| Limits             | See S18 "Reset and migration evidence", Limits: plausibility checks only; one signed-in session through the issuer fixture, not the browser; the guide's Linux `stat` command and manual steps not executed | S18                                             | Oracle agreed at plan level                                                                            |
 
 Oracle verdicts:
 
-1. Owner-delegated choices 2–10: all recommended; none flagged.
-2. Step 1 plan and chunk: sign-off; one P3 (update the remaining S18 pointers),
+1. Plan: changes requested: one P1 (reset deletes a separately owned database
+   through a sidecar name). Accepted.
+2. Plan re-review: changes requested: two P1 (ownership siblings of an absent
+   sidecar; rename guidance strands WAL data). Accepted.
+3. Plan second re-review: changes requested: two P1 (staging directory's
+   existence does not authorize deletion; the `sqlite3` shortcut). Accepted; the
+   shortcut was removed.
+4. Plan third re-review: changes requested: one P1 (a symbolic link passes the
+   manual staging checks). Accepted.
+5. Plan fourth re-review: sign-off.
+6. Diff: changes requested: two P2 (reset command's path unquoted; the WAL test
+   lost its files before the reset) and one P3 (wording on lock creation). All
    fixed.
-3. Step 1 diff: sign-off, no findings.
-4. Step 2 plan: changes requested: two P1 (staging cleanup ownership; stale
-   sidecars) and four P2 (aliases; close before unlock; real interruption tests;
-   existing-file migration test). All accepted.
-5. Step 2 plan re-review: changes requested: one P1 (reserved names are not
-   ownership; case-insensitive collision) and two P2 (three-link recovery;
-   manual reset lacks exclusion). All accepted.
-6. Step 2 plan second re-review: sign-off, with ordering rules (validate before
-   deleting; database files before `owner`, then rmdir; never recursive), all
-   followed.
-7. Step 2 diff: sign-off; one P3 (narrow cleanup and closure wording in
-   `storage.rs` and S18), fixed before commit.
+7. Diff re-review: changes requested: one P2 (the spawn race made the storage
+   suite flaky; recording it was not enough). Fixed with the process guard.
+8. Diff second re-review: changes requested: one P2 (the membership fixture's
+   Node spawn was outside the guard). Fixed.
+9. Diff third re-review: sign-off, no findings.
 
 None disputed, so none went to the owner.
 
 ## 6. Remaining work
 
-1. **S18 step 3: reset and migrations.** A reset command in the Rust application
-   (exclusive ownership through the same lock; refuses while an API holds it;
-   removes the database and every sidecar, keeps `.iris-lock`), and the
-   migration checksum refusal naming the path and version and offering
-   restoration before the reset (recommendations 4 and 5; acceptance rows Reset,
-   Migrations). Then update the README's "use a fresh path" guidance.
-2. **S18 step 4: shutdown and session cleanup** (recommendation 8; row Tasks,
-   shutdown).
-3. **S18 step 5: the development command** (recommendation 6; row Command),
-   including `apps/reference/.dev/` in `.gitignore`.
-4. **Invitation issuance and acceptance design** (S17's follow-up row), which
+1. **S18 step 4: shutdown and session cleanup** (recommendation 8; acceptance
+   row "Tasks, shutdown"): SIGINT and SIGTERM handling, graceful shutdown with
+   an inner deadline inside the supervisor's 5 s kill, a supervised periodic
+   session cleanup whose panic stops the process, pools closed before the lock
+   is released.
+2. **S18 step 5: the development command** (recommendation 6; row Command),
+   including `apps/reference/.dev/` in `.gitignore`; its reset invokes
+   `reference-dev --reset`.
+3. **Invitation issuance and acceptance design** (S17's follow-up row), which
    must also settle worker restart policy and send uncertainty per S18
    recommendation 8.
-5. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
+4. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
    probes are carried by the reference application.
-6. **The agent-interface CI flake:** not recurred. If it does, diagnose
+5. **The agent-interface CI flake:** if it recurs, diagnose
    `concurrent_last_owner_and_authority` in
    `experiments/embedded-db/sqlite/tests/members.rs`. Frozen; a fix needs the
    owner.
-7. **Documentation hygiene, carried forward:**
+6. **Documentation hygiene, carried forward:**
    `experiments/embedded-db/README.md:64-66` describes Turso's migration as
    one-version (the migrator applies two since `2b1e820`); frozen, needs the
    owner. PR #1's merged description is stale; optional, needs the owner.
-8. **Precompiled validators:** needed if a content security policy without
+7. **Precompiled validators:** needed if a content security policy without
    `unsafe-eval` is adopted.
-9. **Caller loss beyond the browser:** a real disconnect or cancellation during
+8. **Caller loss beyond the browser:** a real disconnect or cancellation during
    a mutation (S14's focused validation items 2 and 3) is still untested.
-10. **Detecting a database created against another issuer:** documented in the
-    README only.
-11. **Stale CI statements in the design record:** S18's "Storage and
-    initialization evidence" and the decision record's storage entry say Linux
-    and GitHub Actions were not run; run 36364999959 on `c810f91` has since
-    passed. Correct them in the next reviewed step.
+9. **Detecting a database created against another issuer:** documented in the
+   README only.
+10. **README verification matrix:** only its development server, development
+    database and workspace rows were remeasured on September 30; the rest date
+    from September 26–27.
 
 ## 7. Next chunk
 
-`proposed`. Implementation of steps 3–5 is authorized; the chunk's shape is not
-yet agreed.
+`proposed`. Implementation of steps 4 and 5 is authorized; the chunk's shape is
+not yet agreed.
 
-- **Proposal:** S18 step 3, reset and migrations, then a handoff.
-- **Acceptance:** S18's Reset and Migrations acceptance rows, with tests,
-  mutation checks and the browser workflow unchanged.
-- **First action:** write the step 3 plan (building on `storage.rs`'s lock and
-  names) and send it for plan review.
+- **Proposal:** S18 step 4, shutdown and session cleanup, then a handoff.
+- **Acceptance:** S18's "Tasks, shutdown" acceptance row, with tests, mutation
+  checks and the browser workflow unchanged.
+- **First action:** write the step 4 plan and send it for plan review. Write the
+  tests first this time and record the failing run.
 
 ## 8. Decisions and authorizations in force
 
@@ -183,11 +186,12 @@ yet agreed.
 - **The ten S18 decisions** in S18's "Lifecycle owner decisions" (choice 1 by
   the owner; 2–10 by the oracle at the owner's request).
 - **Authorized:** implementing S18 in reviewed steps: storage and initialization
-  (done), reset and migrations, shutdown and session cleanup, the development
-  command.
-- **Pushes:** the owner authorized pushing this chunk's work straight to `main`
-  without a pull request; that was done. Every later push needs a fresh
-  go-ahead. CI reruns need the owner.
+  (done), reset and migrations (done), shutdown and session cleanup, the
+  development command.
+- **Pushes:** the owner said "go straight to main" for this chunk, in answer to
+  whether this step should be pushed without a pull request; that was done. It
+  was not stated as a standing rule, so every later push needs a fresh go-ahead.
+  CI reruns need the owner.
 - **Not authorized:** any further push or merge; a new pull request; deleting
   `s17-checkpoint-a`, `lifecycle-design` or `docs/s17-reference-app`;
   invitations; retiring frozen experiments; editing `experiments/`; editing PR
@@ -198,41 +202,35 @@ yet agreed.
 
 ## 9. Open questions for the user
 
-- Should later chunks also go straight to `main` without a pull request? Blocks
-  the next push.
-- Is the next chunk (step 3 alone, then a handoff) the right size, or should
-  steps 3–5 run in one chunk? Blocks only the chunk boundary; the plan review
-  can settle it if the owner has no preference.
+- Is "go straight to main" the rule for later chunks too, or only for this one?
+  Blocks the next push.
+- Is the next chunk (step 4 alone, then a handoff) the right size, or should
+  steps 4 and 5 run in one chunk? Blocks only the chunk boundary; the plan
+  review can settle it if the owner has no preference.
 
 ## 10. Operational state
 
-- **Running processes:** none. The browser workflow and mutation runs finished;
-  no stray `interrupted_child` or `reference-dev` processes remained.
-- **Not yet done from end-of-chunk:** the oracle was not restarted and no fresh
-  driver was started, because the owner paused for the night. Next session:
-  restart the oracle and start a fresh driver from this file, or have the
-  current pair continue.
-- **Remote:** `main` at this handoff's commit (through `c810f91` and this
-  correction); `s17-checkpoint-a` at `8594777`; PR #1 merged. Don't edit or
-  delete without the owner.
-- **Local branches:** `lifecycle-design` (this work, no upstream; pushed only
-  through `main`); `s17-checkpoint-a` at `8d2cfc7`; `main` tracking
-  `origin/main`; `docs/s17-reference-app` at `5ad417d` (older; leave it).
+- **Running processes:** none. The browser workflow, the mutation runs and every
+  test child finished.
+- **Remote:** `main` at this handoff's commit; `s17-checkpoint-a` at `8594777`;
+  PR #1 merged. Don't edit or delete without the owner.
+- **Local branches:** `main` tracking `origin/main`; `lifecycle-design` at
+  `69c382b` (no upstream, behind `main`); `s17-checkpoint-a` at `8d2cfc7`, one
+  ahead of its upstream; `docs/s17-reference-app` at `5ad417d` (older; leave
+  it).
 - **Local installs:** `experiments/agent-interface/node_modules` and
   `apps/reference/web/node_modules` (gitignored).
 - **Retained evidence (temporary, possibly already deleted):**
   - this session's
-    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/a1086d40-571b-4bc2-91e9-0105bb9d9d75/scratchpad/`:
-    `evidence/01`–`08`, prompts `01`–`07`, `links.py`, `mutate.py`,
-    `browser-artifacts/`, `control/` (a full `git archive` copy, safe to
+    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/b04871ba-05ce-4ae0-87cf-13f508c093a3/scratchpad/`:
+    `evidence/01`–`08`, plan and review prompts `01`–`09`, `links.py`,
+    `mutate.py`, `browser-artifacts/`, `control/` (a `git archive` copy, safe to
     delete), `mutants/` and `mutants-target/` (a source copy and its Cargo
     target, safe to delete);
-  - the oracle's `/private/tmp/iris-s18-storage-plan-axD2dM/` and
-    `/private/tmp/iris-s18-plan-rereview-9bzhwwge/` (probe results);
-  - earlier sessions' scratchpads under
-    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`
-    (`331764ef…`, `5f627447…`, `730b5501…`, `c354486e…`, `8700f9fe…`; several
-    GB, mostly Cargo targets, safe to delete).
+  - the oracle's `/private/tmp/iris-s18-step3-*` directories (probe scripts and
+    logs for each finding).
+  - Earlier sessions' scratchpads, including the previous `links.py` and
+    `mutate.py`, are gone; both were rewritten this session.
 - **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
   `target/` and can leave a mutated artifact that a later run treats as current.
   Frozen; recorded rather than fixed.
@@ -257,9 +255,9 @@ yet agreed.
   - TypeScript under `apps/reference/web/src` is Prettier-formatted, except
     `generated.ts`, which is never formatted. `style.css` keeps its compact,
     unformatted style.
-- **Link checking:** `links.py` (in this session's scratchpad and the
-  `730b5501…` one, section 10) takes Markdown paths relative to the repository
-  root and applies GitHub-style slugs. A seeded control needs a full copy of the
+- **Link checking:** `links.py` (in this session's scratchpad, section 10;
+  rewrite it if that is gone) takes the root and then Markdown paths relative to
+  it, and applies GitHub-style slugs. A seeded control needs a full copy of the
   tree (`git archive HEAD | tar -x -C <dir>`, then the edited file copied over
   it); in a partial copy, links to files not copied are reported as broken.
 - **Frozen guides can be stale:** check the source before citing an experiment
@@ -415,9 +413,10 @@ yet agreed.
 - **Mutation runner for storage:** `mutate.py` in this session's scratchpad
   (section 10) copies `git ls-files -co --exclude-standard` to a scratch
   directory, uses its own `CARGO_TARGET_DIR`, applies one exact-string mutation
-  at a time to `storage.rs` and runs
-  `cargo test -p iris-reference --lib storage`. Exact strings break when the
-  source changes; re-check each count.
+  at a time to `storage.rs` or `reference-dev.rs` and runs
+  `cargo test -p iris-reference --lib storage` or `--test dev_binary`. A full
+  run of 43 takes about 15 minutes. Exact strings break when the source changes;
+  re-check each count.
 - **Unset variables in shell calls:** shell state does not persist between tool
   calls, so a `$S` set in one call is empty in the next; `cat $S` then reads
   stdin and hangs until the tool times out. Set it in every call.
@@ -425,6 +424,40 @@ yet agreed.
   the whole command ("no matches found", "argument list too long"). Find test
   binaries with `cargo test --no-run --message-format=json` and the artifact's
   `executable` field.
+- **Ownership locks and child processes:** the lock is on the open file, so a
+  child spawned by any thread shares every held lock until it execs. A library
+  test that spawns a process must take `crate::storage::exclusive()` around the
+  spawn (storage tests that spawn take it for their whole length; the others
+  take `shared()`). Integration tests under `tests/` are separate processes that
+  hold no ownership locks, so spawn freely there. A new spawn in a library test
+  without the guard shows up as intermittent `InUse` in unrelated tests.
+- **Holding the guard across awaits** is intended: each `#[tokio::test]` owns a
+  single-threaded runtime. `storage/tests.rs` allows
+  `clippy::await_holding_lock` for that reason.
+- **Mutation runner and stale artifacts:** `mutate.py` copies the checkout with
+  its modification times, so Cargo can reuse a binary built from the previous
+  run's last mutant when only test files changed. The runner touches the two
+  mutated sources before its control run; its control caught this once. Keep the
+  control and the touch.
+- **Run-time migrators in tests:** `sqlx::migrate::Migrator::new(<dir>)` over a
+  temporary directory holding copies of `0001_initial.sql` gives the same
+  checksum as the embedded `MIGRATOR`; `Storage::open_with` and `reset_with`
+  take one. SQLx returns `VersionMismatch` before applying any later migration
+  and writes nothing to the file.
+- **A WAL-mode database loses its `-wal` and `-shm` when any connection opens
+  and closes it cleanly,** including a refused `Storage::open`. A test that
+  needs crash-left WAL files must not open the database before using them.
+- **Refusal messages are matched by tests:** `reserved`, `separate database`,
+  `SQLite database`, `--reset`, `hard link`, `unrecognized`, `symbolic link`.
+  The reset command in a message is shell-quoted; `dev_binary.rs` runs it as
+  printed with the binary's directory on `PATH`.
+- **`grep -c` with no match exits 1,** which makes a background command report
+  failure even when the run it summarizes succeeded; read the output.
+- **CI step metadata lags:** just after run 36721898213 completed,
+  `gh run view --json jobs` still showed later steps as pending with the run and
+  job already `success`; it caught up within minutes. `gh run watch` also exited
+  non-zero early, before the job had started. Poll `status` until `completed`,
+  then read the steps again, or read the log.
 
 ## 12. Skills
 

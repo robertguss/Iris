@@ -6,17 +6,13 @@ Observed September 30, 2026, by the outgoing driver.
 
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
   `robertguss/Iris`), branch `main` tracking `origin/main`.
-- Reviewed through `a1d51da` (S18 step 4). This handoff is committed after it.
-- Pushed through `a1d51da` to `main`, by fast-forward with an explicit SHA and
-  refspec. The owner made pushing to `main` after sign-off a standing rule
-  (section 8); this handoff is pushed the same way.
-- CI: GitHub Actions run 36758026534 (Verify, push event, Ubuntu) on `a1d51da`
-  concluded `success` on its first attempt, all 25 steps successful. Its log
-  (`evidence/09-ci-log.txt`) shows every lifecycle test and the four new
-  development-binary tests passing on Linux; its two `##[error]` lines are the
-  contract and S16 probes' intended seeded failures. The previous chunk's
-  handoff commits: run 36724475298 on `9b838a5` was cancelled (superseded by the
-  next push), and run 36724537212 on `e8ea62f` succeeded on its first attempt.
+- Reviewed through `89e1c7a` (S18 step 5, the development command). This handoff
+  is committed after it.
+- Pushed through `89e1c7a` to `main`, by fast-forward with an explicit SHA and
+  refspec, under the owner's standing rule (section 8); this handoff is pushed
+  the same way.
+- CI: CI_LINE
+- The previous handoff's commit `9e4fde5`: run 36762611726 succeeded.
 - PR #1 is merged (`8594777`). No pull request is open.
 - The working tree was clean apart from this handoff before its commit.
 
@@ -25,190 +21,216 @@ Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 
 ## 2. Read these first
 
-- `docs/design-spec.md` S18 "Reference application lifecycle": recommendation 6
-  (the development command, next), the acceptance row "Command", and the
-  sections "Shutdown and session cleanup evidence", "Reset and migration
-  evidence" and "Storage and initialization evidence".
-- `docs/decisions.md`: the four "Reference application lifecycle" entries
-  (September 27 and 30).
-- `apps/reference/src/lifecycle.rs` and `apps/reference/src/lifecycle/tests.rs`:
-  the shutdown timeline, `Connections`/`Tracked`, `serve`, `finish`, and the
-  child-process tests.
-- `apps/reference/src/bin/reference-dev.rs`,
-  `apps/reference/tests/dev_binary.rs` and `apps/reference/scripts/browser.mjs`:
-  the binary and the one supervisor that exists; step 5 adopts the runner's
-  process rules (S18 recommendation 6).
-- `apps/reference/README.md` "Run it": the manual three-command start, the
-  shutdown paragraphs, reset and the verification matrix.
+- `docs/design-spec.md` S18 "Reference application lifecycle": its status line,
+  "Development command evidence" (the step just finished), and "Explicit
+  exclusions". S18's authorized implementation is now complete.
+- `docs/decisions.md`: the five "Reference application lifecycle" entries
+  (September 27 and 30), the last being the development command.
+- `apps/reference/scripts/dev.mjs`, `apps/reference/scripts/supervise.mjs` and
+  `apps/reference/scripts/test/` (`dev.test.mjs` and the gated fixtures).
+- `apps/reference/README.md` "Run it": the one-command start, its stop and exit
+  rules, reset through the command, the tests, and the manual start.
+- For choosing the next chunk: section 6 below, S14's focused validation items 2
+  and 3, and S17's follow-up row on invitations.
 
 ## 3. Context
 
-- **Why closure is acknowledged rather than assumed:** the first plan released
-  the ownership lock after shutting the Tokio runtime down. The oracle's probe
-  showed that establishes nothing about SQLx, whose SQLite connections run on
-  their own threads: a second owner took the lock while a worker of the first
-  was still inside an update. Hence the ticket per domain connection, taken
-  before the open is awaited and released only by a successful awaited close,
-  and the forced exit that keeps the lock whenever closure is not established.
-  Don't replace it with `Runtime::shutdown_timeout` or a drop-based count.
-- **Why a failed open poisons the stop:** SQLx can create a connection before
-  `connect` returns an error, so a failed open leaves nothing to acknowledge.
-  The owner-facing consequence (every later stop of that process exits 1 after
-  the 1 s close deadline) was accepted in plan review and is documented in the
-  README and S18. It applies to `http::open` only, not to a busy statement or
-  the session pool.
-- **Why `finish` owns the exit:** a mutation that discarded its returned code in
-  the binary survived, since no binary test reaches a failed-but-closed stop.
-  With `finish -> !`, the library child tests exercise the binary's own exit
-  path.
-- **Why tests could be written first this time:** the handoff before this one
-  asked for it; the failing run against stub bodies is kept
-  (`evidence/00-failing-first.txt`). Keep doing it.
-- **The owner said little this session:** a takeover instruction to continue
-  with the next chunk, and "Push to main, always" in answer to whether to push.
+- **Why a stop exits 0 whatever the children's codes:** the API's exit 1 after
+  an expired drain or unestablished closure is its documented forced exit (S18
+  step 4), not a supervisor failure. The command prints each child's exit and
+  reserves exit 1 for a child's unexpected exit, a readiness timeout, a failed
+  build, a group that needed SIGKILL, and a reset a signal interrupted. The
+  first cause of a stop is kept; later signals are only reported.
+- **Why the handlers persist and are installed before the build:** the browser
+  runner's `process.once` handlers let a second Ctrl-C kill the supervisor in
+  the middle of cleanup, leaving detached children (the oracle reproduced it
+  under Node 24.20.0 and 26.8.1). The browser runner keeps its own one-shot
+  handlers on purpose, so its behavior did not change.
+- **Why groups stay owned until empty:** the diff review showed a member that
+  outlived its leader, or ignored SIGTERM after the leader exited, was left
+  running while the stop reported clean. Ownership now ends when
+  `process.kill(-pgid, 0)` says the group is gone.
+- **Why readiness is tested with gated stand-ins:** a healthy run cannot show
+  that each readiness is awaited. `gated-supervisor.mjs` runs the command's own
+  supervision (`Supervisor`, `runSupervised`) over stand-ins that report
+  readiness only when a gate file appears, so dev.mjs gains no test-only
+  override.
+- **Why `--database` exists on the command:** so the tests never touch a
+  developer's data. It is an argument, never an environment variable, like the
+  binary's. An empty value is a usage error: it once fell back to the default
+  path, so `--database "" --reset` reset the default database.
+- **Why ports stay fixed:** the seeded identities are bound to the issuer URL
+  4001, 5175 is the console's origin and redirect URI, and S18 makes the command
+  override inherited addresses. The owner asked whether a different port would
+  do; the answer was that it needs a design change (a plan review and an S18
+  amendment), and the owner chose to free the port instead.
+- **What the owner said this session:** a takeover instruction to continue with
+  the next chunk; a request for a status update; "cant you just run on a
+  different port?"; and "kill it and run the remaining checks", after which the
+  driver killed another session's Vite on 5175 (twice; see section 10).
 
 ## 4. Agreed chunk and acceptance
 
-- **Objective:** S18 step 4, shutdown and session cleanup (recommendation 8's
-  process part; acceptance row "Tasks, shutdown"), as one reviewed commit; then
-  this handoff.
-- **Scope added in review:** plan review added tracked domain connections and
-  the forced-exit policy, the outcome record that keeps cause, drain, failures
-  and closure apart, and child-process tests with a test-only mutation gate and
-  exit barrier. Diff review moved each task's factory inside its watched task.
-  The driver narrowed reads to `impl read::OwnedConnection`, which the oracle
-  accepted.
-- **Exclusions:** the development command, `apps/reference/.dev/` and
-  `.gitignore` (step 5); workers and invitations; request timeouts; busy-timeout
-  changes; any change to the contract, the client, CI, migrations or
-  `experiments/`; Windows; a faster exit on a second signal.
-- **Stopping condition:** after step 4 and this handoff. The boundary did not
+- **Objective:** S18 step 5, the development command (recommendation 6;
+  acceptance row "Command"), as one reviewed commit; then this handoff.
+- **Scope added in review:** plan review added persistent signal handlers
+  installed before the build, the shared `startInOrder`/`runSupervised` with the
+  gated fixtures, the build line, the cargo-shim test, and an ordered (d2) test
+  asserting the final cause. Diff review added the empty-path refusal, group
+  ownership until empty, the default directory for a reset, and absolute target
+  resolution in the throwaway-checkout tests. The driver added, and the oracle
+  accepted, an interrupted reset exiting 1 and the `dev: exit <code>: <cause>`
+  final line.
+- **Exclusions:** an npm script; port or address overrides; a CI change (so the
+  command's tests are local only); watch-mode contract regeneration; a faster
+  exit on a second signal; Windows; anything in Rust, the contract, the client,
+  migrations or `experiments/`.
+- **Stopping condition:** after step 5 and this handoff. The boundary did not
   move.
-- **Disposition:** `accepted`. Step 4 is `a1d51da`.
+- **Disposition:** `accepted`. Step 5 is `89e1c7a`.
 
 ## 5. Verification and review
 
-Environment: macOS (APFS), Rust 1.98.1, Node 24.20.0 for the browser workflow.
-Evidence in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/00df25ad-0f15-436c-99d4-44598fbde2a4/scratchpad/evidence/`
-(temporary; below, `evidence/`). The driver's verification runs below are for
-the tree committed as `a1d51da`, run after its last source edit; the
-failing-first run and the oracle's own runs are earlier snapshots, labeled as
-such in the table.
+Environment: macOS (APFS), Rust 1.98.1, Node 24.20.0 and 26.8.1. Evidence in
+`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/bd846a09-ef2b-4ffb-b99c-a06dcee93d0d/scratchpad/evidence/`
+(temporary; below, `evidence/`). "Final tree" is `89e1c7a`; "pre-final" is the
+tree just before its last two-line change (a relative `CARGO_TARGET_DIR`
+resolved against the checkout in `dev.mjs` and the test fixture), which the
+oracle judged needed no reruns.
 
-| Claim              | Command and result                                                                                                                                                                                                 | Evidence                                                             | Checked by                                                                                                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Failing first      | Tests against stub bodies: 19 of 19 library and 4 of 4 new binary tests failed; three library tests were added later                                                                                               | `evidence/00-failing-first.txt`                                      | Oracle inspected the log                                                                                                                                                               |
-| Rust suite         | `cargo test --workspace --locked`: 198 passed, 0 failed (22 lifecycle, 12 development-binary)                                                                                                                      | `evidence/01-cargo-test.txt`                                         | Driver; the oracle ran the library (93, before the diff fixes) and binary (12) suites at diff review, and the lifecycle suite (22 tests plus the no-op child entry point) at re-review |
-| Stability          | 25 consecutive runs each of `cargo test -p iris-reference --lib` (95) and `--test dev_binary` (12), all green                                                                                                      | `evidence/03-repeat.txt`                                             | Driver; oracle inspected the log                                                                                                                                                       |
-| Lint and format    | clippy `-D warnings` on the workspace; `cargo fmt --all --check`: clean                                                                                                                                            | `evidence/02-clippy.txt`, `03-fmt.txt`                               | Driver; the oracle ran clippy on the reference crate at diff review, before the final fixes, and the format check again at re-review                                                   |
-| Client and browser | `npm --prefix apps/reference/web run verify`: PASS; the browser workflow under Node 24.20.0: PASS, and all three API logs show `received SIGTERM; draining for up to 3s` and `stopped after draining`              | `evidence/05-web-verify.txt`, `08-browser.txt`, `browser-artifacts/` | Driver-reported; oracle inspected the logs                                                                                                                                             |
-| Mutations          | `mutate.py`: 39 of 39 caught, controls green before and after; `mutate-step3.py`: the previous step's 43 of 43                                                                                                     | `evidence/04-mutations.txt`, `04b-mutations-step3.txt`               | Driver-reported; oracle inspected the logs and ran its own factory-panic and native-worker probes                                                                                      |
-| Markdown           | Prettier 3.9.9 check clean on the edited files; `links.py`: 226 local links, 0 broken                                                                                                                              | `evidence/06-links.txt`                                              | Driver-reported                                                                                                                                                                        |
-| Linux              | GitHub Actions run 36758026534 on `a1d51da`: success, first attempt, all 25 steps; every lifecycle and new binary test passed once on Ubuntu                                                                       | `evidence/09-ci.json`, `09-ci-log.txt`                               | Driver                                                                                                                                                                                 |
-| Limits             | See S18 "Shutdown and session cleanup evidence", Limits: configured budgets with a measured margin; one gated transaction per forced exit; `100 Continue` shows admission only; registration order source-reviewed | S18                                                                  | Oracle agreed                                                                                                                                                                          |
+| Claim                | Command and result                                                                                                                                                                                                                         | Tree                                          | Evidence                                                                                  | Checked by                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Failing first        | `node --test apps/reference/scripts/test/dev.test.mjs` against stubs: 18 of 18 failed (the four diff-review tests came later)                                                                                                              | stubs                                         | `evidence/00-failing-first.txt`                                                           | Driver-reported                                                                               |
+| Command suite        | 22 passed under Node 24.20.0 and 26.8.1, and under `CARGO_TARGET_DIR=target`                                                                                                                                                               | final                                         | `evidence/01-dev-test.txt`, `01b-dev-test-node26.txt`, `01c-dev-test-relative-target.txt` | Driver; the oracle ran all 22 on both Node versions itself at the first re-review (pre-final) |
+| Stability            | Ten consecutive runs, 22 passed each                                                                                                                                                                                                       | pre-final                                     | `evidence/03-repeat.txt`                                                                  | Driver; oracle inspected the log                                                              |
+| Default path by hand | In this checkout: no `.dev` before; start created `apps/reference/.dev/reference.db`, ready, a session read through Vite 200, SIGINT exit 0; `--reset` exit 0; ignored by git. The directory was removed afterwards                        | pre-final                                     | `evidence/09-default-path.txt`                                                            | Driver; oracle inspected the log                                                              |
+| Browser runner       | `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs`: PASS after the move onto `supervise.mjs`                                                                                                                              | pre-final (runner and module unchanged since) | `evidence/08-browser.txt`, `browser-artifacts-final/`                                     | Driver; oracle inspected the logs                                                             |
+| Mutations            | `mutate-dev.py --browser`: 38 of 39 caught, controls 22/22 before and after; survivor: `Supervisor.start`'s stop check before a spawn, unreachable from current callers; the browser workflow passed under all 23 shared-module mutants    | pre-final                                     | `evidence/04-mutations.txt`, `00-port-guard.txt`                                          | Driver-reported; oracle inspected the log                                                     |
+| Rust, lint, client   | `cargo test --workspace --locked` 198 passed; clippy `-D warnings`; `cargo fmt --all --check`; `npm --prefix apps/reference/web run verify`; `node apps/reference/scripts/probes.mjs`: all pass. No Rust or client file changed afterwards | before the diff review                        | `evidence/02-cargo-test.txt`, `02b-clippy-fmt.txt`, `05-web-verify.txt`, `07-probes.txt`  | Driver-reported                                                                               |
+| Markdown             | Prettier 3.9.9 clean on the edited files; `links.py`: 188 local links, 0 broken                                                                                                                                                            | final                                         | —                                                                                         | Driver-reported                                                                               |
+| Linux                | CI_TABLE                                                                                                                                                                                                                                   | final                                         | `evidence/10-ci.json`, `10-ci-log.txt`                                                    | Driver                                                                                        |
+
+Earlier, superseded runs are kept for the record in `evidence/pre-diff-review/`,
+`evidence/disrupted-run/` (port 5175 taken mid-run by another session) and
+`evidence/pre-rereview2/`, and the first mutation run in
+`evidence/04a-mutations-first-run.txt`.
 
 Oracle verdicts:
 
-1. Plan: changes requested: one P1 (runtime shutdown does not establish SQLite
-   closure before the lock is released) and two P2 (the outcome conflated cause
-   with drain and closure; tests did not reach a started transaction or the
-   close deadline). All accepted.
-2. Plan re-review: changes requested: two P2 (the tracked connection could not
-   reach the domain read functions; the close-timeout children were killed
-   before their exit code was observed) and one P3 (the close-timeout message
-   after a skipped close). All accepted.
-3. Plan second re-review: sign-off, confirming the failed-open consequence.
-4. Diff: changes requested: one P2 (a task's factory ran outside its supervised
-   handle) and one P3 (evidence predating the final tree). Both fixed; the
-   oracle's two nonblocking suggestions (a native-worker close regression, the
-   README's "no response" wording) were also taken.
-5. Diff re-review: sign-off, with one nonblocking wording note, fixed before the
-   commit.
+1. Plan: changes requested: two P2 (the extracted one-shot handlers contradict
+   the repeated-signal policy; readiness and startup cancellation insufficiently
+   tested) and two P3 (make "no build" observable; keep failing-first stubs
+   uncommitted). All accepted.
+2. Plan re-review: changes requested: two P2 (signal handling must begin before
+   the build; (d2) raced signal observation against child-exit observation).
+   Both accepted.
+3. Plan second re-review: sign-off, with a nonblocking note that (d2) must
+   assert the final cause, adopted.
+4. Diff: changes requested: one P1 (an empty explicit path reset the default
+   database) and two P2 (cleanup lost surviving process-group members; a default
+   reset failed before the first start). All fixed with tests and mutations.
+5. Diff re-review: changes requested: one P2 (a relative `CARGO_TARGET_DIR`
+   misresolved in the throwaway checkout). Fixed.
+6. Diff second re-review: sign-off, with one P3 (label the stability, browser
+   and mutation evidence as preceding the last change), fixed before the commit.
 
 None disputed, so none went to the owner.
 
 ## 6. Remaining work
 
-1. **S18 step 5: the development command** (recommendation 6; acceptance row
-   "Command"), including `apps/reference/.dev/` in `.gitignore`. Its reset
-   invokes `reference-dev --reset`; it stops the API with SIGTERM and must not
-   treat the API's exit 1 during a deliberate stop as a failure.
-2. **Ubuntu timing gate for step 4's tests:** the binary's expiry test asserts
-   2.9 s to 4.5 s after the signal, and the library transaction child asserts
-   its barrier within 600 ms plus 600 ms. Both passed once on Ubuntu in run
-   36758026534; one run is not a stability result. If one flakes, diagnose from
-   the signal's observation, the deadline and the child's exit timing before
-   changing a bound; don't weaken the outer 5 s acceptance bound preemptively.
-3. **Invitation issuance and acceptance design** (S17's follow-up row), which
+1. **Choose the next chunk** (section 9). S18's authorized implementation is
+   complete.
+2. **The command's tests in CI:** they run only locally because S18 excludes a
+   CI change. Running them in CI needs the owner; they need ports 4001, 3003 and
+   5175 free and must not overlap the browser workflow step.
+3. **Ubuntu timing gate for step 4's tests:** the binary's expiry test (2.9 s to
+   4.5 s after the signal) and the library transaction child (600 ms plus 600
+   ms) have now passed on Ubuntu in runs 36758026534 and 36762611726 (and
+   36799909360, if it succeeded; section 1). If one flakes, diagnose from the
+   signal's observation, the deadline and the child's exit timing before
+   changing a bound; don't weaken the outer 5 s bound preemptively.
+4. **Invitation issuance and acceptance design** (S17's follow-up row), which
    must also settle worker restart policy and send uncertainty per S18
    recommendation 8.
-4. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
+5. **Caller loss beyond the browser:** response loss on both sides of a commit
+   and cancellation during a commit (S14's focused validation items 2 and 3) are
+   still untested.
+6. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
    probes are carried by the reference application.
-5. **The agent-interface CI flake:** if it recurs, diagnose
+7. **The agent-interface CI flake:** if it recurs, diagnose
    `concurrent_last_owner_and_authority` in
    `experiments/embedded-db/sqlite/tests/members.rs`. Frozen; a fix needs the
    owner.
-6. **Documentation hygiene, carried forward:**
+8. **Documentation hygiene, carried forward:**
    `experiments/embedded-db/README.md:64-66` describes Turso's migration as
    one-version (the migrator applies two since `2b1e820`); frozen, needs the
    owner. PR #1's merged description is stale; optional, needs the owner.
-7. **Precompiled validators:** needed if a content security policy without
+9. **Precompiled validators:** needed if a content security policy without
    `unsafe-eval` is adopted.
-8. **Caller loss beyond the browser:** response loss on both sides of a commit
-   and cancellation during a commit (S14's focused validation items 2 and 3) are
-   still untested; step 4 covered one gated transaction completed and one
-   abandoned at shutdown.
-9. **Detecting a database created against another issuer:** documented in the
-   README only.
-10. **Stale CI statements from step 4:** S18's "Shutdown and session cleanup
-    evidence" (its last limit) and the step 4 decision entry say Linux and
-    GitHub Actions have not run and that the step is not pushed. Correct them in
-    step 5 with run 36758026534, as step 4 corrected step 3's.
+10. **Detecting a database created against another issuer:** documented in the
+    README only.
 11. **README verification matrix:** the development server, development
-    database, lifecycle and workspace rows were remeasured on September 30; the
-    rest date from September 26–27.
+    database, lifecycle, development command and workspace rows date from
+    September 30; the rest from September 26–27.
+12. **Small known limits of the command** (S18's limits): a child's final output
+    line without a trailing newline is not printed; the stop check before a
+    spawn has no test that reaches it; a group refusing a probe (EPERM) is
+    treated as gone.
 
 ## 7. Next chunk
 
-`proposed`. Implementation of step 5 is authorized; the chunk's shape is not yet
-agreed.
+`proposed`, pending the owner's choice (section 9). Candidates, in the driver's
+order of preference:
 
-- **Proposal:** S18 step 5, the development command, then a handoff. That
-  completes S18's authorized implementation.
-- **Acceptance:** S18's "Command" acceptance row, with tests written first and
-  their failing run kept, mutation checks, and the browser workflow and frozen
-  experiments behaving as before.
-- **First action:** write the step 5 plan and send it for plan review.
+- **S14 caller-loss validation** (section 6 item 5): response loss on either
+  side of a commit and cancellation during a commit, as tests against the
+  reference application. Acceptance: S14's focused validation items 2 and 3,
+  tests first with the failing run kept, mutation checks.
+- **Invitations design** (item 4): a design proposal, no implementation, under
+  the design review brief.
+- **The command's tests in CI** (item 2): a small CI change, if the owner
+  authorizes it.
+
+First action: ask the owner the question in section 9, then write that chunk's
+plan and send it for plan review.
 
 ## 8. Decisions and authorizations in force
 
 - **The seven S17 owner decisions** in S17's "Owner decisions".
 - **The ten S18 decisions** in S18's "Lifecycle owner decisions" (choice 1 by
   the owner; 2–10 by the oracle at the owner's request).
-- **Authorized:** implementing S18 in reviewed steps: storage and initialization
-  (done), reset and migrations (done), shutdown and session cleanup (done), the
-  development command.
-- **Pushes:** asked whether to push this chunk, the owner answered "Push to
-  main, always": push each signed-off step and handoff straight to `main`,
-  without asking, by explicit SHA and refspec. CI reruns still need the owner.
-- **Not authorized:** a new pull request; deleting `s17-checkpoint-a`,
-  `lifecycle-design` or `docs/s17-reference-app`; invitations; retiring frozen
-  experiments; editing `experiments/`; editing PR #1.
+- **Authorized and now done:** implementing S18 in reviewed steps (storage and
+  initialization, reset and migrations, shutdown and session cleanup, the
+  development command). Nothing further is authorized for implementation.
+- **Pushes:** "Push to main, always": push each signed-off step and handoff
+  straight to `main`, without asking, by explicit SHA and refspec. CI reruns
+  still need the owner.
+- **Killing another session's process:** the owner authorized killing the
+  unrelated Vite on 5175 for this session's remaining checks only. It does not
+  extend to later sessions; ask again.
+- **Not authorized:** a new pull request; a CI change; deleting
+  `s17-checkpoint-a`, `lifecycle-design` or `docs/s17-reference-app`;
+  invitations; retiring frozen experiments; editing `experiments/`; editing PR
+  #1.
 - **Decided in earlier chunks:** the decision record's dated entries.
 - **Workflow:** the owner asked for oracle review before every commit. PR text
   is reviewed before posting. Ask the owner one question per message.
 
 ## 9. Open questions for the user
 
-- Is the next chunk (step 5 alone, then a handoff) the right size? Blocks only
-  the chunk boundary; the plan review can settle it if the owner has no
-  preference.
+- Which chunk next: S14 caller-loss validation, the invitations design, or the
+  command's tests in CI (section 7)? Blocks the next chunk's plan.
 
 ## 10. Operational state
 
-- **Running processes:** none. Every test child, mutation run and browser
-  workflow finished; the CI watch ended when the run completed.
+- **Running processes:** none of this project's. The CI poll ends when run
+  36799909360 completes.
+- **Port 5175:** another Claude session (the `wts-books-onix-rust-parser`
+  project, a prototype Vite under its scratchpad `proto-wt/web`) repeatedly
+  starts a Vite on 5175; the driver killed its process group twice with the
+  owner's permission. It may be running again. The command, its tests and the
+  browser workflow refuse to start while it holds the port; that is correct
+  behavior, not a bug. Don't kill it without asking the owner again.
 - **Remote:** `main` at this handoff's commit; `s17-checkpoint-a` at `8594777`;
   PR #1 merged. Don't edit or delete without the owner.
 - **Local branches:** `main` tracking `origin/main`; `lifecycle-design` at
@@ -216,22 +238,22 @@ agreed.
   ahead of its upstream; `docs/s17-reference-app` at `5ad417d` (older; leave
   it).
 - **Local installs:** `experiments/agent-interface/node_modules` and
-  `apps/reference/web/node_modules` (gitignored).
+  `apps/reference/web/node_modules` (gitignored). No `apps/reference/.dev/`
+  (removed after the hand run).
 - **Retained evidence (temporary, possibly already deleted):**
   - this session's
-    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/00df25ad-0f15-436c-99d4-44598fbde2a4/scratchpad/`:
-    `evidence/00`–`09`, plan and review prompts `01`–`05`, `mutate.py` (step 4),
-    `mutate-step3.py` (step 3, one string adjusted), `links.py`, `docs.py` and
-    `evidence-section.md` (the scripts that wrote this step's documents; no
-    longer needed), `browser-artifacts/`, `mutants/` and `mutants-target/` (a
-    source copy and its Cargo target, safe to delete);
-  - the oracle's `/private/tmp/iris-s18-step4-plan-review.*`,
-    `/private/tmp/iris-s18-step4-plan-rereview.*`,
-    `/private/tmp/iris-s18-step4-diff-review.*` and
-    `/private/tmp/iris-s18-step4-diff-rereview.*` directories (reports, probes
-    and logs);
-  - the previous session's scratchpad, with the step 3 evidence, still exists at
-    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/b04871ba-05ce-4ae0-87cf-13f508c093a3/scratchpad/`.
+    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/bd846a09-ef2b-4ffb-b99c-a06dcee93d0d/scratchpad/`:
+    `evidence/` (section 5), prompts `01-plan.txt` to `06-rereview2.txt`,
+    `mutate-dev.py` (step 5's runner), `final-checks.sh` (the port-guarded run
+    of every check), `default-path.mjs`, `regress.sh`, `impl/` (drafts, no
+    longer needed), `browser-artifacts*/`, and `mutants-dev/` (a source copy and
+    its Cargo target, safe to delete);
+  - the oracle's `/private/tmp/iris-s18-step5-*` directories, if any (its
+    reports and probes);
+  - older sessions' scratchpads under
+    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`
+    (`00df25ad-…` holds `links.py` and step 4's `mutate.py`; `b04871ba-…` step
+    3's evidence).
 - **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
   `target/` and can leave a mutated artifact that a later run treats as current.
   Frozen; recorded rather than fixed.
@@ -343,8 +365,9 @@ agreed.
     `whole_request`.
 - **`crates/iris`:** add to it only what two operations demonstrably share,
   naming both.
-- **History and pushes:** history on `main` is linear. Never push without the
-  owner's go-ahead. In zsh, brace a variable before a colon in a refspec
+- **History and pushes:** history on `main` is linear. Push only signed-off
+  steps and handoffs, which the owner's standing rule (section 8) covers. In
+  zsh, brace a variable before a colon in a refspec
   (`"${SHA}:refs/heads/main"`): `$SHA:r` is a history modifier that strips an
   extension and mangles the refspec. `s17-checkpoint-a` tracks
   `origin/s17-checkpoint-a`; `lifecycle-design` has no upstream. Push only by
@@ -409,8 +432,8 @@ agreed.
 - **Storage file names:** a database `<name>` owns `<name>.iris-lock` (never
   deleted, not even by a reset) and, while initializing, `<name>.iris-init/`
   holding `owner` and `reference.db`. Names ending in those suffixes, in any
-  case, are refused as databases. Don't use `apps/reference/.dev/` by hand
-  before step 5 adds it to `.gitignore`.
+  case, are refused as databases. `apps/reference/.dev/` is gitignored and is
+  the development command's default data directory.
 - **Mutation runner for storage:** `mutate-step3.py` in the latest session's
   scratchpad (section 10) copies `git ls-files -co --exclude-standard` to a
   scratch directory, uses its own `CARGO_TARGET_DIR`, applies one exact-string
@@ -482,9 +505,9 @@ agreed.
   Exit 0 needs a signal-requested stop that drained, had no failure and whose
   closure was acknowledged. Anything else is exit 1, and a forced exit holds the
   ownership lock until the process is gone. A failed tracked open anywhere in
-  the process's life makes its stop a forced one. The browser runner already
-  ignores exit codes when it stops the API deliberately; step 5's supervisor
-  must do the same.
+  the process's life makes its stop a forced one. The browser runner and the
+  development command both ignore the API's exit code when they stop it
+  deliberately.
 - **Domain connections go through `http::open`,** which returns a `Tracked`
   connection. Reads take `impl read::OwnedConnection` (a plain
   `SqliteConnection` or a `Tracked`, never a `&mut`). A production process
@@ -506,6 +529,44 @@ agreed.
   and becomes a real newline; `$` and backticks are expanded too. Quote the
   heredoc delimiter (`<<'EOF'`), and dry-run a mutation list against the source
   before a long run.
+- **The development command's tests own fixed ports:** they refuse to start
+  while 4001, 3003 or 5175 is taken, and must never run alongside the browser
+  workflow, the mutation runner or an oracle's own run of them. Before a long
+  run, check `lsof -ti tcp:<port> -sTCP:LISTEN`; `final-checks.sh` (section 10)
+  checks before every phase.
+- **Supervisor output is asserted by tests:** every supervisor line starts
+  `dev: `; children's lines are prefixed `[issuer]`, `[api]`, `[web]`,
+  `[build]`, `[reset]`; the last line is
+  `dev: exit <code>: <first cause>[; <names> needed SIGKILL]`;
+  `dev: started <name> (pid N)` gives each child's process group, which the
+  tests parse to kill everything after each test.
+- **Node resolves a symbolic link before deciding the main module:** the issuer
+  fixture serves only when run as the main module
+  (`import.meta.url === pathToFileURL(argv[1])`), so a fixture reached through a
+  linked directory exits 0 without listening. The throwaway checkout in
+  `dev.test.mjs` copies it.
+- **macOS `killpg` on a finished group can fail with EPERM** rather than ESRCH.
+  Catch both (`mutate-dev.py`'s `kill_group`, `supervise.mjs`'s `alive`).
+- **`agent-browser` leaves its session daemon outside the command's process
+  group:** the group is empty once the command exits, so the browser runner's
+  per-command groups drop out of ownership as before.
+- **Vite's dev server prints `➜  Local:   http://127.0.0.1:5175/`** without
+  colour when piped; readiness matches `Local:\s+http://127.0.0.1:5175/`.
+- **Mutation runner for the command:** `mutate-dev.py` copies
+  `git ls-files -co --exclude-standard` and links
+  `apps/reference/web/ node_modules`, builds into its own `CARGO_TARGET_DIR`,
+  stops a mutant at its first failing test (`✖` line) and then kills every
+  process of the copy, the cargo shims (`iris-dev-test-`), the issuer and
+  anything on the three ports. Check that each mutant is valid code: one early
+  mutant left a trailing comma in `void ( …, )` and was "caught" as a syntax
+  error. A full run of 39 with the browser workflow takes about 30 minutes.
+- **`apps/reference/scripts/probes.mjs` is not Prettier-formatted;** leave it as
+  is when formatting the other scripts (default Prettier, 80 columns).
+- **Waiting in tool calls:** a foreground `sleep` is blocked; wait with
+  `node -e 'setTimeout(()=>{},ms)'` or a polling `node -e` loop on a file, and
+  keep each call under the 600 s tool limit.
+- **`gh run watch` can die on a network timeout** while the run continues; poll
+  `gh run view <id> --json status` instead.
 
 ## 12. Skills
 

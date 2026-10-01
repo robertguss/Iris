@@ -2404,8 +2404,8 @@ experiment was retired, and no productivity claim follows.
 
 ## S18 — Reference application lifecycle
 
-**Decided; storage, initialization, reset, the migration refusal, shutdown and
-session cleanup implemented; the development command authorized.** On September
+**Decided and implemented: storage, initialization, reset, the migration
+refusal, shutdown, session cleanup and the development command.** On September
 27, 2026, the owner chose this lifecycle pass as the chunk after the pull
 request #1 merge. It covers the five items that S17
 [deferred](#ownership-boundaries): persistent storage, seed policy, SQLite
@@ -2420,8 +2420,9 @@ so its nine choices are not an independent approval. The owner then authorized
 implementation in reviewed steps: storage and initialization, reset and
 migrations, shutdown and session cleanup, then the development command. The
 first step's [evidence](#storage-and-initialization-evidence), the second's
-[evidence](#reset-and-migration-evidence) and the third's
-[evidence](#shutdown-and-session-cleanup-evidence) record what was built. Source
+[evidence](#reset-and-migration-evidence), the third's
+[evidence](#shutdown-and-session-cleanup-evidence) and the fourth's
+[evidence](#development-command-evidence) record what was built. Source
 citations in the sections before it are to `8d2cfc7`.
 
 ### Current behavior
@@ -2495,9 +2496,9 @@ evidence.
 ### Recommendations
 
 Accepted direction through the [owner decisions](#lifecycle-owner-decisions);
-recommendations 1 to 5, the startup check of 7, and 8's supervision, session
-cleanup and shutdown timeline are implemented; 6 is not yet. Each names the
-choice it depends on.
+recommendations 1 to 6, the startup check of 7, and 8's supervision, session
+cleanup and shutdown timeline are implemented. Each names the choice it depends
+on.
 
 1. **Storage stays disposable by default; persistence is an explicit path.** The
    development binary gains an explicit database path argument, for example
@@ -2933,8 +2934,134 @@ Limits:
   source-reviewed; no test hits the window. A signal before registration, during
   storage opening or issuer discovery, ends the process as before.
 - A second signal is not a faster exit.
-- Linux and GitHub Actions have not run on this step. The development command is
-  a later step.
+- Linux and GitHub Actions had not run when this was written; the step was later
+  pushed to `main`, and GitHub Actions run 36758026534 (Verify, on Ubuntu)
+  passed on `a1d51da` on its first attempt, including these tests. The
+  development command followed in the
+  [next step](#development-command-evidence).
+
+### Development command evidence
+
+The fourth implementation step, on September 30, 2026, covers recommendation 6.
+[`dev.mjs`](../apps/reference/scripts/dev.mjs) starts the issuer, the API and
+Vite on the persistent database `apps/reference/.dev/reference.db`, which is
+gitignored, or on the file given by `--database PATH`; `--reset` runs
+`reference-dev --reset` on that database and starts nothing else. The process
+ownership it shares with the browser runner moved into
+[`supervise.mjs`](../apps/reference/scripts/supervise.mjs), as recommendation
+6's extraction rule asks; the browser runner keeps its own signal handlers, its
+retirement of replaced APIs and its logs. No dependency, npm script, Rust,
+contract, client, migration, CI or frozen-experiment change.
+
+The command installs its signal handlers before its first child, refuses before
+building when any of 4001, 3003 or 5175 accepts a connection, builds the server,
+and starts the three in order, each only once the one before reported its own
+address, with 60 s for each. It sets the API's listen address, public origin and
+issuer and Vite's proxy target itself, overriding inherited values. A child's
+exit before a stop, a readiness timeout or a failed build stops the rest and
+exits 1. SIGINT or SIGTERM begins a stop: SIGTERM to every process group,
+SIGKILL 5 s later to any group with a process left, and every member's exit
+awaited. A group stays owned until its last member has exited, not only its
+leader. The first cause of a stop is kept, and later signals are only reported.
+A stop that a signal requested exits 0 whatever the children's exit codes, which
+it prints: the API's exit 1 after an expired drain is its own outcome, not a
+failure of the command. A child that needed SIGKILL makes the stop exit 1, and
+so does a signal that interrupts a reset.
+
+The plan review found that the browser runner's one-shot handlers let a second
+Ctrl-C end the supervisor during its cleanup, which the oracle reproduced under
+Node 24.20.0 and 26.8.1; that handlers installed after the build would leave a
+signalled build running; and that a readiness check on a healthy run could not
+show that each readiness is waited for. The command's handlers therefore persist
+from its start, and readiness is tested with stand-in servers held at gates
+([`gated-supervisor.mjs`](../apps/reference/scripts/test/gated-supervisor.mjs))
+under the command's own supervision.
+
+The diff review found three defects and reproduced each. An empty
+`--database ""` fell back to the default path, so `--database "" --reset` reset
+the default database; an empty path is now a usage error, and only an omitted
+argument selects the default. Ownership of a process group ended when its leader
+exited, so a member that outlived its leader, or ignored SIGTERM after the
+leader exited, was left running and the stop reported clean; groups are now
+owned, signalled and escalated until they are empty. And only a start created
+the default database's directory, so a first `--reset` on a fresh checkout
+failed; a reset now creates it too, while an explicit path's directory must
+still exist.
+
+Tests were written first; against stubs, all 18 then written failed, and that
+run is kept with the step's evidence. One test gained a reset case afterwards,
+and the diff review added four. The last change resolves a relative
+`CARGO_TARGET_DIR` against the checkout, in `dev.mjs` and in the tests'
+throwaway checkout. Ten consecutive runs of the suite, the browser workflow and
+the mutations below were made just before it; afterwards the suite passed again
+on both Node versions and with `CARGO_TARGET_DIR=target`. Local run on macOS
+(APFS), Rust 1.98.1:
+
+```sh
+node --test apps/reference/scripts/test/dev.test.mjs   # 22 passed on Node 24.20.0 and 26.8.1
+mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs --artifacts <dir>   # passed
+cargo test --workspace --locked              # 198 passed, 0 failed
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo fmt --all --check
+npm --prefix apps/reference/web run verify   # passed
+node apps/reference/scripts/probes.mjs       # passed
+```
+
+| Acceptance clause                                    | Test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A taken port refuses startup before anything starts  | For each of the three ports held by a listener: exit 1 naming it, no build line, no child, no database or lock file, and the other two ports unbound. With a `cargo` stand-in on `PATH` holding the build, SIGINT or SIGTERM ends the build within 5 s without SIGKILL and starts no server                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| A conflicting inherited `IRIS_API_TARGET` is ignored | Two sentinel servers count requests: `IRIS_API_TARGET` and `IRIS_OIDC_ISSUER` are inherited as one, `IRIS_LISTEN` and `IRIS_PUBLIC_ORIGIN` as the other. A session read through Vite's proxy and a sign-in as Alice from the console's origin succeed, the issuer on 4001 serves its discovery document, and neither sentinel receives a request, including the API's discovery at startup. A reset with another `IRIS_OIDC_ISSUER` inherited still binds the seeded identities to 4001: a later sign-in as Alice succeeds                                                                                                                                                                                                   |
+| Readiness waits for all three                        | With gated stand-ins: only the first runs until it is ready, then only the second, and the ready line follows the third's readiness. A readiness timeout, a signal, and an unexpected exit while the second is pending each stop the first two and never start the third. With the real children, each start follows the previous child's address line, the ready line comes last, and a request through Vite succeeds at once. The API refusing its database before readiness stops the issuer and never starts Vite                                                                                                                                                                                                        |
+| Any child's unexpected exit stops the others         | For each child, SIGKILL of its group after readiness: exit 1 naming it, every other group gone, the ports free. A signal after the command reported that exit is only reported, and the exit names the first failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| SIGINT stops all three process groups                | SIGINT and SIGTERM each: every group gone, the ports free, the API's `stopped after draining`, exit 0, and the database can be reset at once. With a role change admitted by the API and never finished, the API exits 1 at its drain deadline and the command prints that and exits 0 within 5.5 s of the signal. A child held with SIGSTOP is killed 5 s after SIGTERM and the stop exits 1 naming it; second and third signals during that stop neither end nor shorten it. With gated stand-ins, each keeping a helper in its group: a leader killed alone leaves no member of its group or any other behind, and a member that ignores SIGTERM after its leader exits is killed 5 s later, the stop exiting 1 naming it |
+| Persistence and reset                                | A relative `--database` lands in the working directory and keeps its inode across a restart; a reset through the command is refused while that database is served, which keeps serving, and afterwards replaces the file. In a throwaway checkout holding the two scripts, a first reset and a first start each create `apps/reference/.dev/reference.db` there; an empty `--database`, with or without `--reset`, is a usage error that prints no data path and creates nothing                                                                                                                                                                                                                                             |
+| The frozen experiments and the browser runner        | The browser runner, moved onto the shared module, passes its workflow, and each of its three API logs shows the drain; the workspace suite, the omission probes and the web `verify` pass; nothing in `experiments/` changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+Thirty-nine mutations of `dev.mjs` and `supervise.mjs` were run on the tree just
+before its last change, each on a disposable copy with its own Cargo target
+directory and with the suite green before and after; 38 were caught by at least
+one test. Sixteen are on the command: no port check, or the check after the
+build; the API's target, listen address, public origin or issuer left inherited,
+and the reset's issuer; the handlers installed after the build; the build
+outside cleanup; a failed step ignored; a reset that deletes the file itself;
+`--database` ignored, resolved against the checkout, or falling back to the
+default when empty; a reset that does not create the default directory; and an
+interrupted reset exiting 0. Twenty-three are on the shared module: the ready
+line before readiness; no readiness awaited, or only the first's, second's or
+last's skipped; no readiness timeout; children not detached, or signalled alone
+rather than as a group; a group released when its leader exits, a stop that
+returns at the leader's exit, or no escalation once the leader has exited; an
+unexpected exit not stopping; a failure exiting 0; a child's exit code during a
+stop counted as a failure; no SIGKILL escalation, escalation not counted, or
+after 10 s; cleanup not awaiting exits; one-shot handlers; a later signal
+exiting at once or replacing the first cause; and the first signal ignored. The
+one that survived removes the stop check just before a spawn. In the current
+callers readiness resolves inside the output handler and the next spawn follows
+in the same microtask queue, so no stop can arrive in between, and the browser
+runner checks before it calls; the check is kept for other callers. The browser
+workflow also ran against each of the twenty-three shared-module mutants and
+passed every time, so it is a regression check of the runner, not a sensitive
+check of the module. The gated stand-in keeps a helper in its process group that
+outlives it, which is what catches a signal sent to the leader alone.
+
+Limits:
+
+- The tests use the command's fixed ports and run only locally: S18 excludes a
+  CI change. They refuse to start while any of the ports is taken and must not
+  run beside the browser workflow.
+- The tests never touch a developer's data: they pass `--database`, or run the
+  default path in a throwaway checkout with a `cargo` that builds nothing. The
+  default path in this checkout was run once by hand.
+- Cleanup reaches process groups: a descendant that starts its own session or
+  group escapes it, and a group that refuses a probe (EPERM) is treated as gone,
+  since it cannot be signalled either.
+- The port check is not a reservation. A port taken between the check and a
+  child's bind makes that child exit, which stops the command.
+- Readiness is each child's own address line; the command does not probe the
+  addresses.
+- A child's final output line is printed only if it ends with a newline.
+- The browser workflow ran once, just before the last change, which touches
+  neither the runner nor the shared module; on macOS only.
 
 ### Review of the lifecycle proposal
 

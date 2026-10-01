@@ -1150,14 +1150,15 @@ GitHub Actions had not run when this was written; GitHub Actions run 36721898213
 
 ## Reference application lifecycle shutdown and session cleanup — September 30, 2026
 
-**Implemented experiment; not pushed.** The third step of S18's implementation
-gives the development binary one shutdown timeline. On SIGINT or SIGTERM it
-stops accepting connections and starts no new periodic work, lets requests and
-work in flight finish for up to 3 s, then closes the session pool and waits up
-to 1 s for every domain connection's closure to be acknowledged. Only then is
-the ownership lock released and the exit code 0. Session cleanup is the first
-supervised task: it runs at start and every 60 s, and its panic or unexpected
-end stops the process with a message and exit code 1.
+**Implemented experiment; pushed to `main` after this entry was written.** The
+third step of S18's implementation gives the development binary one shutdown
+timeline. On SIGINT or SIGTERM it stops accepting connections and starts no new
+periodic work, lets requests and work in flight finish for up to 3 s, then
+closes the session pool and waits up to 1 s for every domain connection's
+closure to be acknowledged. Only then is the ownership lock released and the
+exit code 0. Session cleanup is the first supervised task: it runs at start and
+every 60 s, and its panic or unexpected end stops the process with a message and
+exit code 1.
 
 The plan review found, and reproduced, that shutting the runtime down does not
 establish that SQLx's connections are closed: a second owner could take the lock
@@ -1177,7 +1178,45 @@ caught, as were the previous step's 43, run again.
 [S18's evidence](design-spec.md#shutdown-and-session-cleanup-evidence) lists the
 checks and limits. One dependency change: Tokio's `signal` feature, adding
 `signal-hook-registry` 1.4.8 to the lockfile. No contract, client, CI, migration
-or frozen-experiment change; Linux and GitHub Actions have not run on this step.
+or frozen-experiment change. Linux and GitHub Actions had not run when this was
+written; GitHub Actions run 36758026534 (Verify, on Ubuntu) later passed on
+`a1d51da` on its first attempt.
+
+## Reference application lifecycle development command — September 30, 2026
+
+**Implemented experiment; not pushed.** The fourth and last step of S18's
+implementation adds one development command,
+`node apps/reference/scripts/dev.mjs`, which starts the local issuer, the
+development server on the persistent `apps/reference/.dev/reference.db` and
+Vite, and with `--reset` runs the server's own reset. It refuses taken ports
+before building, starts each child only once the one before has reported its
+address, overrides every inherited address it owns, and stops everything when a
+child exits unexpectedly. A signal-requested stop exits 0 whatever the
+children's exit codes, so the server's documented exit 1 after an expired drain
+is reported rather than treated as a failure; a child that needs SIGKILL makes
+it exit 1. The process ownership it shares with the browser runner moved into a
+common module.
+
+The plan review found that the browser runner's one-shot signal handlers let a
+second Ctrl-C end the supervisor during cleanup, which it reproduced; the
+command's handlers persist from its start and cover the build. It also asked for
+readiness to be tested with stand-in servers held at gates rather than inferred
+from a healthy run. The diff review found, and reproduced, that an empty
+`--database` fell back to the default path, so a reset could hit the default
+database; that a process group was released when its leader exited, leaving
+surviving members running; and that a first reset on a fresh checkout failed for
+want of the default directory. All three are fixed and tested.
+
+Tests were written first and their failing run kept. Locally on macOS, the
+command's 22 tests passed on Node 24.20.0 and 26.8.1, and ten consecutive times
+just before a final two-line change; the browser workflow,
+`cargo test --workspace --locked` (198 passed), clippy, rustfmt, the web
+`verify` and the omission probes passed. Thirty-eight of 39 mutations were
+caught; the survivor removes a stop check that the current callers cannot reach.
+[S18's evidence](design-spec.md#development-command-evidence) lists the checks
+and limits. No dependency, npm script, Rust, contract, client, CI, migration or
+frozen-experiment change; the command's tests are not in CI. Linux and GitHub
+Actions have not run on this step.
 
 ## Maintaining this record
 

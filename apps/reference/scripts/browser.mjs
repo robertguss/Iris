@@ -15,14 +15,14 @@
 // spawns (builds, servers, browser commands) runs in its own process group;
 // cleanup sends SIGTERM, escalates to SIGKILL after 5 s and awaits each exit.
 // The browser session is unique to this invocation and closed only if this
-// run opened it.
-import { spawn } from "node:child_process";
+// run opened it. Process ownership is shared with the development command
+// (`supervise.mjs`); the signal handling here is this runner's own.
 import { randomUUID } from "node:crypto";
 import { createWriteStream, mkdirSync, mkdtempSync } from "node:fs";
-import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Supervisor, describe, listening } from "./supervise.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const web = join(root, "apps/reference/web");
@@ -46,55 +46,12 @@ const artifacts =
 mkdirSync(artifacts, { recursive: true });
 
 // One stop signal for everything: a signal, or a server exiting early.
-const stop = new AbortController();
+const supervisor = new Supervisor({ cwd: root });
+const { stop, stopped } = supervisor;
 for (const signal of ["SIGINT", "SIGTERM"])
   process.once(signal, () => stop.abort(new Error(`Interrupted by ${signal}`)));
-const stopped = new Promise((_, reject) =>
-  stop.signal.addEventListener("abort", () => reject(stop.signal.reason), {
-    once: true,
-  }),
-);
-stopped.catch(() => {});
-
-const owned = new Set();
-/** Spawns a child in its own process group and owns it until it exits. */
-function own(command, args, options = {}) {
-  const child = spawn(command, args, { cwd: root, detached: true, ...options });
-  let running = true;
-  const exited = new Promise((done) => {
-    child.once("error", (error) => {
-      running = false;
-      done({ error });
-    });
-    child.once("exit", (code, signal) => {
-      running = false;
-      done({ code, signal });
-    });
-  });
-  const entry = { child, exited, running: () => running };
-  owned.add(entry);
-  exited.then(() => owned.delete(entry));
-  return entry;
-}
-function signalGroup({ child, running }, signal) {
-  if (!running()) return;
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
-  }
-}
-/** SIGTERM, then SIGKILL after 5 s; resolves once the child has exited. */
-async function terminate(entry) {
-  signalGroup(entry, "SIGTERM");
-  const force = setTimeout(() => signalGroup(entry, "SIGKILL"), 5_000);
-  await entry.exited;
-  clearTimeout(force);
-}
-const describe = ({ error, code, signal }) =>
-  error
-    ? `failed to start (${error.code ?? error.message})`
-    : `exited (${signal ?? code})`;
+const own = (command, args, options) => supervisor.own(command, args, options);
+const terminate = (entry) => supervisor.terminate(entry);
 
 /** One command with captured output; a stop or timeout abandons it to cleanup. */
 async function run(command, args, { timeout = 40_000 } = {}) {
@@ -130,7 +87,6 @@ async function build(command, args, options = {}) {
 }
 
 const logs = [];
-let cleaning = false;
 /** Servers whose exit is expected: each API instance this run replaces. */
 const retired = new Set();
 /**
@@ -143,41 +99,16 @@ function start(name, command, args, readiness, options = {}) {
   if (stop.signal.aborted) throw stop.signal.reason;
   const log = createWriteStream(join(artifacts, `${name}.log`));
   logs.push(log);
-  const server = own(command, args, {
-    stdio: ["ignore", "pipe", "pipe"],
+  return supervisor.start(name, command, args, readiness, {
+    output: (chunk) => log.write(chunk),
+    expected: (server) => retired.has(server),
+    note: `; see ${name}.log`,
     ...options,
   });
-  server.exited.then((result) => {
-    if (!cleaning && !retired.has(server))
-      stop.abort(new Error(`${name} ${describe(result)}; see ${name}.log`));
-  });
-  let seen = "";
-  const ready = new Promise((done, fail) => {
-    const timer = setTimeout(
-      () => fail(new Error(`${name} not ready within 60 s; see ${name}.log`)),
-      60_000,
-    );
-    const scan = (chunk) => {
-      log.write(chunk);
-      if (seen === null) return;
-      // Colour codes, if any, never split the readiness line.
-      seen += String(chunk).replace(/\x1b\[[0-9;]*m/g, "");
-      if (readiness.test(seen)) {
-        seen = null;
-        clearTimeout(timer);
-        done();
-      }
-    };
-    server.child.stdout?.on("data", scan);
-    server.child.stderr?.on("data", scan);
-    server.exited.then(() => clearTimeout(timer));
-  });
-  return { server, ready: Promise.race([ready, stopped]) };
 }
 let opened = false;
 async function cleanup() {
-  cleaning = true;
-  await Promise.all([...owned].map(terminate));
+  await supervisor.cleanup();
   if (opened) {
     const close = own("agent-browser", ["--session", SESSION, "close"], {
       stdio: "ignore",
@@ -188,21 +119,6 @@ async function cleanup() {
   }
   await Promise.all(logs.map((log) => new Promise((done) => log.end(done))));
 }
-function listening(port) {
-  return new Promise((done) => {
-    const socket = connect({ host: "127.0.0.1", port });
-    socket.once("connect", () => {
-      socket.destroy();
-      done(true);
-    });
-    socket.once("error", () => done(false));
-    socket.setTimeout(2_000, () => {
-      socket.destroy();
-      done(true);
-    });
-  });
-}
-
 const target = process.env.CARGO_TARGET_DIR ?? join(root, "target");
 const startApi = (name) =>
   start(

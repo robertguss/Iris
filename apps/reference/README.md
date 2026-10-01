@@ -46,8 +46,53 @@ The script builds and starts everything it uses and stops it on exit. It
 restarts the API before checkpoint B's workflow and again before the
 current-state read workflow, so each starts from the seed data.
 
-To use the console by hand, start the local issuer, the development server and
-Vite, then open `http://127.0.0.1:5175` and sign in as Alice or Bob:
+To use the console, run the development command from the repository root, then
+open `http://127.0.0.1:5175` and sign in as Alice or Bob:
+
+```sh
+node apps/reference/scripts/dev.mjs
+```
+
+It needs `npm --prefix apps/reference/web ci` once. It refuses to start while
+any of ports 4001, 3003 or 5175 is taken, builds the development server, then
+starts the local issuer on 4001, the server on 3003 and Vite on 5175, each only
+once the one before has reported its address, and prints `dev: ready: …` when
+all three have. Each child's output is shown under its name (`[issuer]`,
+`[api]`, `[web]`). The data persists in `apps/reference/.dev/reference.db`,
+which is gitignored; `--database PATH` uses another file, resolved against the
+current directory, in a directory that must exist. The command sets every
+address it owns itself: an inherited `IRIS_API_TARGET`, `IRIS_LISTEN`,
+`IRIS_PUBLIC_ORIGIN` or `IRIS_OIDC_ISSUER` does not reach its children, so the
+console cannot reach another server or database.
+
+To stop it, press Ctrl-C or send it SIGTERM. It sends SIGTERM to each child's
+process group, SIGKILL to any group still running five seconds later, and waits
+for all three. It prints how each child exited, then exits 0 once all three
+have, whatever their own exit codes, or 1 if one needed SIGKILL. The server's
+exit code is its own drain and closure outcome, described below: its exit 1
+after an expired drain is printed, not treated as a failure of the command. A
+later Ctrl-C does not shorten the stop. If a child exits on its own, or is not
+ready within 60 seconds, the command stops the others and exits 1, naming it.
+
+To start over, reset through the command:
+
+```sh
+node apps/reference/scripts/dev.mjs --reset
+```
+
+It runs the server's own reset, described below, on the same database with the
+command's issuer, and starts nothing else. It is refused while a server runs on
+that database. A reset interrupted by a signal exits 1; run it again.
+
+The command's tests start it and its children on the same fixed ports, so they
+refuse to run while any is taken and must not run beside the browser workflow.
+They are not part of CI:
+
+```sh
+node --test apps/reference/scripts/test/dev.test.mjs
+```
+
+To start the three by hand instead:
 
 ```sh
 node experiments/api-slice/checks/oidc-provider.mjs --port 4001 --issuer http://127.0.0.1:4001 --redirect-uri http://127.0.0.1:5175/api/auth/callback
@@ -58,24 +103,26 @@ npm --prefix apps/reference/web run dev
 The development server listens on `127.0.0.1:3003` (`IRIS_LISTEN` overrides it)
 and seeds Bob as an editor of Alice's project 41 so a role change or removal can
 succeed without invitations. By default it uses a disposable SQLite database, so
-restarting it resets the data.
+restarting it resets the data; the development command always passes a database
+path.
 
 To keep data across restarts, pass a path after the flag, for example
-`-- --local-oidc-demo --database /tmp/iris-reference.db` (a path outside the
-checkout until the development command's gitignored directory exists). The path
-is only ever an argument, never an environment variable, so the tests and the
-browser workflow stay disposable. The parent directory must exist. On the first
-start the server builds, migrates and seeds the database in a staging directory
-next to it (`<name>.iris-init`) and publishes it only when complete; later
-starts apply new migrations and never seed again. The seeded identities are
-bound to the issuer in use when the database was created. One server owns a path
-at a time: a lock on `<name>.iris-lock`, released when the process exits even
-after a crash, refuses a second start. The server also refuses a database that
-is a symbolic link, has another hard link, is not in SQLite's rollback journal
-mode, is missing while its `-journal`, `-wal` or `-shm` files remain, or whose
-name ends in one of those three suffixes.
+`-- --local-oidc-demo --database /tmp/iris-reference.db` (the development
+command's default is `apps/reference/.dev/reference.db`). The path is only ever
+an argument, never an environment variable, so the tests and the browser
+workflow stay disposable. The parent directory must exist. On the first start
+the server builds, migrates and seeds the database in a staging directory next
+to it (`<name>.iris-init`) and publishes it only when complete; later starts
+apply new migrations and never seed again. The seeded identities are bound to
+the issuer in use when the database was created. One server owns a path at a
+time: a lock on `<name>.iris-lock`, released when the process exits even after a
+crash, refuses a second start. The server also refuses a database that is a
+symbolic link, has another hard link, is not in SQLite's rollback journal mode,
+is missing while its `-journal`, `-wal` or `-shm` files remain, or whose name
+ends in one of those three suffixes.
 
-To start over, reset the database rather than deleting its files:
+To reset a database by hand, run the server's reset rather than deleting its
+files:
 
 ```sh
 IRIS_OIDC_ISSUER=http://127.0.0.1:4001 cargo run --locked -p iris-reference --bin reference-dev -- --local-oidc-demo --database /tmp/iris-reference.db --reset
@@ -179,24 +226,25 @@ example `dev.db-wal`. To keep one, move it as a complete file set:
 
 ## Layout
 
-| Path                                | Owns                                                                                                                                                                          |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/app.rs`                        | State, connections, the migration, seed fixtures, and the one checked assembly behind `app()` and `openapi()`                                                                 |
-| `src/identity.rs`                   | Session/OIDC identity copied as application code; session endpoints keep their `{code,message}` bodies                                                                        |
-| `src/domains/mod.rs`                | The stage, failure and cleanup vocabulary that mutations and reads share                                                                                                      |
-| `src/domains/memberships.rs`        | Commands, rejection types, one private SQLite transaction for both mutations, and member listing                                                                              |
-| `src/domains/projects.rs`           | The caller's own projects, filtered by actor                                                                                                                                  |
-| `src/read.rs`                       | One owned `query_only` connection and deferred transaction per read, finalized and classified                                                                                 |
-| `src/http/`                         | DTOs, declarations, endpoints, mounts, the session-marker classifier, wire IDs, page parameters                                                                               |
-| `src/storage.rs`                    | The development database: one owner per path, atomic initialization with the development fixtures, the rollback journal check, reset, and the refusal of a modified migration |
-| `src/bin/reference-dev.rs`          | The `--local-oidc-demo` development server, disposable unless given `--database PATH`; with `--reset`, replaces that database and exits                                       |
-| `web/src/client.ts`                 | The whole-request boundary: linkage, the recovery parse, single bounded reads and validation against the bundled export                                                       |
-| `web/src/membership.ts`             | One attempt per domain request: mutations as POST with the CSRF token, reads as a bodiless GET with one overload per read; the declared readback's inputs                     |
-| `web/src/session.ts`, `main.tsx`    | Session bootstrap over the existing session contracts, and the member directory console with its readback                                                                     |
-| `web/src/directory.ts`              | The directory's paging, result pairing and staleness rules as pure transitions                                                                                                |
-| `web/src/present.ts`                | Outcome wording, exhaustive over all four operations' codes; read wording scoped to the page as read; the readback pointer                                                    |
-| `migrations/`, `tests/`, `scripts/` | Schema; contract, session and development-server tests; omission probes and the browser workflow                                                                              |
-| `../../crates/iris`                 | Envelope rendering, the response bridge, the shared profile, the request-ID boundary (HEAD served as GET), assembly and current-state read linkage checks                     |
+| Path                                       | Owns                                                                                                                                                                          |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app.rs`                               | State, connections, the migration, seed fixtures, and the one checked assembly behind `app()` and `openapi()`                                                                 |
+| `src/identity.rs`                          | Session/OIDC identity copied as application code; session endpoints keep their `{code,message}` bodies                                                                        |
+| `src/domains/mod.rs`                       | The stage, failure and cleanup vocabulary that mutations and reads share                                                                                                      |
+| `src/domains/memberships.rs`               | Commands, rejection types, one private SQLite transaction for both mutations, and member listing                                                                              |
+| `src/domains/projects.rs`                  | The caller's own projects, filtered by actor                                                                                                                                  |
+| `src/read.rs`                              | One owned `query_only` connection and deferred transaction per read, finalized and classified                                                                                 |
+| `src/http/`                                | DTOs, declarations, endpoints, mounts, the session-marker classifier, wire IDs, page parameters                                                                               |
+| `src/storage.rs`                           | The development database: one owner per path, atomic initialization with the development fixtures, the rollback journal check, reset, and the refusal of a modified migration |
+| `src/bin/reference-dev.rs`                 | The `--local-oidc-demo` development server, disposable unless given `--database PATH`; with `--reset`, replaces that database and exits                                       |
+| `web/src/client.ts`                        | The whole-request boundary: linkage, the recovery parse, single bounded reads and validation against the bundled export                                                       |
+| `web/src/membership.ts`                    | One attempt per domain request: mutations as POST with the CSRF token, reads as a bodiless GET with one overload per read; the declared readback's inputs                     |
+| `web/src/session.ts`, `main.tsx`           | Session bootstrap over the existing session contracts, and the member directory console with its readback                                                                     |
+| `web/src/directory.ts`                     | The directory's paging, result pairing and staleness rules as pure transitions                                                                                                |
+| `web/src/present.ts`                       | Outcome wording, exhaustive over all four operations' codes; read wording scoped to the page as read; the readback pointer                                                    |
+| `scripts/dev.mjs`, `scripts/supervise.mjs` | The development command, and the process ownership it shares with the browser workflow                                                                                        |
+| `migrations/`, `tests/`, `scripts/`        | Schema; contract, session and development-server tests; omission probes, the browser workflow and the development command's tests                                             |
+| `../../crates/iris`                        | Envelope rendering, the response bridge, the shared profile, the request-ID boundary (HEAD served as GET), assembly and current-state read linkage checks                     |
 
 ## Operations
 
@@ -228,8 +276,8 @@ caller's rows. HEAD returns GET's status and headers without a body.
 
 Measured September 26–27, 2026, on macOS with Node 24.20.0 (CI pins 26.10.0);
 the client checks also passed under Node 26.8.1. The development server,
-development database, lifecycle and workspace rows were measured again on
-September 30.
+development database, lifecycle and workspace rows were measured again, and the
+development command row first, on September 30.
 
 | Check                  | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -251,6 +299,7 @@ September 30.
 | Browser workflows      | Five consecutive passes of the final script, about 15 s each with builds cached. Checkpoint A, from the directory: OIDC sign-in and bootstrap recovery; role change with the listing marked while the response is held, and its acknowledged outcome kept across a reload with no readback offered; one unconfirmed attempt kept across a reload, a new selection and refreshes; non-owner refusal; removal with per-member confirmation, absence from the stale row and last-owner protection. The API is then restarted. Checkpoint B: a lost initial projects read and a lost members read, each sent once; traversal of members and own projects one row per page to the end; a member who left the project, with the response withheld after the commit, is refused their next page, and the readback, used from another project, is refused too, with the outcome and the offer kept. The API is restarted again. The current-state read, on fresh data: a withheld role change read back showing the new role, and a withheld removal, sent while page 1 had a next cursor, read back from page 1 with the member absent; each attempt sends one mutation and each readback one first-page GET, and the outcome stays unconfirmed. For each withheld response, the request reaches the server, a wrapper records the response and throws, and the runner then checks the recorded 200 acknowledgment independently. Then HttpOnly session, narrow layout and no browser storage. Earlier probes: a taken port, foreign servers, a spawn error, SIGTERM, a child that never reports ready, a child killed mid-run and a build that ignores SIGTERM each stop it without a PASS or leftover processes, and a second invocation is refused without disturbing the first. Each restart: a foreign listener on its port, the replacement killed, and SIGTERM inside the window each stop it the same way, with no replacement started after a stop; the second restart's window was probed separately |
 | Development database   | 38 passed on September 30; [S18](../../docs/design-spec.md#reset-and-migration-evidence) maps them to its acceptance rows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Lifecycle              | 22 passed on September 30; [S18](../../docs/design-spec.md#shutdown-and-session-cleanup-evidence) maps them to its acceptance row                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Development command    | 22 passed on September 30 under Node 24.20.0 and 26.8.1, and ten consecutive times under 24.20.0 just before a final two-line change; [S18](../../docs/design-spec.md#development-command-evidence) maps them to its acceptance row                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Workspace              | 198 passed on September 30; the frozen experiments stay green                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## Cost of runtime validation
@@ -304,6 +353,8 @@ and the
   classification is source-inspected only.
 - The client bundles the export it was built with, so client and server must
   ship from the same commit.
+- The development command's tests run only locally, on the command's fixed
+  ports; they are not part of CI.
 - Ajv compiles validators with `new Function`; a strict content security policy
   would need precompiled validators. None is set here.
 - The browser workflows check selected paths in one browser, not every code.

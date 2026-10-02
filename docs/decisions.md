@@ -1408,6 +1408,54 @@ tested SHA, all 22 tests, both later browser steps and the full job before
 recording Actions acceptance. No Actions result, independent Tester/Oracle
 acceptance, merge or deployment is claimed.
 
+### Colored readiness correction — October 2, 2026
+
+The preceding local results remain valid, but
+[Actions run 36961151968](https://github.com/robertguss/Iris/actions/runs/36961151968)
+at
+[`a4112b682438821ece8a46c7b7a53387715544d7`](https://github.com/robertguss/Iris/commit/a4112b682438821ece8a46c7b7a53387715544d7)
+failed with 21 passed and 1 failed. The relative-database/reset test passed. The
+readiness test had already observed `dev: ready` and HTTP 200 from the proxy,
+but its presence assertion at line 373 searched raw Vite output. ANSI sequences
+split both `Local:` and the URL, so the raw regex missed that line. The runtime
+supervisor already strips color when scanning readiness.
+
+The correction imports Node's `stripVTControlCharacters` and searches a local
+`readinessOutput` snapshot immediately before the `at` helper. Raw capture and
+diagnostics, all seven regexes, nonnegative indices, ordering, the final exact
+summary assertion and the HTTP assertion remain unchanged. No runtime,
+supervisor, `until`, color configuration, pins or deadlines changed.
+
+Test-first reproduction used disposable source and absolute private target
+directories. The first `FORCE_COLOR=1` run passed because this orb also exports
+`NO_COLOR` and Vite emitted no ANSI bytes; that was not counted as red evidence.
+Removing `NO_COLOR` from the diagnostic process environment, rather than setting
+it empty, produced a genuine colored Vite `Local` line containing `\u001b[22m`
+before the colon and `\u001b[1m` inside the URL. The old presence assertion then
+failed with Node exit 1 after readiness and HTTP 200 had passed. Applying the
+snapshot correction passed the same focused colored run with exit 0.
+
+A disposable replay extracted the candidate's actual assertion block and seven
+patterns. Both the genuine colored capture and its stripped form passed. For
+each form, deleting each of the seven required lines independently failed the
+presence assertion. Swapping web readiness and final `dev: ready` retained all
+seven matches but failed the order assertion. Raw captures, replay source and
+results, and direct Node statuses were retained; no diagnostic helper ships.
+
+```sh
+env -u NO_COLOR FORCE_COLOR=1 CARGO_TARGET_DIR=/tmp/rob-1112-color-target \
+  node --test apps/reference/scripts/test/dev.test.mjs
+# Exit 0: 22 passed, 0 failed, 0 skipped, 0 cancelled; 107.01 s.
+```
+
+This full acceptance run was unfiltered, with Node 26.10.0, Rust 1.98.1 and npm
+10.9.9. Ports 4001, 3003 and 5175 were exclusive and free before and after. Node
+statuses were saved before log tails. Rust formatting, whitespace and Prettier
+3.9.9 Markdown/JS checks passed. Prior local facts and historical evidence are
+unchanged. Fresh independent testing and an actual successful Actions run,
+including both later browser steps and the full job, remain for Lead; this
+correction does not claim Actions acceptance.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

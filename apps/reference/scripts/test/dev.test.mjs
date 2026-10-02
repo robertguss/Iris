@@ -25,6 +25,7 @@ import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, before, test } from "node:test";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -360,7 +361,8 @@ test("readiness is announced after all three, and a request goes through at once
   await ready(run);
   const through = await fetch(`${ORIGIN}/api/auth/session`);
   assert.equal(through.status, 200);
-  const at = (pattern) => run.output.search(pattern);
+  const readinessOutput = stripVTControlCharacters(run.output);
+  const at = (pattern) => readinessOutput.search(pattern);
   const order = [
     at(/dev: started issuer/),
     at(/\[issuer\] .*listening on 127\.0\.0\.1:4001/),

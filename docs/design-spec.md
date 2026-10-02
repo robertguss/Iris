@@ -3010,6 +3010,19 @@ New runs capture Node's exit status before reading log tails. See the dated
 for local acceptance and isolated mutation evidence; Actions acceptance remains
 for Lead to observe, not a claim from these local checks.
 
+**October 2, 2026 colored-output correction:** The first
+[Actions run](https://github.com/robertguss/Iris/actions/runs/36961151968) at
+[`a4112b682438821ece8a46c7b7a53387715544d7`](https://github.com/robertguss/Iris/commit/a4112b682438821ece8a46c7b7a53387715544d7)
+passed 21 of 22 tests, including the content-based reset test. Readiness and the
+proxy request succeeded, but Vite's ANSI sequences split the readiness test's
+`Local:` label and URL. That test now searches a local
+`stripVTControlCharacters` snapshot; raw capture, diagnostics, all seven
+patterns, presence/order checks and the exact final summary check remain. No
+supervisor, runtime, color configuration, pin or deadline changed. The dated
+[decision record](decisions.md#colored-readiness-correction--october-2-2026)
+distinguishes the colored reproduction and correction checks from the earlier
+local results; fresh Actions acceptance is still pending.
+
 The fourth implementation step, on September 30, 2026, covers recommendation 6.
 [`dev.mjs`](../apps/reference/scripts/dev.mjs) starts the issuer, the API and
 Vite on the persistent database `apps/reference/.dev/reference.db`, which is

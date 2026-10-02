@@ -2974,6 +2974,19 @@ The previously reported pristine Busy failure did not recur within the fixed
 diagnostic budget; this does not establish its exact interleaving or repair
 unrelated historical timing cases.
 
+ROB-1176 applies the same Busy-only whole-observation retry rule to the binary's
+startup cleanup test, not to production cleanup. Its existing 10 s deadline
+starts after the second server reports readiness and covers both identifier
+SELECTs and asynchronous 50 ms polling sleeps on the existing 100 ms-timeout
+connection. Only exactly `["live", "live"]` before expiry succeeds; expired
+deadlines reject even valid rows. Non-Busy errors fail immediately with their
+original diagnostic, and expiry retains the last Busy or unexpected-row
+diagnostic. Seeding, both starts, the initial graceful-stop assertion, owned
+child cleanup and final connection closure remain unchanged. Real-lock,
+non-Busy, wrong-row and expired-deadline regressions and isolated startup SQL
+negative controls are recorded in the
+[decision record](decisions.md#rob-1176-bounded-startup-observation--october-2-2026).
+
 Limits:
 
 - The budgets are configured values with a measured margin, not a guarantee

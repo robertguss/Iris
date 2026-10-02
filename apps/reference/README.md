@@ -21,6 +21,46 @@ The mutations then declared `listProjectMembers` as their current-state read,
 which the console offers after an unconfirmed attempt; a third browser workflow
 covers it.
 
+## Future invitations: not runnable yet
+
+ROB-1113 records an **accepted future design, not an implemented or verified
+feature**. The commands below still run only the existing reference application:
+they do not start an invitation worker or mail capture, and there are no
+reference invitation routes or views yet. The frozen experiment's delivery
+commands and token-preview response are not reference-app instructions.
+
+[S19](../../docs/design-spec.md#s19--reference-invitations-and-delivery) owns
+the future contract, decision/failure-window tables and bounded later stages;
+the
+[dated decision](../../docs/decisions.md#reference-invitation-design--october-2-2026)
+records rationale and provenance. Public issue and accept operations must land
+with their OpenAPI export, generated TypeScript, client tests, presentation,
+views and browser workflow in the same later green candidate. No runtime test or
+mail-retention result is claimed by this documentation change.
+
+Future prerequisites, not steps to run now:
+
+- Private persistence/domain and delivery/lifecycle work must first supply
+  append-only migrations, atomic invitation/outbox storage, tracked worker
+  connections and supervised shutdown under the existing 3-second drain,
+  1-second close and 5-second outer kill deadlines.
+- Future fresh initialization or explicit reset adds `.test` contacts. Existing
+  databases are never reseeded or backfilled and remain usable; issuance with a
+  missing usable contact returns 409 `invitations.recipient_unavailable` after
+  the preceding authority/conflict checks. Reset is destructive and is not
+  required merely to keep using an old database.
+- A dedicated loopback-only capture service, without relay, needs a pinned and
+  verified configuration. The 24-hour retention precedent and proposed
+  500-message cap are not measured reference behavior. Resetting the application
+  database does not clear that separate inbox or remove its old links.
+- The intended happy demo is Bob (`29`) inviting Alice (`11`) to project `43`.
+  Issuance acknowledges enqueue, not mail delivery, and returns no token. The
+  recipient signs in first, then opens or reopens the capture link and
+  explicitly accepts. Full login discards the memory-only fragment credential;
+  neither browser storage nor an invitation lookup can recover it. Unknown
+  outcomes do not permit automatic retry or become confirmed by later membership
+  reads.
+
 ## Caller-loss boundary checks — October 2, 2026
 
 Run `cargo test --locked -p iris-reference --lib caller_loss` from the

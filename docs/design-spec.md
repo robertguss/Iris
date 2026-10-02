@@ -2134,8 +2134,10 @@ Expectations are written independently of descriptor-generated fixtures (S12).
 
 The reference [runner](../apps/reference/scripts/probes.mjs) carries the
 remaining frozen S16 omission families. This is seeded-mistake evidence, not
-exhaustive mutation coverage or authorization to retire S16. The frozen runner
-stays unchanged and in CI. The reference runner owns one disposable source copy
+exhaustive mutation coverage. ROB-1114 supplied parity, not retirement
+authorization; ROB-1115's bounded automatic-entrypoint change is recorded in
+[Partial S16 CI retirement](#partial-s16-ci-retirement). The frozen runner
+source stays unchanged. The reference runner owns one disposable source copy
 with private direct/nested Cargo targets, copied dependencies, private writable
 caches and isolated fixtures. It registers pristine bytes before any mutation or
 subprocess generation and restores and compares them before its final healthy
@@ -2176,6 +2178,137 @@ Reference-only duplicate-ID, shared metadata/component, GET-bound, authorization
 and current-state-read probes remain. CI runs reference probes after client
 verification and development-command tests so installed web dependencies are
 available; all other steps remain serial and unchanged.
+
+### Partial S16 CI retirement
+
+ROB-1115 retires only the direct frozen `verify:s16` and omission-runner CI
+entrypoints, after auditing accepted base
+[`493c00207cec72a0beda05e2c5e5e3185dceb614`](https://github.com/robertguss/Iris/commit/493c00207cec72a0beda05e2c5e5e3185dceb614),
+which includes accepted ROB-1114. This is assertion-level equivalence for the
+maintained application, not wire identity or an inference from its larger test
+count. The following matrix is the retirement boundary.
+
+**Ten Rust tests.** The first nine names below occur in both frozen
+`experiments/api-slice/server/src/s16/tests.rs` and maintained
+`apps/reference/src/http/memberships/tests.rs`; the last maps frozen
+`s16/action.rs` to `apps/reference/src/domains/memberships.rs`. Maintained HTTP
+fixtures use the assembled reference application; focused tests still use domain
+calls or hand-built routers where appropriate.
+
+| Frozen test → maintained same-name test                         | Substantive retained assertions                                                                                                                                                                                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `independent_contract`                                          | OpenAPI 3.1, exact path and operation IDs, replay false, last-owner prerequisite, all nine status/kind/code tuples; obsolete prerequisite absent; valid 409 accepted while wrong code, kind, version and operation fail schema validation. |
+| `whole_request_contract_and_fixtures`                           | Nineteen responses detailed below, exact tuples and schema validation; role remains viewer after refusals and SQL body failure; all request IDs unique.                                                                                    |
+| `session_save_failure_after_commit`                             | Ordinary request succeeds without saving session; injected post-commit save reaches its hook, fails with 500/internal, leaves committed owner role and does not persist injected session key.                                              |
+| `connection_and_session_load_failures_are_request_failures`     | Missing database directory and dropped session table each yield 500/internal without changing editor role.                                                                                                                                 |
+| `refusal_rewrite_preserves_cookie_headers`                      | Rewriting marked CSRF preserves both Set-Cookie headers and produces schema-valid 403/refused/csrf; fixture also supplies stale content-length.                                                                                            |
+| `real_body_error_rolls_back_and_concurrent_demotions_serialize` | Control proves trigger FAIL leaves pending update; action classifies Body/Other plus RollbackAcknowledged and restores editor; concurrent owner demotions yield exactly one success, one LastOwner and one remaining owner.                |
+| `unclassified_responses_stay_unclassified`                      | Raw 403, unclassified marked response, wrong-method 405 and absent-path 404 retain status and contain no operation envelope; marked response adaptation below.                                                                             |
+| `failed_cleanup_never_projects_rejection`                       | Both rejected and execution primary causes with unconfirmed rollback yield schema-valid 500/internal, never last_owner.                                                                                                                    |
+| `begin_and_commit_errors_do_not_claim_cleanup`                  | Real writer lock gives Begin/Busy; deferred FK gives Commit/Other; both retain Unconfirmed with no rollback error; explicit connection disposal leaves editor, without claiming arbitrary commit ambiguity coverage.                       |
+| `cleanup_preserves_both_primary_kinds`                          | Injected rollback failure keeps LastOwner or Body/Busy primary, records Unconfirmed/Other and removes secret diagnostics; this is finalization evidence, not a real driver rollback-failure test.                                          |
+
+Shared helper obligations are part of the mapping: both HTTP suites' `request`
+sends cookie, Origin, CSRF and caller request-ID canaries; `collect` requires
+`Cache-Control: no-store` and rejects any body containing `canary`; `expect`
+requires status/kind/code and validates against the status-specific schema.
+These assertions also cover session/load/save failures and cookie rewriting, not
+just happy-path fixture counts.
+
+**Nineteen captured client cases.** Frozen `s16/client.test.ts` consumes the
+whole-request fixtures. Maintained `web/src/client.test.ts` consumes
+`changeMemberRole.json`, requires operation identity, independently tallies
+`CAPTURED.changeMemberRole`, and validates every response as `server`:
+
+| Frozen captures                             | Maintained cases and assertions                                                                                                                 |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2 success                                   | Role change and repeated same role: 200/success.                                                                                                |
+| 1 forbidden, 1 missing member, 1 last owner | 403/rejected/forbidden, 404/rejected/member_not_found, 409/rejected/last_owner.                                                                 |
+| 1 anonymous, 2 CSRF                         | 401/refused/unauthenticated; missing Origin and missing CSRF each 403/refused/csrf_refused.                                                     |
+| 9 invalid requests                          | Malformed JSON, extra actor, bogus role, IDs 0/01/-1/i64 overflow, oversized otherwise-valid JSON, and text/plain: 400/refused/invalid_request. |
+| 1 busy, 1 SQL body failure                  | 503/failure/unavailable and 500/failure/internal.                                                                                               |
+
+**Twenty-five hand-written client cases.** Each row maps frozen
+`s16/client.test.ts` to the maintained `web/src/client.test.ts` mutation loop
+for `changeMemberRole` (also exercised for removal). Reason-specific maintained
+unknowns refine, rather than replace, the frozen `client_unknown` assertion.
+
+| Frozen cases (count)                                                                                                                  | Maintained assertion                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Valid success, additive top-level/data fields (2)                                                                                     | Both accepted as `server`.                                                                                                                             |
+| Version 2, wrong operation, empty data, pending completion, caller request ID, failure kind on success, null, array, empty object (9) | Version gives `unsupported_version`; other eight give `contract_mismatch`, all `client_unknown`.                                                       |
+| Last-owner 409 (1)                                                                                                                    | Accepted as `server`.                                                                                                                                  |
+| Forbidden at 409, future code at 409, refused last-owner at 409, last-owner at 403, success at 201 (5)                                | All `contract_mismatch`.                                                                                                                               |
+| HTML, empty, malformed JSON (3)                                                                                                       | `bodyCases` requires `non_json` for each.                                                                                                              |
+| Transport throw (1)                                                                                                                   | `bodyCases` requires `request_failed`.                                                                                                                 |
+| Stream read error (1)                                                                                                                 | `bodyCases` requires `body_unreadable`.                                                                                                                |
+| Validated internal failure, lost response after commit, later forbidden (3)                                                           | Consecutive checks require `server`, `request_failed`, `server`; neither failure nor later refusal establishes earlier action effect or permits retry. |
+
+Both client `check` helpers assert exactly one request call and absence of
+`secret-canary` in the result for every captured and hand-written case. The
+maintained helper additionally checks fresh local attempt IDs. The 231-case
+aggregate is not the evidence for these 19 + 25 mappings.
+
+**Uncounted contracts and semantic adaptations.** Frozen recovery asserts
+`inspect: false`, `read: false`, `replay: false` and the
+current-authority/intent new-submission constraint. Maintained
+`recovery_contract_declares_the_member_list` independently pins both mutations'
+current-state read and its project-ID binding; the client independently pins the
+same metadata and still accepts a modified `read: false` document. Reads observe
+current state, not prior effect, and do not enable automatic replay. This is an
+intentional recovery-contract evolution, not identical wire metadata. Likewise
+the frozen unclassified marked `Forbidden` 403 becomes marked `LoginFailed` 401
+after the reference session enum narrowed; raw 403 remains tested. Both marked
+cases assert that an unclassified producer is not invented into an operation
+envelope.
+
+Frozen `s16/narrowing.ts` maps to maintained `web/src/narrowing.ts`'s
+`changeRole`: 200 completion is acknowledged with no stored role, 403 code
+narrows refused versus rejected, and 409 permits only last_owner, including
+negative `@ts-expect-error` checks. Both run under `tsc`; these are uncounted
+compile-time obligations.
+
+**Both drift edges remain automatic for reference.** Rust
+`tests/contract.rs::exported_document_is_current` compares assembled server
+export bytes to `apps/reference/openapi.json`. Then `web/scripts/verify.mjs`
+compares that snapshot's generated TypeScript to `web/src/generated.ts` before
+running captured responses, narrowing, runtime checks and build. Neither edge
+alone replaces frozen export-to-snapshot-to-types verification.
+
+**Sixteen omissions and seven controls.** The preceding
+[ROB-1114 matrix](#reference-omission-parity) maps each of the 16 frozen
+negatives: missing variant, descriptor, projection, policy, compatibility;
+changed-status compatibility, regeneration, client handling; required-field
+projector, raw DTO bypass, collection, bridge, path, mount, CSRF producer and
+CSRF declaration. The seven frozen controls map separately:
+
+| Frozen control                    | Maintained reference control                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Pristine before                   | Full healthy Rust and real web verifier before mutations.                                         |
+| Completed policy behavior         | Complete added rejection passes role-change and removal `archived_probe`.                         |
+| Added-rejection export success    | Direct exporter succeeds with completed rejection.                                                |
+| Separate export-content assertion | Parsed 409 branches contain exactly one added rejection for each mutation.                        |
+| Changed-status export success     | Direct export succeeds and updates disposable snapshot before generated-type drift/repair checks. |
+| Wrong-path compile                | Wrong path still compiles before independent inventory rejects it.                                |
+| Pristine after                    | Byte restoration, full healthy Rust and web verification, then successful cleanup.                |
+
+**Mechanics are separate.** CI explicitly retains
+`node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs` at the
+former compound `probe:s16` position, after dependency installation. Its one
+regression uses a rejecting Cargo shim with real Node/nested verifier to prove
+private target inheritance, an untouched inherited-target sentinel, unchanged
+checkout-target inventory and source bytes, and removal after an exception. It
+proves runner isolation, not real omission or contract parity.
+
+Automatic frozen server-export/snapshot/generated-TS synchronization, frozen
+TypeScript narrowing/client execution and the 16 frozen omission mutations stop
+through these direct entrypoints. Frozen Rust still runs through workspace
+defaults and API dev-identity tests; normal web `verify`, explicit mechanics and
+all other CI remain. Frozen source, artifacts, dependencies and manual package
+scripts remain unchanged. Manual commands are retained historical tools, not a
+promise of permanent greenness without those automatic checks. Evidence and
+limitations are in the
+[dated decision](decisions.md#partial-s16-ci-retirement--october-2-2026).
 
 ### Explicit exclusions
 

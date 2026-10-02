@@ -1648,6 +1648,95 @@ pinned Prettier 3.9.9, width 80, prose wrapping always. No browser workflow,
 workspace-wide suite, Clippy or frozen suite was rerun for this runner-only
 change; none is claimed as evidence here.
 
+## ROB-1121 bounded Busy observation — October 2, 2026
+
+The Lead reported repeated pristine ROB-1114 controls failing in
+`session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outlives_a_busy_tick`:
+`identifiers` unwrapped SQLite code 5, `database is locked`, at its two SELECT
+sites (lines 472/477), with 98 library tests passing and one failing. An earlier
+parity run completed with 31 caught mutants and 25 passed controls. The later
+final-version run reached 31 caught mutants and 23 passed controls, then failed
+its restored healthy Rust control and emitted no overall PASS. These are
+retained reported failures, not new reproductions or evidence of a runtime
+cleanup defect.
+
+The approved
+[plan](https://github.com/robertguss/Iris/commit/a69b98752ed7e80bd2c36fe9bffa607807a5bcee)
+has the same source as base
+[c3461b9](https://github.com/robertguss/Iris/commit/c3461b9d330aab93fb176a3926debf864ffa7501).
+In the Builder's Linux x64 orb, a pristine `git archive` copy at
+`/tmp/rob-1121/healthy` and private `healthy-target` ran 20 fresh-process
+targeted invocations followed by one `cargo test -p iris-reference`, with
+`RUST_BACKTRACE=1`. Every invocation exited 0; the batch took 35 s (15 s for the
+targeted invocations). The cap was 20 plus one suite or 15 minutes, stopping at
+the first failure; there was no failure or diagnostic retry. Each targeted
+invocation used:
+
+```sh
+cargo test -p iris-reference --lib \
+  session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outlives_a_busy_tick \
+  -- --exact lifecycle::tests::session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outlives_a_busy_tick \
+  --nocapture
+```
+
+The original failure was **not reproduced within budget**. Its exact phase and
+acquisition-versus-SELECT interleaving remain unknown. Independently, the raw
+observer cannot tolerate real Busy: it previously unwrapped either query's
+error. Before adding retry behavior, the new regression tests ran against a
+single-observation, error-propagating scaffold: transient Busy failed because
+the observer returned before lock release, and persistent Busy failed because it
+returned before the absolute deadline (exit 101, 1 passed / 2 failed). Non-Busy
+SQL errors and wrong rows already failed immediately as required.
+
+Both Busy tests first establish an actual Busy error from `identifiers` under
+`BEGIN EXCLUSIVE`, not an injected error or a sleep-only success. After repair,
+the transient observer remains pending while locked and obtains the exact
+nonempty rows after rollback. Persistent Busy fails at its deadline with phase
+and database error, even when expected rows are empty. Additional checks cover
+wrong rows in strict mode, a missing second table, closed pool, actual pool
+timeout without retry, and a phase deadline while all four pool connections are
+held. Four observer tests pass. The lifecycle test still uses the existing 20 s
+phase budget, 30 ms Busy timeout, four connections and 10 ms retry sleep; strict
+held-writer observation, worker liveness, clean stop and closure remain. No
+runtime, journal policy, dependency, runner or CI behavior changed.
+
+Three semantic mutants ran sequentially in `/tmp/rob-1121/mutation`, with
+`CARGO_TARGET_DIR=/tmp/rob-1121/mutation-target`, using the targeted command
+above. No mutation touched checkout source or a shared target. The unchanged
+control passed before and after (one test, exit 0, 0.37/0.38 s). Each mutant
+compiled and failed the intended row assertion with exit 101:
+
+| Mutation                                    | Assertion evidence                                                             | Test duration |
+| ------------------------------------------- | ------------------------------------------------------------------------------ | ------------- |
+| Both deletion predicates append `AND 0`     | Initial deletion deadline: all six rows, including expired rows, remain        | 20.05 s       |
+| Both deletion predicates append `OR 1`      | Initial deletion deadline: empty rows instead of the four live/soon rows       | 20.18 s       |
+| Cleanup awaits forever after its first Busy | Post-release deadline: all four live/soon rows remain instead of two live rows | 20.37 s       |
+
+These are internal phase-deadline assertion failures, not compilation errors,
+external process timeouts or unrelated failures. Scratch logs under
+`/tmp/rob-1121/logs` are local execution evidence, not durable repository paths.
+
+Final Builder verification on the repaired source, using private
+`CARGO_TARGET_DIR=/tmp/rob-1121/candidate-target`:
+
+```sh
+cargo test -p iris-reference --lib observer_ # 4 passed
+cargo test -p iris-reference --lib lifecycle::tests # 27 passed
+cargo test -p iris-reference # 124 passed across library/integration suites
+cargo test --workspace # 206 passed across test/doc-test targets
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  docs/design-spec.md docs/decisions.md
+git diff --check
+```
+
+All exited 0. No client/browser check is claimed for this test-only change. The
+controlled exclusive lock demonstrates the observer defect, not the exact
+historical scheduling sequence; other historical lifecycle/concurrency timing
+cases are not claimed fixed. Fresh Tester, Lead/Oracle review and CI acceptance
+remain separate delivery gates; Builder verification is not merge evidence.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

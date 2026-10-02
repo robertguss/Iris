@@ -421,6 +421,13 @@ reference library control now includes 103 tests. The earlier SQLite Busy
 failures remain recorded; no historical scheduling interleaving is claimed
 reproduced.
 
+That plain-output run did not prove CI's forced-color behavior. After a CI
+failure, diagnostic matching now uses Node's ANSI-stripped snapshot while thrown
+errors retain raw output. A real run with `NO_COLOR` unset,
+`CARGO_TERM_COLOR=always` and `FORCE_COLOR=1` passed the same 31 probes and 25
+controls in 230.37 s, including healthy controls and cleanup. The decision
+record retains the CI failure and the real-ESC replay checks separately.
+
 | Temporary change                                           | Executed signal                                                              |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Second operation collected without the bridge              | Assembly panics: surviving inferred handler ID `remove_member_endpoint`      |

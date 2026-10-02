@@ -6,6 +6,7 @@ import { access, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "n
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const temp = await mkdtemp(join(tmpdir(), "iris-reference-probes-"));
@@ -47,11 +48,12 @@ function expect(label, command, args, pattern, pass = false, cwd = temp) {
     throw new Error(`${label}: did not run to completion (${result.error ?? result.signal})`);
   }
   const output = result.stdout + result.stderr;
+  const plainOutput = stripVTControlCharacters(output);
   const patterns = Array.isArray(pattern) ? pattern : [pattern];
-  if ((result.status === 0) !== pass || !patterns.every((p) => p.test(output))) {
+  if ((result.status === 0) !== pass || !patterns.every((p) => p.test(plainOutput))) {
     throw new Error(`${label}: unexpected result ${result.status}\n${output}`);
   }
-  const evidence = patterns.map((p) => p.exec(output)[0].trim() || "(empty output)");
+  const evidence = patterns.map((p) => p.exec(plainOutput)[0].trim() || "(empty output)");
   const kind = pass ? "CONTROL" : "CAUGHT";
   counts[kind]++;
   console.log(`${kind}: ${label}: ${evidence.join("; ")}`);

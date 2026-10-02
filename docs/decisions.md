@@ -1657,10 +1657,11 @@ as an explicitly UNVERIFIED checkpoint, then integrated with a normal merge.
 Only the shared decision record conflicted; both records were retained and the
 ROB-1121 report below was corrected to distinguish the earlier 31/25 completed
 run from the later 31/23 failure. The separate merged baseline confirmed 103
-reference library tests, including four observer tests. The runner's only
-post-checkpoint code change updates its healthy count matcher from 99 to 103;
-all 31 probes, control commands, diagnostics, isolation and cleanup remain. The
-historical race was not reproduced or assigned a precise interleaving.
+reference library tests, including four observer tests. At this integration, the
+runner's only post-checkpoint code change updated its healthy count matcher from
+99 to 103; all 31 probes, control commands, diagnostics, isolation and cleanup
+remain. The historical race was not reproduced or assigned a precise
+interleaving.
 
 The integrated run passed **31 caught probes and 25 controls in 222.75 s**:
 
@@ -1695,6 +1696,66 @@ was removed; the checkout target stayed absent. Earlier failure logs and the
 preserved patch were retained. Syntax, whitespace and pinned Markdown checks
 passed. These are Builder checks; fresh independent verification and full CI for
 the resulting candidate remain separate acceptance gates.
+
+### Forced-color diagnostic matching
+
+[CI 36974061992](https://github.com/robertguss/Iris/actions/runs/36974061992) at
+[f3bef6a](https://github.com/robertguss/Iris/commit/f3bef6a748e37e9156ae887f9d90ef7fe7dbbb47)
+failed the first missing-variant probe with the intended Cargo status 101 and
+E0599 diagnostic. `CARGO_TERM_COLOR=always` placed ANSI sequences between
+`error[E0599]` and its colon, so the exact pattern did not match raw output. The
+earlier plain-output passes did not prove forced-color behavior. The saved
+`gh run view --log-failed` output has literal caret notation and zero ESC bytes;
+it was retained as CI evidence, not reused as an ANSI fixture.
+
+Before changing the runner, its actual `added("variant")` mutation ran in a
+disposable source copy with a private Cargo target, copied offline cache and
+pristine/restored `cargo check` controls. Real Cargo stdout/stderr was captured
+with `NO_COLOR` unset, `CARGO_TERM_COLOR=always` and `FORCE_COLOR=1`: status
+101, three matching E0599 diagnostics and 143 genuine ESC bytes. Replaying the
+actual old `expect` function rejected this colored capture but accepted the same
+diagnostic without ANSI codes. Its thrown error retained the raw bytes.
+
+The correction imports Node's `stripVTControlCharacters` and computes one
+`plainOutput` snapshot inside `expect`, used only for pattern matching and
+matched evidence. Thrown diagnostics still contain original stdout/stderr.
+Patterns, status checks, spawn error/signal gates, environment and workflow are
+unchanged; no helper or full-suite emulator was added. Replaying the actual new
+function accepted the real colored E0599 and printed plain matched evidence. It
+rejected an E0004 expectation, a capture with **all three** matching diagnostic
+lines removed, and a status-0 negative. Every rejected case retained its raw
+output verbatim. Literal caret syntax is not stripped in production.
+
+The complete real forced-color run then passed **31 caught probes and 25
+controls in 230.37 s**, including initial/final healthy Rust and web checks and
+cleanup before PASS:
+
+```sh
+/usr/bin/time -p env -u NO_COLOR CARGO_TERM_COLOR=always FORCE_COLOR=1 \
+  CARGO_HOME=/tmp/rob1114-color/cargo-home \
+  TMPDIR=/tmp/rob1114-color/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-color/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-color/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+Separate before/after `cargo test --quiet --locked -p iris -p iris-reference`
+and `node apps/reference/web/scripts/verify.mjs` also passed with the same
+forced-color flags and `NO_COLOR`/`IRIS_REFERENCE_FIXTURES` unset. They used an
+unmutated source copy, a separate private `healthy-target`, copied offline Cargo
+cache, copied web dependencies and private temporary/cache paths. Each Rust
+suite passed 158 tests (34 + 103 + 2 + 12 + 7); web verification passed 4
+captured-response Rust tests, 231/51/13/11 client cases, tsc and Vite.
+
+The checkout's 128 source/generated/frozen-file hashes and 3,036 dependency-file
+hashes and inventory stayed unchanged. The inherited target and fixture
+directories retained only their sentinel files; the unrelated sibling survived;
+the named runner-owned copy was absent; the checkout target remained absent. Raw
+CI failure, real Cargo capture and replay evidence were retained separately from
+successful forced-color logs. Node syntax, pinned Markdown formatting and diff
+checks passed. The earlier plain passes remain historical evidence, not proof of
+CI color handling. Fresh independent Tester, Oracle review and exact candidate
+CI remain required; this local run does not claim those gates passed.
 
 ## ROB-1121 bounded Busy observation — October 2, 2026
 

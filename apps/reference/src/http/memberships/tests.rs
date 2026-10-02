@@ -725,6 +725,156 @@ async fn begin_and_commit_errors_do_not_claim_cleanup() {
     assert_eq!(f.role(29).await, "editor");
 }
 
+/// One tracked connection owns setup and the action. The two cases differ
+/// only in the trigger's referenced user, not in transaction/closure shape.
+async fn tracked_commit_case(referenced_user: i64) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tracked.db");
+    let wal = dir.path().join("tracked.db-wal");
+    let connections = crate::lifecycle::Connections::default();
+    let mut conn = connections.open(&path).await.unwrap();
+    MIGRATOR.run(&mut *conn).await.unwrap();
+    seed(&mut conn, "https://issuer.invalid").await.unwrap();
+    sqlx::query("INSERT INTO memberships VALUES (41,29,'editor')")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE id=9999")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("PRAGMA journal_mode=WAL")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap(),
+        "wal"
+    );
+    let mut setup = conn.begin().await.unwrap();
+    sqlx::raw_sql("CREATE TABLE tracked_fault (user_id INTEGER REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED)")
+        .execute(&mut *setup)
+        .await
+        .unwrap();
+    let trigger = match referenced_user {
+        9999 => {
+            "CREATE TRIGGER tracked_commit_fault AFTER UPDATE ON memberships BEGIN INSERT INTO tracked_fault VALUES (9999); END;"
+        }
+        29 => {
+            "CREATE TRIGGER tracked_commit_fault AFTER UPDATE ON memberships BEGIN INSERT INTO tracked_fault VALUES (29); END;"
+        }
+        _ => unreachable!(),
+    };
+    sqlx::raw_sql(trigger).execute(&mut *setup).await.unwrap();
+    setup.commit().await.unwrap();
+    assert!(wal.try_exists().expect("inspect setup WAL"));
+
+    let result = action::change_role(
+        &mut conn,
+        &Actor(11),
+        ChangeRole {
+            project_id: 41,
+            user_id: 29,
+            role: MemberRole::Owner,
+        },
+    )
+    .await;
+    if referenced_user == 9999 {
+        assert_eq!(
+            result.unwrap_err(),
+            ActionError::Failed {
+                primary: StopReason::Execution {
+                    stage: Stage::Commit,
+                    kind: FailureKind::Other,
+                },
+                cleanup: Cleanup::Unconfirmed {
+                    rollback_error: None,
+                },
+            }
+        );
+    } else {
+        result.expect("same-shape valid FK action commits");
+    }
+    assert_eq!(connections.outstanding(), 1);
+    assert!(wal.try_exists().expect("inspect held WAL"));
+    // No rollback, explicit close or reuse of the failed handle. SQLx may
+    // queue rollback internally; closure never upgrades the action result.
+    drop(conn);
+    tokio::time::timeout(std::time::Duration::from_secs(20), connections.closed())
+        .await
+        .expect("tracked closure was not acknowledged within 20s");
+    assert_eq!(connections.outstanding(), 0);
+    // Synchronous and before any fresh connection, await, retry or cleanup.
+    assert!(
+        !wal.try_exists().expect("inspect acknowledged WAL"),
+        "WAL remained after acknowledged tracked closure"
+    );
+
+    let mut observer = connect(&path).await.unwrap();
+    let role: String =
+        sqlx::query_scalar("SELECT role FROM memberships WHERE project_id=41 AND user_id=29")
+            .fetch_one(&mut observer)
+            .await
+            .unwrap();
+    let faults: Vec<i64> = sqlx::query_scalar("SELECT user_id FROM tracked_fault ORDER BY user_id")
+        .fetch_all(&mut observer)
+        .await
+        .unwrap();
+    observer.close().await.unwrap();
+    if referenced_user == 9999 {
+        assert_eq!(role, "editor", "failed commit persisted membership");
+        assert_eq!(
+            faults,
+            Vec::<i64>::new(),
+            "failed commit persisted fault rows"
+        );
+    } else {
+        assert_eq!(role, "owner", "positive control persisted role");
+        assert_eq!(faults, [29], "positive control persisted trigger row");
+    }
+
+    // Leave the membership trigger intact; prove progress with an unrelated
+    // write, not repair/reseed, and read it through another fresh connection.
+    let mut writer = connect(&path).await.unwrap();
+    let mut tx = writer.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    assert_eq!(
+        sqlx::query("UPDATE projects SET name='tracked-close-writer' WHERE id=43")
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected(),
+        1
+    );
+    tx.commit().await.unwrap();
+    writer.close().await.unwrap();
+    let mut reader = connect(&path).await.unwrap();
+    let marker: String = sqlx::query_scalar("SELECT name FROM projects WHERE id=43")
+        .fetch_one(&mut reader)
+        .await
+        .unwrap();
+    reader.close().await.unwrap();
+    assert_eq!(marker, "tracked-close-writer");
+}
+
+#[tokio::test]
+async fn tracked_commit_failure_closes_before_fresh_state_and_writer_progress() {
+    tracked_commit_case(9999).await;
+}
+
+#[tokio::test]
+async fn tracked_commit_positive_control_persists_role_and_trigger_row() {
+    tracked_commit_case(29).await;
+}
+
 const REMOVE: &str = "/api/memberships/remove";
 
 pub(crate) fn remove_request(cookie: &str, body: &str) -> HttpRequest<Body> {

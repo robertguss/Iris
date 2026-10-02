@@ -1158,6 +1158,38 @@ reconciliation is required, or a small stage-aware transaction evidence design
 if the baseline suffices. Do not select an executor merely to make telemetry
 look complete. Implementation remains separate work.
 
+### Tracked deferred-COMMIT disposal evidence — October 2, 2026
+
+ROB-1117 partially addresses item 1 above without changing runtime behavior. Two
+`http::memberships::tests::tracked_commit_*` tests use a disposable file, one
+migrated/seeded `Tracked` connection, and test-only WAL mode. No provider, pool,
+session, HTTP server or `Storage` participates. Alice promotes Bob from editor
+to owner; a committed trigger inserts a deferred foreign-key reference. Missing
+user 9999 produces exactly `Commit/Other/Unconfirmed` with no rollback error.
+The same-shaped control references existing user 29 and commits.
+
+With the handle held, both cases require one outstanding ticket and a WAL file.
+They drop the handle without explicit rollback, close or reuse, await
+`connections.closed()` within 20 seconds, require count zero, and synchronously
+assert WAL absence before any further await or fresh connection. There is no
+post-acknowledgment polling. Fresh readback requires editor and no fault rows
+after failure, or owner and exactly `[29]` after success. An unrelated project
+write then affects exactly one row under fresh `BEGIN IMMEDIATE`, commits, and
+is read through another fresh connection. Verification connections are
+explicitly closed; the trigger remains intact and the directory stays bound
+throughout.
+
+This joins real COMMIT failure to acknowledged tracked disposal and fresh writer
+progress in this controlled fixture, not process/storage-lock handoff. SQLx may
+queue rollback internally after failed commit; closure does not upgrade the
+action's `Unconfirmed` result to rollback acknowledgment. WAL disappearance is
+not a universal liveness guarantee or a change to production DELETE mode.
+Failed-open Busy, real rollback I/O failure, full session/transport behavior,
+arbitrary commit ambiguity, task loss, reuse and forced shutdown remain outside
+this evidence. Existing primary/cleanup tests and historical limits remain. The
+[dated record](decisions.md#tracked-commit-disposal--october-2-2026) lists five
+isolated semantic counterfactuals and their passing restored controls.
+
 ### Observable caller-loss boundaries — October 2, 2026
 
 ROB-1110 adds four authenticated reference `change_role` tests, with only

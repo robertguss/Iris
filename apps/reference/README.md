@@ -21,6 +21,26 @@ The mutations then declared `listProjectMembers` as their current-state read,
 which the console offers after an unconfirmed attempt; a third browser workflow
 covers it.
 
+## Tracked COMMIT-failure disposal checks
+
+From the repository root, with an absolute private target directory:
+
+```sh
+CARGO_TARGET_DIR=/tmp/iris-tracked-check cargo test --locked -p iris-reference --lib tracked_commit
+```
+
+Two tests compose a real deferred-FK COMMIT error with bounded acknowledged
+`Tracked` disposal, immediate WAL absence before reopening, independent state
+readback and fresh writer progress. The same-shaped valid-FK control requires
+the owner role and exactly its trigger row to persist. These tests start no
+provider, pool, HTTP server or `Storage`; WAL belongs only to this disposable
+fixture. The error stays `Unconfirmed`, even after closure. They do not prove
+arbitrary commit ambiguity, rollback I/O failure, failed-handle reuse or
+process/storage-lock handoff. See the
+[contract and limits](../../docs/design-spec.md#tracked-deferred-commit-disposal-evidence--october-2-2026)
+and
+[measured checks](../../docs/decisions.md#tracked-commit-disposal--october-2-2026).
+
 ## Future invitations: not runnable yet
 
 ROB-1113 records an **accepted future design, not an implemented or verified

@@ -2091,6 +2091,108 @@ frozen baseline on the candidate, or claim it passed here. Exact-candidate
 Tester, Lead/Oracle review and full CI remain required before merge. No PR,
 merge, deployment or release is claimed by this record.
 
+## Tracked COMMIT disposal — October 2, 2026
+
+ROB-1117 joins two previously separate observations: the raw connection's real
+deferred-FK COMMIT failure and healthy `Tracked` awaited-close/WAL evidence.
+This is test-only composition, not a production fix or an old-production-red
+claim. The approved
+[plan](https://github.com/robertguss/Iris/commit/95b215102ee70ebd8807d9d8d285803b7f8d344e)
+has parent
+[e4ee1c0](https://github.com/robertguss/Iris/commit/e4ee1c0bc222874e1964fddfda6d74f51423882f).
+Both exact SHAs and the full plan body were checked before edits. The Lead's
+documented Oracle approval permits the built-in High Builder for this issue only
+after the prior Grok47 pre-tool failures; no workflow default or provider
+availability claim changes.
+
+Two tests were written first against unchanged runtime code. An initial compile
+check rejected dynamic SQL under SQLx 0.9's `SqlSafeStr` requirement; static SQL
+for the two same-shaped triggers corrected the test fixture. Both new tests then
+passed. One tracked connection migrates/seeds the disposable database and runs
+the action. No `Fixture::new`, provider, pool or `Storage` is used. Missing user
+9999 yields exactly Commit/Other/Unconfirmed with no rollback error; existing
+user 29 is the successful control. Drop alone disposes of the action handle.
+Bounded acknowledged closure and immediate synchronous WAL absence precede all
+fresh state/writer observations. Fresh connections read the expected role/fault
+rows, commit an unrelated one-row project update, and read its exact marker;
+each explicitly awaits close. The trigger remains in place.
+
+### Discrimination checks
+
+Tracked files were copied to `/tmp/rob1117-mutation-source`; its private
+`/tmp/rob1117-mutation-target` began as a copy of the healthy target, never a
+shared target. Each mutation was applied alone, compiled and executed, then the
+changed file was restored byte-for-byte with `cmp` against the healthy checkout.
+The initial control and all five restored controls each passed both tests (2
+passed / 103 filtered). Every restored control also supplies the pristine
+boundary before the next mutation. All five mutants exited 101 with the selected
+test's assertion, not a compile error or external watchdog.
+
+After final byte comparisons, the disposable mutation source and target were
+removed and their absence checked. Raw build/test logs were retained in the
+Builder thread's `rob1117-builder-verification.log` review artifact.
+
+| Isolated semantic counterfactual                                                                  | Test filter                             | Observed diagnostic                                                                   |
+| ------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------- |
+| Remove deferral from the new fault table                                                          | `tracked_commit_failure`                | Actual Body/Other/RollbackAcknowledged versus required Commit/Other/Unconfirmed       |
+| Suppress ticket release after successful close                                                    | `tracked_commit_failure`                | `tracked closure was not acknowledged within 20s: Elapsed(())`; 20.05 s test duration |
+| Intentionally forget the actual connection in disposable `Tracked::drop`, then release its ticket | `tracked_commit_failure`                | `WAL remained after acknowledged tracked closure`                                     |
+| Skip the membership UPDATE                                                                        | `tracked_commit_positive_control` alone | `positive control persisted role`: editor instead of owner; negative test did not run |
+| Swallow the COMMIT error with apparent acknowledgment                                             | `tracked_commit_failure`                | `Result::unwrap_err()` received `Ok(Acknowledged)`                                    |
+
+Commands executed inside the disposable source, with `FILTER` set to the table's
+value for each mutant and `tracked_commit` for each healthy boundary:
+
+```sh
+CARGO_TARGET_DIR=/tmp/rob1117-mutation-target \
+  cargo test --locked -p iris-reference --lib "$FILTER"
+```
+
+### Builder verification and limits
+
+From the healthy checkout, on Rust 1.98.1, sequentially without fixed-port suite
+overlap:
+
+```sh
+CARGO_TARGET_DIR=/tmp/rob1117-healthy-target \
+  cargo test --locked -p iris-reference --lib tracked_commit -- --nocapture
+CARGO_TARGET_DIR=/tmp/rob1117-healthy-target cargo test --locked -p iris-reference
+CARGO_TARGET_DIR=/tmp/rob1117-healthy-target cargo test --locked --workspace
+CARGO_TARGET_DIR=/tmp/rob1117-healthy-target \
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  apps/reference/README.md docs/design-spec.md docs/decisions.md
+node --check apps/reference/scripts/probes.mjs
+git diff --check
+```
+
+Focused: 2 passed. Reference: 131 passed (105 library + 2 contract + 17 dev
+binary + 7 identity). Workspace: 213 passed across all nonempty groups (34 +
+10 + 6 + 2 + 105 + 2 + 17 + 7 + 4 + 3 + 2 + 10 + 1 + 10), zero failures. Clippy
+passed with warnings denied. The measured library count authorizes the sole
+runner edit, its healthy expectation literal from 103 to 105. No other runner,
+CI, runtime, dependency, generated or frozen code changes. Existing tests and
+storage-exclusive child-spawn guards are untouched.
+
+Rust formatting, pinned Prettier 3.9.9 (width 80, prose wrap always), Node
+syntax and `git diff --check` all passed. Prettier was applied only to the three
+changed Markdown files; generated TypeScript was not touched.
+
+The fresh Tester owns the exact-candidate forced-color reference 31 caught / 25
+controls run, including healthy boundaries and cleanup; the Builder does not
+duplicate or claim that run. These five semantic counterfactuals are separate
+from that runner. Full exact-candidate CI and Lead/Oracle review remain before
+merge; this record does not claim PR, merge, deployment or release.
+
+SQLx may internally queue rollback after failed commit. Neither closure nor
+state readback upgrades the returned Unconfirmed cleanup. WAL absence is a
+controlled fixture observation, not a universal closure/liveness guarantee or a
+production DELETE-mode change. Fresh writer progress is not process/storage lock
+handoff. Failed-open Busy, real rollback I/O failure, full session and transport
+behavior, arbitrary commit ambiguity, task loss, reuse and forced shutdown
+remain unproven. Historical evidence and limits are preserved.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

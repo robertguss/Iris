@@ -1630,6 +1630,90 @@ historical scheduling sequence; other historical lifecycle/concurrency timing
 cases are not claimed fixed. Fresh Tester, Lead/Oracle review and CI acceptance
 remain separate delivery gates; Builder verification is not merge evidence.
 
+## ROB-1176 bounded startup observation — October 2, 2026
+
+The binary startup cleanup test has a separate observer from ROB-1121's library
+test. CI run 36977253816 reported SQLite code 5 at its first SELECT's unwrap
+after other groups passed (34/103/2 tests); the lock holder, interleaving and
+eventual cleanup result are unknown. The approved plan is
+[ff137478](https://github.com/robertguss/Iris/commit/ff1374785377f4d515921bef55b72e3c7e3a18f8),
+on merged main
+[eb0ecd91](https://github.com/robertguss/Iris/commit/eb0ecd916674f58d9bdf0be273d26b5daf11781a).
+This repair changes only the integration-test observer and technical records.
+Production cleanup, journal policy, connection timeouts, dependencies, runners,
+CI and frozen experiments are unchanged.
+
+`startup_rows` propagates both SELECT errors. `wait_for_startup_cleanup` retries
+the entire observation only for `app::is_busy`, preserving the original
+diagnostic for other errors. Wrong rows keep polling. One absolute 10 s deadline
+from post-readiness covers both reads and asynchronous 50 ms sleeps; explicit
+expiry checks prevent even valid rows from succeeding after expiry. Timeout
+reports the last Busy or wrong-row observation. The exact live/live assertion,
+seeding, both starts, first graceful stop, owned children and connection close
+remain intact.
+
+The Builder predeclared at most 20 targeted test processes plus one pristine
+`dev_binary` suite, or 15 minutes, stopping on the first unexpected failure. The
+actual allocation was **8 targeted processes plus 1 suite**, from
+07:40:44–07:48:11 UTC (7 min 27 s including compilation and editing between
+runs). No unexpected failure, diagnostic rerun or budget expansion occurred. One
+baseline startup run passed; the historical CI race was not reproduced.
+
+Test-first evidence used a compilable old-behavior scaffold, not absent symbols:
+the raw reads propagated errors immediately and valid rows bypassed deadline
+expiry. The five new regressions produced 2 passes and 3 expected failures (exit
+101): transient Busy returned before explicit release, persistent Busy returned
+before its deadline, and expired valid rows returned success. After repair, all
+five passed. Both lock tests first establish actual SQLite Busy under
+`BEGIN EXCLUSIVE` on a disposable migrated file. The transient waiter stays
+pending for 250 ms before explicit rollback, then succeeds; the persistent case
+exhausts a 250 ms deadline with the database diagnostic under an independent 2 s
+watchdog. Other controls establish first-read success followed by a missing
+second table, expired rows present, a live row missing, no rows, and an already
+expired deadline with valid rows. No second-read lock injection is claimed;
+source inspection establishes whole-observation restart.
+
+Semantic negatives used a pristine archive plus the repaired integration test in
+`/tmp/rob-1176/mutation`, with a separate
+`CARGO_TARGET_DIR=/tmp/rob-1176/mutation-target`. Each run exercised the actual
+binary startup test, disposable database and both starts. The pristine and
+restored controls passed (0.30/0.27 s); restored source matched pristine bytes.
+Both mutants compiled and failed internally with exit 101:
+
+| Both cleanup SQL predicates | Deadline diagnostic                              | Test duration |
+| --------------------------- | ------------------------------------------------ | ------------- |
+| Append `AND 0`              | Unexpected `["live", "old", "live", "old"]` rows | 10.22 s       |
+| Append `OR 1`               | Unexpected `[]` rows                             | 10.23 s       |
+
+No mutant failed by external watchdog, compilation or unrelated assertion. The
+other four targeted processes were baseline startup, old-red regressions,
+new-green regressions and repaired startup. Commands used:
+
+```sh
+# Startup: baseline, repaired, pristine, both mutants and restored (6 processes).
+cargo test -p iris-reference --test dev_binary \
+  a_start_deletes_expired_sessions_and_login_attempts_and_keeps_live_ones \
+  -- --exact --nocapture
+# Old-red then new-green (2 processes).
+cargo test -p iris-reference --test dev_binary startup_observer_ -- --nocapture
+# One pristine suite: 17 passed, exit 0.
+cargo test -p iris-reference --test dev_binary -- --nocapture
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  docs/design-spec.md docs/decisions.md
+git diff --check
+```
+
+Candidate checks use `/tmp/rob-1176/candidate-target`; no shared build target or
+checkout production source was mutated. Raw logs, source hashes and scaffold,
+candidate and mutation patches are retained in the Builder thread's evidence
+archive. Scratch paths are local evidence, not durable repository interfaces.
+The controlled lock proves the observer defect, not the historical interleaving
+or any production cleanup repair. Full exact-candidate CI, fresh Tester and
+Lead/Oracle review remain separate gates; no merge or broader runtime claim is
+made here.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

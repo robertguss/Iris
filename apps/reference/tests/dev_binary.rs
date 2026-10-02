@@ -724,6 +724,206 @@ async fn a_mutation_never_finished_is_abandoned_at_the_deadline_without_an_answe
     assert_eq!(role(path).await, "editor");
 }
 
+/// A Busy from either read invalidates the entire observation.
+async fn startup_rows(conn: &mut sqlx::SqliteConnection) -> Result<Vec<String>, sqlx::Error> {
+    let mut rows: Vec<String> = sqlx::query_scalar("SELECT id FROM iris_sessions")
+        .fetch_all(&mut *conn)
+        .await?;
+    rows.extend(
+        sqlx::query_scalar::<_, String>("SELECT state FROM iris_login_attempts")
+            .fetch_all(&mut *conn)
+            .await?,
+    );
+    Ok(rows)
+}
+
+async fn wait_for_startup_cleanup(
+    conn: &mut sqlx::SqliteConnection,
+    deadline: tokio::time::Instant,
+) -> Result<(), String> {
+    let mut last = "no completed observation".to_owned();
+    // One absolute budget includes both reads and every asynchronous retry sleep.
+    let result = tokio::time::timeout_at(deadline, async {
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Ok(false);
+            }
+            match startup_rows(conn).await {
+                Ok(rows) => {
+                    last = format!("unexpected rows {rows:?}");
+                    // timeout_at may poll an immediately ready future after expiry.
+                    if tokio::time::Instant::now() >= deadline {
+                        return Ok(false);
+                    }
+                    if rows == ["live", "live"] {
+                        return Ok(true);
+                    }
+                }
+                Err(error) if iris_reference::app::is_busy(&error) => last = error.to_string(),
+                Err(error) => return Err(error),
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    match result {
+        Ok(Ok(true)) => Ok(()),
+        Ok(Err(error)) => Err(format!("startup cleanup: {error}")),
+        _ => Err(format!(
+            "startup cleanup: observation deadline expired; last: {last}"
+        )),
+    }
+}
+
+async fn startup_observer_fixture() -> (tempfile::TempDir, sqlx::SqliteConnection) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = iris_reference::app::connect(&dir.path().join("dev.db"))
+        .await
+        .unwrap();
+    iris_reference::app::MIGRATOR.run(&mut conn).await.unwrap();
+    sqlx::raw_sql(
+        "INSERT INTO iris_sessions VALUES('live','{}',4102444800);
+         INSERT INTO iris_login_attempts VALUES('live','b','n','v',4102444800)",
+    )
+    .execute(&mut conn)
+    .await
+    .unwrap();
+    (dir, conn)
+}
+
+#[tokio::test]
+async fn startup_observer_transient_busy_waits_for_release() {
+    use sqlx::Connection;
+    let (dir, mut conn) = startup_observer_fixture().await;
+    let mut writer = iris_reference::app::connect(&dir.path().join("dev.db"))
+        .await
+        .unwrap();
+    let tx = writer.begin_with("BEGIN EXCLUSIVE").await.unwrap();
+    assert!(iris_reference::app::is_busy(
+        &startup_rows(&mut conn).await.unwrap_err()
+    ));
+    let observation = wait_for_startup_cleanup(
+        &mut conn,
+        tokio::time::Instant::now() + Duration::from_secs(2),
+    );
+    tokio::pin!(observation);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(250), &mut observation)
+            .await
+            .is_err(),
+        "observer returned before explicit lock release"
+    );
+    tx.rollback().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), observation)
+        .await
+        .expect("outer watchdog")
+        .unwrap();
+}
+
+#[tokio::test]
+async fn startup_observer_persistent_busy_expires_with_context() {
+    use sqlx::Connection;
+    let (dir, mut conn) = startup_observer_fixture().await;
+    let mut writer = iris_reference::app::connect(&dir.path().join("dev.db"))
+        .await
+        .unwrap();
+    let tx = writer.begin_with("BEGIN EXCLUSIVE").await.unwrap();
+    assert!(iris_reference::app::is_busy(
+        &startup_rows(&mut conn).await.unwrap_err()
+    ));
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(250);
+    let error = tokio::time::timeout(
+        Duration::from_secs(2),
+        wait_for_startup_cleanup(&mut conn, deadline),
+    )
+    .await
+    .expect("outer watchdog")
+    .unwrap_err();
+    assert!(
+        tokio::time::Instant::now() >= deadline,
+        "returned before deadline: {error}"
+    );
+    assert!(
+        error.contains("startup cleanup")
+            && error.contains("deadline expired")
+            && error.contains("database is locked"),
+        "{error}"
+    );
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn startup_observer_missing_second_table_fails_immediately() {
+    let (_dir, mut conn) = startup_observer_fixture().await;
+    sqlx::query("DROP TABLE iris_login_attempts")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    let first: Vec<String> = sqlx::query_scalar("SELECT id FROM iris_sessions")
+        .fetch_all(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(first, ["live"]);
+    let original = startup_rows(&mut conn).await.unwrap_err();
+    assert!(!iris_reference::app::is_busy(&original));
+    let error = tokio::time::timeout(
+        Duration::from_secs(1),
+        wait_for_startup_cleanup(
+            &mut conn,
+            tokio::time::Instant::now() + Duration::from_secs(10),
+        ),
+    )
+    .await
+    .expect("non-Busy must not wait for the row deadline")
+    .unwrap_err();
+    assert!(error.contains(&original.to_string()), "{error}");
+    assert!(
+        error.contains("no such table: iris_login_attempts"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn startup_observer_wrong_rows_cannot_succeed() {
+    let (_dir, mut conn) = startup_observer_fixture().await;
+    for (sql, expected) in [
+        ("INSERT INTO iris_sessions VALUES('old','{}',1)", "old"),
+        ("DELETE FROM iris_sessions", "[\"live\"]"),
+        ("DELETE FROM iris_login_attempts", "[]"),
+    ] {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(150);
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_startup_cleanup(&mut conn, deadline),
+        )
+        .await
+        .expect("outer watchdog")
+        .unwrap_err();
+        assert!(tokio::time::Instant::now() >= deadline);
+        assert!(
+            error.contains("deadline expired") && error.contains(expected),
+            "{error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn startup_observer_expired_deadline_rejects_even_valid_rows() {
+    let (_dir, mut conn) = startup_observer_fixture().await;
+    assert_eq!(startup_rows(&mut conn).await.unwrap(), ["live", "live"]);
+    let error = wait_for_startup_cleanup(
+        &mut conn,
+        tokio::time::Instant::now() - Duration::from_millis(1),
+    )
+    .await
+    .unwrap_err();
+    assert!(error.contains("deadline expired"), "{error}");
+}
+
 #[tokio::test]
 async fn a_start_deletes_expired_sessions_and_login_attempts_and_keeps_live_ones() {
     use sqlx::Connection;
@@ -749,27 +949,8 @@ async fn a_start_deletes_expired_sessions_and_login_attempts_and_keeps_live_ones
 
     let (_server, stderr) = server_with(&issuer, &args);
     listening(&stderr);
-    let started = Instant::now();
-    loop {
-        let mut rows: Vec<String> = sqlx::query_scalar("SELECT id FROM iris_sessions")
-            .fetch_all(&mut conn)
-            .await
-            .unwrap();
-        rows.extend(
-            sqlx::query_scalar::<_, String>("SELECT state FROM iris_login_attempts")
-                .fetch_all(&mut conn)
-                .await
-                .unwrap(),
-        );
-        if rows == ["live", "live"] {
-            break;
-        }
-        // The first tick, at start; the next is a minute away.
-        assert!(
-            started.elapsed() < Duration::from_secs(10),
-            "still {rows:?}"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // The first tick, at start; the next is a minute away.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    wait_for_startup_cleanup(&mut conn, deadline).await.unwrap();
     conn.close().await.unwrap();
 }

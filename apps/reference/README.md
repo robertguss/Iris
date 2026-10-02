@@ -93,8 +93,8 @@ the local OIDC issuer fixture from `experiments/api-slice/checks`):
 
 ```sh
 cargo test --locked -p iris -p iris-reference
-node apps/reference/scripts/probes.mjs
 npm --prefix apps/reference/web ci
+node apps/reference/scripts/probes.mjs
 npm --prefix apps/reference/web run verify
 node apps/reference/scripts/browser.mjs --artifacts /tmp/reference-artifacts
 cargo run --locked -p iris-reference --bin export-openapi -- apps/reference/openapi.json
@@ -383,11 +383,57 @@ per page load.
 ## Omission probes
 
 `scripts/probes.mjs` edits a disposable source copy, builds it in its own
-temporary target, and removes both on exit. It never edits the checkout. It ran
-in 72 s locally with a cold target after the current-state read probes were
-added (1 min 24 s on an earlier run with checkpoint B's; 39 s before them). The
-checkpoint B probes require their named independent tests to fail, and a probe
-whose edit changed nothing makes the script fail.
+temporary target, and removes both on exit. It never edits the checkout. Install
+dependencies as setup before running it; the runner never installs packages:
+
+```sh
+cargo fetch --locked
+npm --prefix apps/reference/web ci
+node apps/reference/scripts/probes.mjs
+```
+
+The runner copies installed web dependencies (not a symlink, because Vite writes
+inside `node_modules`) and Cargo registry/git caches. Cargo runs offline with a
+private home; build, cache and fixture writes stay disposable. Direct and nested
+commands override inherited `CARGO_TARGET_DIR`, and inherited
+`IRIS_REFERENCE_FIXTURES` is removed. Allow disk space for a cold target and the
+dependency copies. Both before the first mutation and after byte-for-byte
+restoration, it runs `cargo test --quiet --locked -p iris -p iris-reference` and
+the real web verifier. Behavioral negatives require the named failing test and
+its intended diagnostic; compilation failures or zero tests do not count. `PASS`
+is printed only after cleanup succeeds, not before `finally`.
+
+The
+[complete S16-to-reference mapping](../../docs/design-spec.md#reference-omission-parity)
+adds shared-rejection omissions, status/export/generated-client drift, required
+success projection, raw DTO bypass, runtime mounting and both CSRF directions to
+the existing checks below. A valid mounted request first passes with 200; its
+omitted-mount variant asserts raw 404 versus 200 before attempting to decode an
+envelope. The declared inventory and export remain valid in that variant. The
+[dated evidence](../../docs/decisions.md#reference-omission-parity--october-2-2026)
+records commands, counts, timings and limits. Historical timings before these
+additions were 72 s after current-state reads, 84 s with checkpoint B, and 39 s
+for checkpoint A. Frozen experiments remain unchanged and in CI.
+
+After integrating the separately reviewed ROB-1121 observer tests, the complete
+runner passed 31 caught probes and 25 controls in 222.75 s on Linux. Its healthy
+reference library control now includes 103 tests. The earlier SQLite Busy
+failures remain recorded; no historical scheduling interleaving is claimed
+reproduced.
+
+That plain-output run did not prove CI's forced-color behavior. After a CI
+failure, diagnostic matching now uses Node's ANSI-stripped snapshot while thrown
+errors retain raw output. A real run with `NO_COLOR` unset,
+`CARGO_TERM_COLOR=always` and `FORCE_COLOR=1` passed the same 31 probes and 25
+controls in 230.37 s, including healthy controls and cleanup. The decision
+record retains the CI failure and the real-ESC replay checks separately.
+
+Later CI exposed a separate startup-test Busy observer. After integrating the
+reviewed ROB-1176 dependency, the byte-identical runner passed the complete
+forced-color 31/25 sequence in 219.82 s. Separate healthy before/after suites
+passed 163 Rust tests, including 103 library and 17 dev-binary tests, plus the
+web verifier. The CI failure and unknown historical interleaving remain
+recorded; no probe or control was relaxed.
 
 | Temporary change                                           | Executed signal                                                              |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |

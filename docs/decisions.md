@@ -1543,15 +1543,288 @@ evidence, checks local links/anchors and whitespace, and uses pinned Prettier
 measurements are claimed for ROB-1113; implementation evidence must be recorded
 when those later stages actually run.
 
+## Reference omission parity — October 2, 2026
+
+ROB-1114 extends the existing reference runner rather than adding a probe
+engine. The [complete mapping](design-spec.md#reference-omission-parity) covers
+all frozen S16 omitted-edit families and their controls. The application,
+library, committed OpenAPI/generated TypeScript, dependency manifests and frozen
+experiments are unchanged. No experiment is retired. The sole CI change moves
+the existing reference-probe step after reference-client verification and the
+development-command tests, which supply installed web dependencies first.
+
+The tests distinguish the suspected mistakes before accepting their evidence:
+adding a shared refusal must reach both domain operations and actual exported
+response branches; the independent compatibility expectations deliberately stay
+unchanged. A status change must first fail Rust contracts, then stale generated
+types, then obsolete TypeScript handling, with a passing two-branch repair.
+Generation uses a temporary web-directory Node child and
+`openapiTS`/`astToString` only: `npm generate` would run unchanged Rust
+expectations before the intended TypeScript signal. Projector completion
+compiles. An otherwise valid mounted request passes with 200 before a
+router-fold-only omission produces raw 404; both contract integration tests
+still pass. This is stronger than the frozen runner's empty-layer panic. CSRF
+declaration removal filters only the mapping, not the method exemption, while
+producer-linkage removal leaves export intact and fails the runtime envelope
+assertion.
+
+All touched baseline bytes, including generated files and temporary tests, are
+registered before writes; reset restores and compares them. `Fixture::new`
+preserves the storage-exclusive child-spawn guard. Named behavioral failures and
+their diagnostics are required, including bare integration-test names; spawn
+errors, signals and zero tests cannot satisfy them. A full fake-output emulator
+was not added: actual Rust, export, TypeScript and web executions are the
+discriminating checks. The runner copies dependencies because symlinking
+`node_modules` lets Vite write its temporary configuration into the checkout.
+Executable symlinks retain their relative targets inside that copy. Cargo uses
+copied registry/git caches offline in a private home; nested verifiers inherit
+the private target and temporary directory, not the caller's fixture path.
+
+Verification used Linux, Rust 1.98.1, Node 26.10.0 and the locked reference web
+dependencies, installed with `npm --prefix apps/reference/web ci` outside the
+runner. The first separate healthy baseline command was:
+
+```sh
+env -u IRIS_REFERENCE_FIXTURES \
+  CARGO_TARGET_DIR=/tmp/rob1114-evidence/healthy-target \
+  cargo test --quiet --locked -p iris -p iris-reference
+```
+
+It failed before mutations: 98 reference library tests passed and
+`lifecycle::tests::session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outlives_a_busy_tick`
+failed at `apps/reference/src/lifecycle/tests.rs:477:14` with:
+
+```text
+called `Result::unwrap()` on an `Err` value: Database(SqliteError { code: 5, message: "database is locked" })
+```
+
+An unchanged rerun passed. This does not diagnose or fix the lock failure; no
+lifecycle test or runtime was changed. The first runner attempt also failed
+closed when an older missing-variant diagnostic matcher did not match Rust
+1.98.1's actual E0599 wording. The final matcher names the exact missing
+`ProjectArchived` variant diagnostic. That failed attempt removed its owned copy
+and left inherited target/fixture sentinels intact.
+
+The full isolated command was run with conflicting inherited paths containing
+sentinels, and an unrelated sibling sentinel beside the runner's owned copies:
+
+```sh
+/usr/bin/time -p env \
+  TMPDIR=/tmp/rob1114-evidence/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-evidence/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-evidence/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+One complete run passed **31 caught probes and 25 controls in 216.10 s**,
+including the initial and final full Rust/web controls. Healthy Rust comprises
+34 library tests, 99 reference library tests, 2 contract tests, 12 development
+tests and 7 session tests (154 total). Web verification runs 4 captured-response
+Rust tests, 231 client cases, 51 presentation cases, 13 request/readback cases,
+11 directory cases, typechecking and the Vite build. The separate unchanged
+healthy Rust rerun and `node apps/reference/web/scripts/verify.mjs` also passed
+on `/tmp/rob1114-evidence/healthy-target` before that complete run.
+
+The final version then changed only evidence printing, to show actual matched
+multiline diagnostics rather than their regex text. Its repeat took 212.42 s,
+caught all 31 negatives and passed 23 controls, but **failed the final restored
+healthy Rust control**, with 98 reference library passes and the same lifecycle
+test's SQLite code 5 error, this time at `lifecycle/tests.rs:472:10`. The exact
+child command remained `cargo test --quiet --locked -p iris -p iris-reference`,
+with its runner-private target and home. The web control after it did not run;
+no PASS was emitted. Further retries stopped for separate diagnosis, with no
+lifecycle changes or weakened checks. At that pause, a separate post-run healthy
+Rust/web check, fresh-candidate independent verification and full CI remained
+outstanding; that version was not a verified final candidate.
+
+After both runs, 128 tracked source/generated/frozen-file SHA-256 hashes stayed
+unchanged; after the final run, 3,036 installed dependency-file hashes and their
+file inventory also matched. Both inherited directories contained only their
+unchanged sentinels, the unrelated sibling survived, and each specifically named
+owned copy was absent. The checkout's `target` remained absent. These are
+owned-path checks, not a global temporary-directory scan or a forced-termination
+cleanup claim. `node --check` and `git diff --check` passed. Documentation uses
+pinned Prettier 3.9.9, width 80, prose wrapping always. No browser workflow,
+workspace-wide suite, Clippy or frozen suite was rerun for this runner-only
+change; none is claimed as evidence here.
+
+### Resumed after the reviewed observer dependency
+
+After ROB-1121 merged at pinned main
+[eb0ecd9](https://github.com/robertguss/Iris/commit/eb0ecd916674f58d9bdf0be273d26b5daf11781a),
+the preserved five-file diff and its SHA-256 were verified unchanged, committed
+as an explicitly UNVERIFIED checkpoint, then integrated with a normal merge.
+Only the shared decision record conflicted; both records were retained and the
+ROB-1121 report below was corrected to distinguish the earlier 31/25 completed
+run from the later 31/23 failure. The separate merged baseline confirmed 103
+reference library tests, including four observer tests. At this integration, the
+runner's only post-checkpoint code change updated its healthy count matcher from
+99 to 103; all 31 probes, control commands, diagnostics, isolation and cleanup
+remain. The historical race was not reproduced or assigned a precise
+interleaving.
+
+The integrated run passed **31 caught probes and 25 controls in 222.75 s**:
+
+```sh
+/usr/bin/time -p env \
+  TMPDIR=/tmp/rob1114-integrated/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-integrated/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-integrated/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+Both internal healthy Rust/web controls passed, and PASS followed successful
+cleanup. Separately, before and after that run, these commands passed on a
+healthy target that never held mutations:
+
+```sh
+env -u IRIS_REFERENCE_FIXTURES \
+  CARGO_TARGET_DIR=/tmp/rob1114-integrated/healthy-target \
+  cargo test --quiet --locked -p iris -p iris-reference
+env -u IRIS_REFERENCE_FIXTURES \
+  CARGO_TARGET_DIR=/tmp/rob1114-integrated/healthy-target \
+  node apps/reference/web/scripts/verify.mjs
+```
+
+Each separate Rust suite passed 158 tests: 34 + 103 + 2 + 12 + 7. Web counts
+remain 4 captured-response Rust tests and 231/51/13/11 client cases, with tsc
+and Vite green. All 128 source/generated/frozen-file hashes and all 3,036
+installed dependency hashes and their inventory remained unchanged against the
+integrated baseline. The inherited target and fixture directories contained only
+their unchanged sentinels; the unrelated sibling survived; the named owned copy
+was removed; the checkout target stayed absent. Earlier failure logs and the
+preserved patch were retained. Syntax, whitespace and pinned Markdown checks
+passed. These are Builder checks; fresh independent verification and full CI for
+the resulting candidate remain separate acceptance gates.
+
+### Forced-color diagnostic matching
+
+[CI 36974061992](https://github.com/robertguss/Iris/actions/runs/36974061992) at
+[f3bef6a](https://github.com/robertguss/Iris/commit/f3bef6a748e37e9156ae887f9d90ef7fe7dbbb47)
+failed the first missing-variant probe with the intended Cargo status 101 and
+E0599 diagnostic. `CARGO_TERM_COLOR=always` placed ANSI sequences between
+`error[E0599]` and its colon, so the exact pattern did not match raw output. The
+earlier plain-output passes did not prove forced-color behavior. The saved
+`gh run view --log-failed` output has literal caret notation and zero ESC bytes;
+it was retained as CI evidence, not reused as an ANSI fixture.
+
+Before changing the runner, its actual `added("variant")` mutation ran in a
+disposable source copy with a private Cargo target, copied offline cache and
+pristine/restored `cargo check` controls. Real Cargo stdout/stderr was captured
+with `NO_COLOR` unset, `CARGO_TERM_COLOR=always` and `FORCE_COLOR=1`: status
+101, three matching E0599 diagnostics and 143 genuine ESC bytes. Replaying the
+actual old `expect` function rejected this colored capture but accepted the same
+diagnostic without ANSI codes. Its thrown error retained the raw bytes.
+
+The correction imports Node's `stripVTControlCharacters` and computes one
+`plainOutput` snapshot inside `expect`, used only for pattern matching and
+matched evidence. Thrown diagnostics still contain original stdout/stderr.
+Patterns, status checks, spawn error/signal gates, environment and workflow are
+unchanged; no helper or full-suite emulator was added. Replaying the actual new
+function accepted the real colored E0599 and printed plain matched evidence. It
+rejected an E0004 expectation, a capture with **all three** matching diagnostic
+lines removed, and a status-0 negative. Every rejected case retained its raw
+output verbatim. Literal caret syntax is not stripped in production.
+
+The complete real forced-color run then passed **31 caught probes and 25
+controls in 230.37 s**, including initial/final healthy Rust and web checks and
+cleanup before PASS:
+
+```sh
+/usr/bin/time -p env -u NO_COLOR CARGO_TERM_COLOR=always FORCE_COLOR=1 \
+  CARGO_HOME=/tmp/rob1114-color/cargo-home \
+  TMPDIR=/tmp/rob1114-color/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-color/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-color/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+Separate before/after `cargo test --quiet --locked -p iris -p iris-reference`
+and `node apps/reference/web/scripts/verify.mjs` also passed with the same
+forced-color flags and `NO_COLOR`/`IRIS_REFERENCE_FIXTURES` unset. They used an
+unmutated source copy, a separate private `healthy-target`, copied offline Cargo
+cache, copied web dependencies and private temporary/cache paths. Each Rust
+suite passed 158 tests (34 + 103 + 2 + 12 + 7); web verification passed 4
+captured-response Rust tests, 231/51/13/11 client cases, tsc and Vite.
+
+The checkout's 128 source/generated/frozen-file hashes and 3,036 dependency-file
+hashes and inventory stayed unchanged. The inherited target and fixture
+directories retained only their sentinel files; the unrelated sibling survived;
+the named runner-owned copy was absent; the checkout target remained absent. Raw
+CI failure, real Cargo capture and replay evidence were retained separately from
+successful forced-color logs. Node syntax, pinned Markdown formatting and diff
+checks passed. The earlier plain passes remain historical evidence, not proof of
+CI color handling. Fresh independent Tester, Oracle review and exact candidate
+CI remain required; this local run does not claim those gates passed.
+
+### Resumed after the separate startup observer dependency
+
+[CI 36977253816](https://github.com/robertguss/Iris/actions/runs/36977253816) at
+[f77e3e7](https://github.com/robertguss/Iris/commit/f77e3e7176d79e564238cb3bb6fbbaf04c08ed14)
+caught all 31 probes and passed 23 controls, then failed the final pristine
+`cargo test --quiet --locked -p iris -p iris-reference`. The 34/103/2 groups
+passed; `dev_binary` passed 11 of 12 tests. Its
+`a_start_deletes_expired_sessions_and_login_attempts_and_keeps_live_ones` failed
+at `apps/reference/tests/dev_binary.rs:757:14`, the first SELECT unwrap, with:
+
+```text
+called `Result::unwrap()` on an `Err` value: Database(SqliteError { code: 5, message: "database is locked" })
+```
+
+The raw failed CI log was retained. The runner emitted no overall PASS and the
+final web control did not run. This was a separate integration-test observer,
+not ROB-1121's library helper. Work paused without retries or weakened controls
+until separately reviewed ROB-1176 merged at pinned main
+[38bdbf8](https://github.com/robertguss/Iris/commit/38bdbf81e160c911c16272fb10ae4f57dacf3788).
+A normal merge integrated that dependency without conflicts, preserving both
+observer records and the ROB-1121 provenance correction. The runner remained
+byte-identical to the pushed candidate; no status, diagnostic, isolation or
+cleanup check changed. No exact historical lock-holder or interleaving is
+claimed reproduced.
+
+The merged dependency passed the complete real forced-color runner: **31 caught
+probes and 25 controls in 219.82 s**, with both initial/final healthy controls
+and cleanup before PASS:
+
+```sh
+/usr/bin/time -p env -u NO_COLOR CARGO_TERM_COLOR=always FORCE_COLOR=1 \
+  CARGO_HOME=/tmp/rob1114-1176/cargo-home \
+  TMPDIR=/tmp/rob1114-1176/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-1176/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-1176/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+Separate healthy before/after commands were
+`cargo test --quiet --locked -p iris -p iris-reference` and
+`node apps/reference/web/scripts/verify.mjs`, using an unmutated archive,
+private copied dependencies/caches, a separate `healthy-target`, private
+temporary paths, the same forced-color flags and inherited fixture output unset.
+Each Rust suite passed **163 tests (34 + 103 + 2 + 17 + 7)**. The library count
+remains 103; the separate dev-binary suite now has 17. Each web verifier passed
+4 captured-response Rust tests, 231/51/13/11 client cases, tsc and Vite.
+
+All 128 tracked source/generated/frozen-file hashes and 3,036 dependency-file
+hashes and inventory matched the merged baseline. The inherited target and
+fixture directories contained only unchanged sentinels; the unrelated sibling
+survived; the named runner-owned copy was absent; the checkout target remained
+absent. The runner's SHA-256 remained unchanged across integration and checks:
+`3f2b96fd0a4cc0885022a077bb2282dd56176f8e7cdb0bd6019c10976135d123`. The prior CI
+failure log was retained separately. Syntax, pinned Markdown and diff checks
+passed. These are Builder results, not fresh independent Tester, Oracle or
+exact-candidate CI acceptance; those remain required before merge.
+
 ## ROB-1121 bounded Busy observation — October 2, 2026
 
 The Lead reported repeated pristine ROB-1114 controls failing in
 `session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outlives_a_busy_tick`:
 `identifiers` unwrapped SQLite code 5, `database is locked`, at its two SELECT
-sites (lines 472/477), with 98 library tests passing and one failing. A previous
-parity run caught 31 mutants and passed 25 controls but its final restored
-control failed and emitted no PASS. These are retained reported failures, not
-new reproductions or evidence of a runtime cleanup defect.
+sites (lines 472/477), with 98 library tests passing and one failing. An earlier
+parity run completed with 31 caught mutants and 25 passed controls. The later
+final-version run reached 31 caught mutants and 23 passed controls, then failed
+its restored healthy Rust control and emitted no overall PASS. These are
+retained reported failures, not new reproductions or evidence of a runtime
+cleanup defect.
 
 The approved
 [plan](https://github.com/robertguss/Iris/commit/a69b98752ed7e80bd2c36fe9bffa607807a5bcee)

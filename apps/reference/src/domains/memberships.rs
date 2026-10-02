@@ -245,10 +245,143 @@ pub(crate) mod gate {
     use sqlx::SqliteConnection;
     use std::{
         path::{Path, PathBuf},
-        sync::{Arc, Mutex},
+        sync::{Arc, Condvar, Mutex},
+        time::{Duration, Instant},
     };
 
     static GATES: Mutex<Vec<(PathBuf, Arc<Gate>)>> = Mutex::new(Vec::new());
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub(crate) enum Release {
+        Intended,
+        Deadline,
+        Cleanup,
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    pub(crate) struct CommitState {
+        pub(crate) installed: bool,
+        pub(crate) entries: usize,
+        pub(crate) released: Option<Release>,
+        pub(crate) exited: Option<Release>,
+    }
+
+    pub(crate) struct CommitLatch {
+        state: Mutex<CommitState>,
+        wake: Condvar,
+        entered: tokio::sync::Notify,
+        deadline: Instant,
+    }
+
+    impl CommitLatch {
+        fn new(limit: Duration) -> Self {
+            Self {
+                state: Mutex::new(CommitState::default()),
+                wake: Condvar::new(),
+                entered: tokio::sync::Notify::new(),
+                deadline: Instant::now() + limit,
+            }
+        }
+
+        pub(crate) fn snapshot(&self) -> CommitState {
+            *self.state.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        pub(crate) fn release(&self, cause: Release) {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state
+                .released
+                .get_or_insert(if Instant::now() >= self.deadline {
+                    Release::Deadline
+                } else {
+                    cause
+                });
+            self.wake.notify_all();
+        }
+
+        pub(crate) async fn reached(&self) {
+            // One controller; notify_one retains a permit if entry preceded us.
+            self.entered.notified().await;
+        }
+
+        fn callback(&self) -> bool {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.entries = state.entries.saturating_add(1);
+            if state.entries == 1 {
+                self.entered.notify_one();
+            }
+            while state.released.is_none() {
+                let remaining = self.deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    state.released = Some(Release::Deadline);
+                    break;
+                }
+                let (next, _) = self
+                    .wake
+                    .wait_timeout(state, remaining)
+                    .unwrap_or_else(|e| e.into_inner());
+                state = next;
+            }
+            state.exited = state.released;
+            // Every release permits SQLite to continue. This is NOT commit ack.
+            true
+        }
+    }
+
+    static COMMITS: Mutex<Vec<(PathBuf, Arc<CommitLatch>)>> = Mutex::new(Vec::new());
+
+    pub(crate) struct CommitHold {
+        pub(crate) latch: Arc<CommitLatch>,
+    }
+
+    impl Drop for CommitHold {
+        fn drop(&mut self) {
+            // Controller ownership, independent of the callback's retained Arc.
+            self.latch.release(Release::Cleanup);
+            COMMITS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(_, latch)| !Arc::ptr_eq(latch, &self.latch));
+        }
+    }
+
+    pub(crate) fn in_commit(path: &Path) -> CommitHold {
+        let latch = Arc::new(CommitLatch::new(Duration::from_secs(30)));
+        COMMITS
+            .lock()
+            .unwrap()
+            .push((std::fs::canonicalize(path).unwrap(), latch.clone()));
+        CommitHold { latch }
+    }
+
+    async fn install_commit(conn: &mut SqliteConnection) {
+        if COMMITS.lock().unwrap().is_empty() {
+            return;
+        }
+        let file: String =
+            sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name='main'")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        let path = std::fs::canonicalize(file).unwrap();
+        let latch = COMMITS
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(p, _)| p == &path)
+            .map(|(_, latch)| latch.clone());
+        if let Some(latch) = latch {
+            let callback = latch.clone();
+            let mut handle = conn.lock_handle().await.unwrap();
+            handle.set_commit_hook(move || callback.callback());
+            drop(handle);
+            latch
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .installed = true;
+        }
+    }
 
     #[derive(Clone, Copy, PartialEq)]
     pub(crate) enum Phase {
@@ -311,6 +444,7 @@ pub(crate) mod gate {
     }
 
     pub(super) async fn pass(conn: &mut SqliteConnection) {
+        install_commit(conn).await;
         pass_phase(conn, Phase::BeforeCommit).await;
         if GATES.lock().unwrap().is_empty() {
             return;
@@ -329,6 +463,39 @@ pub(crate) mod gate {
         if let Some(gate) = gate {
             gate.pass().await;
         }
+    }
+
+    #[test]
+    fn commit_latch_release_before_wait_is_persistent() {
+        let latch = CommitLatch::new(std::time::Duration::from_secs(1));
+        latch.release(Release::Intended);
+        assert!(latch.callback());
+        assert!(latch.callback());
+        let state = latch.snapshot();
+        assert_eq!(state.entries, 2);
+        assert_eq!(state.exited, Some(Release::Intended));
+    }
+
+    #[test]
+    fn commit_latch_controller_cleanup_releases_retained_callback() {
+        let controller = CommitHold {
+            latch: Arc::new(CommitLatch::new(std::time::Duration::from_secs(1))),
+        };
+        let callback = controller.latch.clone();
+        drop(controller);
+        assert!(callback.callback());
+        callback.release(Release::Intended);
+        assert_eq!(callback.snapshot().exited, Some(Release::Cleanup));
+    }
+
+    #[test]
+    fn commit_latch_deadline_provenance_cannot_be_overwritten() {
+        let latch = CommitLatch::new(std::time::Duration::ZERO);
+        assert!(latch.callback());
+        latch.release(Release::Intended);
+        latch.release(Release::Cleanup);
+        assert!(latch.callback());
+        assert_eq!(latch.snapshot().exited, Some(Release::Deadline));
     }
 }
 

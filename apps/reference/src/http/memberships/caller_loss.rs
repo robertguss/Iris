@@ -1,4 +1,4 @@
-//! Observable boundaries only: neither hold is inside SQLite's commit.
+//! Historical socket boundaries plus controlled actual-COMMIT future cancellation.
 use super::tests::{Fixture, ORIGIN, body, request};
 use crate::{app::connect, domains::memberships::gate, lifecycle::Gate};
 use axum::{
@@ -283,4 +283,211 @@ async fn socket_loss_before_response_exposure() {
 #[tokio::test]
 async fn same_framing_loss_free_control() {
     raw(Loss::None).await;
+}
+
+struct AbortOnDrop<T>(JoinHandle<T>);
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum CommitCase {
+    Before,
+    Inside,
+    NoLoss,
+}
+
+fn held(latch: &gate::CommitLatch) {
+    let state = latch.snapshot();
+    assert!(state.installed, "actual transaction hook installed");
+    assert_eq!(state.entries, 1, "exactly one actual COMMIT entry");
+    assert_eq!(state.released, None, "callback still held");
+    assert_eq!(state.exited, None, "callback has not exited");
+}
+
+async fn engine(f: &Fixture) {
+    bounded(async {
+        let mut conn = connect(&f.state.database).await.unwrap();
+        let fingerprint: (String, String, String) = sqlx::query_as(
+            "SELECT sqlite_version(), sqlite_source_id(), (SELECT journal_mode FROM pragma_journal_mode)",
+        ).fetch_one(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+        assert_eq!(fingerprint, (
+            "3.51.3".into(),
+            "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618".into(),
+            "delete".into(),
+        ), "STOP: SQLite mechanism requires re-review");
+    }).await;
+}
+
+async fn commit_observations(
+    f: Arc<Fixture>,
+    cookie: String,
+    before: Arc<Gate>,
+    latch: Arc<gate::CommitLatch>,
+    address: SocketAddr,
+    case: CommitCase,
+) {
+    let mut request = AbortOnDrop(tokio::spawn(
+        f.app().oneshot(request(&cookie, &body(29, "viewer"))),
+    ));
+    bounded(before.reached()).await;
+    assert!(
+        latch.snapshot().installed,
+        "hook installed before BeforeCommit"
+    );
+    assert_eq!(latch.snapshot().entries, 0);
+    assert_eq!(f.state.connections.outstanding(), 1);
+    if case == CommitCase::Before {
+        request.0.abort();
+        assert!(bounded(&mut request.0).await.unwrap_err().is_cancelled());
+        // Neither gate is released: zero entry must persist through closure.
+        bounded(f.state.connections.closed()).await;
+        assert_eq!(f.state.connections.outstanding(), 0);
+        assert_eq!(latch.snapshot().entries, 0, "no COMMIT through closure");
+        assert_eq!(role(&f).await, "editor");
+    } else {
+        before.release();
+        timeout(WAIT, latch.reached())
+            .await
+            .expect("actual COMMIT entry bound");
+        held(&latch);
+        if case == CommitCase::Inside {
+            request.0.abort();
+            assert!(bounded(&mut request.0).await.unwrap_err().is_cancelled());
+        }
+        // Cancellation is observed BEFORE release. No database operation is
+        // attempted here: DELETE-mode SQLite already holds EXCLUSIVE.
+        assert_eq!(f.state.connections.outstanding(), 1, "held close ticket");
+        assert!(
+            timeout(Duration::from_millis(100), f.state.connections.closed())
+                .await
+                .is_err(),
+            "tracked closure must remain unacknowledged while held"
+        );
+        held(&latch);
+        let mut stream = bounded(TcpStream::connect(address)).await.unwrap();
+        bounded(stream.write_all(format!(
+            "GET /rob-1111-unmatched HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+        ).as_bytes())).await.unwrap();
+        let mut bytes = Vec::new();
+        bounded(stream.read_to_end(&mut bytes)).await.unwrap();
+        assert!(
+            bytes.starts_with(b"HTTP/1.1 404 Not Found\r\n"),
+            "same-app HTTP liveness"
+        );
+        held(&latch);
+        latch.release(gate::Release::Intended);
+        bounded(async {
+            while latch.snapshot().exited.is_none() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await;
+        assert_eq!(
+            latch.snapshot().exited,
+            Some(gate::Release::Intended),
+            "normal release provenance"
+        );
+        if case == CommitCase::NoLoss {
+            use http_body_util::BodyExt;
+            let response = bounded(&mut request.0).await.unwrap().unwrap();
+            assert_eq!(
+                response.status(),
+                200,
+                "loss-free successful acknowledgment"
+            );
+            let bytes = bounded(response.into_body().collect())
+                .await
+                .unwrap()
+                .to_bytes();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(value["kind"], "success");
+            assert_eq!(value["data"]["completion"], "acknowledged");
+            let doc = serde_json::to_value(super::change_role().api).unwrap();
+            let mut schema = doc["paths"]["/api/memberships/role"]["post"]["responses"]["200"]
+                ["content"]["application/json"]["schema"].clone();
+            schema["components"] = doc["components"].clone();
+            assert!(
+                jsonschema::draft202012::new(&schema)
+                    .unwrap()
+                    .is_valid(&value),
+                "complete successful acknowledgment envelope"
+            );
+        }
+        timeout(WAIT, f.state.connections.closed())
+            .await
+            .expect("post-release tracked closure bound");
+        assert_eq!(f.state.connections.outstanding(), 0);
+        assert_eq!(latch.snapshot().entries, 1);
+        assert_eq!(role(&f).await, "viewer", "exact final committed role");
+    }
+    bounded(async {
+        let mut conn = connect(&f.state.database).await.unwrap();
+        let mut tx = conn.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        let result =
+            sqlx::query("UPDATE memberships SET role='owner' WHERE project_id=41 AND user_id=29")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(result.rows_affected(), 1, "fresh writer changed one row");
+        tx.commit().await.unwrap();
+        conn.close().await.unwrap();
+    })
+    .await;
+    assert_eq!(role(&f).await, "owner", "fresh committed writer readback");
+    assert_eq!(
+        latch.snapshot().entries,
+        usize::from(case != CommitCase::Before)
+    );
+}
+
+async fn commit_case(case: CommitCase) {
+    let f = Arc::new(bounded(Fixture::new()).await);
+    let cookie = bounded(f.cookie(Some(11))).await;
+    engine(&f).await;
+    assert_eq!(role(&f).await, "editor");
+    let server = Server::start(f.app()).await;
+    let before = gate::hold(&f.state.database, gate::Phase::BeforeCommit);
+    let hold = gate::in_commit(&f.state.database);
+    // A separate task captures assertion panics, allowing explicit async cleanup
+    // before propagating them. The controller guard never moves into that task.
+    let mut observations = AbortOnDrop(tokio::spawn(commit_observations(
+        f.clone(),
+        cookie,
+        before.gate.clone(),
+        hold.latch.clone(),
+        server.address,
+        case,
+    )));
+    let outcome = timeout(WAIT * 3, &mut observations.0).await;
+    drop(hold); // release independently of the callback Arc, before any teardown
+    drop(before);
+    if outcome.is_err() {
+        observations.0.abort();
+        let _ = timeout(WAIT, &mut observations.0).await;
+    }
+    let closed = timeout(WAIT, f.state.connections.closed()).await;
+    server.finish().await;
+    bounded(f.store.pool.close()).await;
+    // Keep the original observation failure diagnostic, even for close mutants.
+    outcome.expect("bounded observation task").unwrap();
+    closed.expect("bounded cleanup tracked closure");
+}
+
+#[tokio::test]
+async fn commit_hook_abort_before_commit() {
+    commit_case(CommitCase::Before).await;
+}
+
+#[tokio::test]
+async fn commit_hook_abort_inside_commit() {
+    commit_case(CommitCase::Inside).await;
+}
+
+#[tokio::test]
+async fn commit_hook_loss_free_acknowledgment() {
+    commit_case(CommitCase::NoLoss).await;
 }

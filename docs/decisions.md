@@ -2193,6 +2193,160 @@ handoff. Failed-open Busy, real rollback I/O failure, full session and transport
 behavior, arbitrary commit ambiguity, task loss, reuse and forced shutdown
 remain unproven. Historical evidence and limits are preserved.
 
+## ROB-1111 actual-COMMIT cancellation — October 2, 2026
+
+**Decision:** retain request-associated production execution and add test-only
+evidence distinguishing cancellation before COMMIT from cancellation while the
+SQLite worker is inside the actual transaction's COMMIT. S14 item 3 remains
+partial. The historical four-test caller-loss record above is unchanged.
+
+The Builder fetched and required the exact approved plan
+[`97c6e73`](https://github.com/robertguss/Iris/commit/97c6e734119d89e917fca21549822cf9680ee465),
+based on
+[`e0971d5`](https://github.com/robertguss/Iris/commit/e0971d52a2b2ad15e2c8d42350bc23af1bea57f6).
+The issue-specific built-in High replacement was explicitly authorized after the
+required Grok 4.7 thread failed before its first tool; old ownership was
+revoked, with no work to integrate. This is not a workflow-default change.
+
+### Mechanism and observations
+
+SQLx 0.9.0 `connection/mod.rs:468–496` exposes `set_commit_hook` on the locked
+SQLite handle; `true` permits commit, while `false` converts it to rollback. Its
+`connection/worker.rs:264–288` executes COMMIT before sending its result; when a
+successful result's receiver is gone, it suppresses the transaction's subsequent
+drop-triggered rollback. The bundled libsqlite3-sys 0.37.0 engine obtains
+EXCLUSIVE before calling the hook. Each scenario independently checks this exact
+runtime fingerprint and closes that inspection connection before installing a
+hold:
+
+```text
+sqlite_version(): 3.51.3
+sqlite_source_id(): 2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618
+journal_mode: delete
+```
+
+A mismatch fails with `STOP: SQLite mechanism requires re-review`. No WAL switch
+or held-hook fresh database read is used. The new `cfg(test)` canonical-path
+registration attaches the hook to the connection underlying the transaction
+passed to `gate::pass`, before the existing BeforeCommit phase. The registry
+mutex is dropped before handle acquisition; installed is published only after
+the locked handle is dropped. Unregistered paths acquire no hook.
+
+The callback only operates on a small Mutex/Condvar latch with an absolute
+30-second monotonic deadline, persistent release, first-cause provenance, entry
+count and observed exit cause. It signals first entry once, contains no SQL,
+reentrant handle access, runtime blocking, assertion or poisoned-lock unwrap,
+and returns true even for cleanup/deadline release. Those abnormal causes cannot
+be overwritten by intended release and fail normal scenarios. Callback exit is
+explicitly not a commit acknowledgment.
+
+Three safety tests were written first: the initial compile-red run failed on the
+missing latch types; after implementation, all three passed. They check
+release-before-wait/persistence, controller-drop release with a retained
+callback Arc, and deadline provenance surviving later intended/cleanup release.
+
+Three authenticated editor-to-viewer requests use the existing storage-guarded
+issuer fixture and own `app().oneshot` tasks with abort-on-drop guards and
+mutable-handle timeout awaits:
+
+1. **Before COMMIT:** hook installed, BeforeCommit reached, zero hook entries;
+   abort and cancelled join while the gate remains held; bounded acknowledged
+   tracked closure/count zero, still zero entries, independent `editor`.
+2. **Inside COMMIT:** exactly one hook entry, held; abort and cancelled join
+   before release; count one and closed nonready for 100 ms; same-app/state
+   ephemeral server answers a real unmatched GET with HTTP 404 while the
+   callback remains held. Intended release and observed exit precede bounded
+   tracked closure/count zero and independent exact `viewer`.
+3. **No loss:** same actual hook entry/hold, no abort, intended release, a
+   complete schema-valid success envelope with `completion=acknowledged`,
+   exactly one entry, acknowledged closure/count zero and independent `viewer`.
+
+Every case then performs a fresh BEGIN IMMEDIATE writer, asserts exactly one
+affected row setting `owner`, commits, closes, and independently reads `owner`.
+The outer controller retains the RAII latch guard while a separate Tokio task
+captures observation panics. Cleanup releases before awaiting tracked closure,
+gracefully finishes the server, explicitly closes the session pool, then
+propagates observation failure. Request/SQL/HTTP/entry/closure waits are 10 s;
+the observation-task bound is 30 s. No fixture/runtime destruction is needed to
+free a held worker.
+
+### Compiled discrimination and controls
+
+The Builder used private source `/tmp/rob1111-mutations/source`, private build
+`/tmp/rob1111-mutations/target`, and logs under `/tmp/rob1111-mutations/logs`.
+Those are dated run locations, not permanent repository prerequisites. Each
+mutation was applied alone to that copy, compiled, run, and byte-restored before
+the three-case control. No production lifecycle edit entered the candidate. All
+nine mutant invocations exited 101, ran the named test, and reported
+`0 passed; 1 failed`; no compile failure or external watchdog counted.
+
+Use `cargo test --locked -p iris-reference --lib <filter>` with the private
+absolute CARGO_TARGET_DIR. The table's filters abbreviate the full test suffix
+`commit_hook_abort_before_commit` (before), `commit_hook_abort_inside_commit`
+(inside), and `commit_hook_loss_free_acknowledgment` (no loss).
+
+| Counterfactual, applied alone                                                                   | Filter          | Observed discriminator                                                                                          |
+| ----------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------- |
+| Move `install_commit` after `pass_phase(BeforeCommit)`                                          | before          | `hook installed before BeforeCommit` fails                                                                      |
+| Lock a fresh `app::connect(&path)` auxiliary connection instead of `conn` for hook installation | inside          | `actual COMMIT entry bound` expires internally                                                                  |
+| Set `released=Some(Intended)` before incrementing/publishing entry in callback                  | inside          | `callback still held`: Some(Intended), expected None                                                            |
+| Return false when release is Intended instead of true                                           | inside; no loss | `exact final committed role`: editor, expected viewer; `loss-free successful acknowledgment`: 500, expected 200 |
+| Bind `owner` instead of `role.as_str()` in the actual UPDATE                                    | inside          | `exact final committed role`: owner, expected viewer                                                            |
+| Decrement tracked ticket before awaited close, rather than after its success                    | inside          | `held close ticket`: 0, expected 1                                                                              |
+| Remove ticket decrement after actual successful close                                           | inside          | `post-release tracked closure bound` expires internally                                                         |
+| Release the latch via Cleanup rather than Intended, still returning true                        | inside          | `normal release provenance`: Some(Cleanup), expected Some(Intended)                                             |
+
+Initial healthy `commit_hook_` control: **3 passed**. After each of eight
+restorations: **3 passed** (27 total passing control executions). Both veto
+checks ran before that mutation's restoration. Restored domain, caller-loss and
+lifecycle files also matched the checkout with `cmp`. An initial harness matcher
+expected the premature-ticket closed-ready diagnostic but observed the earlier
+approved count-zero assertion instead; only the disposable matcher was adjusted
+to accept either approved signal. The entire sequence was rerun, and the final
+run again caught count zero. No product assertion was weakened.
+Cancelled-join-before-release ordering is source-reviewed, not claimed as a
+discriminating mutation based on deleting an assertion or omitting the join.
+
+### Verification and limits
+
+Healthy builds used `/tmp/rob1111-healthy-target`; mutations never used that or
+the checkout target. Only one fixed-port suite ran at a time; issue controls use
+ephemeral listeners and disposable databases. Commands from the root:
+
+```sh
+export CARGO_TARGET_DIR=/tmp/rob1111-healthy-target
+cargo test --locked -p iris-reference --lib commit_latch
+cargo test --locked -p iris-reference --lib caller_loss
+cargo test --locked -p iris-reference
+cargo test --locked --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check apps/reference/README.md docs/design-spec.md docs/decisions.md
+node --check apps/reference/scripts/probes.mjs
+git diff --check
+```
+
+Latch tests: **3 passed**. Caller-loss tests: **7 passed** (three new and four
+historical). Reference: **137 passed** (111 library + 2 contract + 17 dev + 7
+identity). Workspace: **219 passed** (34 + 10 + 6 + 2 + 111 + 2 + 17 + 7 + 4 +
+3 + 2 + 10 + 1 + 10). Clippy, rustfmt, pinned Prettier, JavaScript syntax and
+diff whitespace checks passed. The measured library increase authorizes only the
+reference runner's healthy-count literal change, 105 to 111.
+
+The fresh Tester owns the exact-candidate forced-color 31-caught/25-controls
+reference runner, healthy boundaries, isolation/sentinels/cleanup, and
+independent issue-counterfactual verification; the Builder does not claim that
+run. Lead checks, complete-range Oracle review and full exact CI precede merge.
+This record does not claim PR, merge, deployment or release.
+
+The evidence shows that the pinned SQLite worker continued an already-entered
+COMMIT after owned-request cancellation; closure was unacknowledged while held
+and acknowledged after release, followed by independent committed state. It is
+not a detached-operation policy, actual socket-loss test inside COMMIT,
+durability at hook entry, a receipt, retry safety, universal ambiguity/liveness
+behavior or guaranteed commit under faults. No production runtime, dependency,
+CI, generated contract, frozen experiment or journal policy changed.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

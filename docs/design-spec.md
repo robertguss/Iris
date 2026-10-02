@@ -1134,7 +1134,9 @@ available; they may not weaken policy or mutate state merely to diagnose it.
 
 These were proposed checks, not productivity studies. The October 2, 2026
 observable-boundary evidence below partially addresses items 2 and 3; it does
-not establish in-commit behavior or a new ownership policy.
+not establish in-commit behavior or a new ownership policy. ROB-1111's separate
+actual-COMMIT controls below add pinned owned-future cancellation evidence; item
+3 remains partial, with no new ownership policy.
 
 1. Exercise begin failure, rejection-before-write, acknowledged rollback and
    failed cleanup separately; preserve stage and both primary/cleanup causes.
@@ -1233,6 +1235,51 @@ They do not distinguish FIN from RST, interrupt a commit, establish continuation
 after caller loss, cover removal, or provide a receipt. Without a validated
 terminal response, the caller's outcome remains unknown; a current-state read
 does not identify this attempt. In-commit cancellation remains untested here.
+
+### Actual-COMMIT owned-future cancellation — October 2, 2026
+
+ROB-1111 extends the reference tests without changing production ownership. A
+canonical-path-scoped `cfg(test)` hook is installed on the actual transaction
+before the existing BeforeCommit gate. SQLx 0.9.0 invokes this synchronous hook
+from its worker inside SQLite's COMMIT; `true` permits continuation, not commit
+acknowledgment. The test checks SQLite 3.51.3, its complete source ID and DELETE
+journal mode before any hold. This engine obtains EXCLUSIVE before the hook, so
+held-hook observations intentionally perform no fresh database read or journal
+mode switch.
+
+Three authenticated editor-to-viewer request controls establish distinct facts:
+
+- Before COMMIT: the installed hook has zero entries; the owned request is
+  aborted and joined as cancelled while BeforeCommit remains held. Tracked
+  closure is acknowledged, entry count remains zero, and independent state is
+  `editor`.
+- Inside COMMIT: the hook enters exactly once and stays held while the owned
+  request is aborted and joined as cancelled. The tracked count stays one and
+  closure stays nonready; a real unmatched GET on the same application/state
+  returns 404 outside database/session layers. Intended release is observed at
+  callback exit, then tracked closure is acknowledged and independent state is
+  exactly `viewer`.
+- Without loss: the same actual hook entry and hold precede intended release, a
+  complete schema-valid successful acknowledgment, tracked closure and
+  independent `viewer` state.
+
+Every case then changes exactly one row to `owner` in a fresh transaction,
+commits and independently reads it back. Controller-owned RAII release is
+independent of callback ownership. The latch retains its first release cause;
+deadline and cleanup release unblock SQLite but fail normal-release assertions.
+All waits are bounded, and failure cleanup releases before awaiting teardown,
+gracefully finishes the server and explicitly closes the session pool.
+
+Three latch safety tests and eight compiled isolated counterfactuals support
+these observations; the
+[dated record](decisions.md#rob-1111-actual-commit-cancellation--october-2-2026)
+records commands, diagnostics and passing restored controls. This is controlled
+continuation of an already-entered COMMIT after owned-future cancellation on the
+pinned stack. It does not establish actual socket loss inside COMMIT, durability
+at hook entry, a detached-operation policy, a receipt, retry safety, universal
+ambiguity/liveness behavior, or guaranteed commit under faults. S14 item 3
+remains partial. The caller without a validated terminal response still has an
+unknown outcome.
 
 ## S15 — Reference result and recovery contract for agents
 
@@ -3209,7 +3256,8 @@ Limits:
   that gated transaction on that run, not for every forced exit. At that stage,
   response loss on either side of commit and cancellation during commit remained
   open. S14's October 2 observable-boundary checks now cover selected loss
-  boundaries; cancellation during commit remains open.
+  boundaries; ROB-1111 adds controlled owned-future cancellation inside COMMIT
+  on the pinned SQLite stack, not universal commit-cancellation guarantees.
 - `100 Continue` shows that hyper 1.11.1 had begun reading the request's body.
   It shows nothing about authentication or the transaction. That hyper finishes
   an admitted request and refuses new connections during a graceful shutdown is

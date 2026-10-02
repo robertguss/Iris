@@ -15,7 +15,7 @@ const generated="experiments/api-slice/web/s16/generated.ts";
 const baseline=new Map();
 const cargo=["--quiet","--locked","-p","iris-api-spike"];
 function run(command,args) {
-  return spawnSync(command,args,{cwd:temp,encoding:"utf8",env:{...process.env,CARGO_TARGET_DIR:resolve(root,"target")},maxBuffer:8*1024*1024});
+  return spawnSync(command,args,{cwd:temp,encoding:"utf8",env:{...process.env,CARGO_TARGET_DIR:join(temp,"target")},maxBuffer:8*1024*1024});
 }
 function expect(label,command,args,pattern,pass=false) {
   const result=run(command,args);
@@ -54,6 +54,7 @@ try {
   }
   await symlink(resolve(web,"node_modules"),join(temp,"experiments/api-slice/web/node_modules"),"dir");
   for(const file of [domain,adapter,tests,generated]) baseline.set(file,await readFile(join(temp,file),"utf8"));
+  expect("pristine verifier before first mutation","node",["experiments/api-slice/web/scripts/s16.mjs"],/PASS: S16 export/,true);
   for(const omission of ["variant","descriptor","projection"]) {
     await reset(); await added(omission);
     expect(`new rejection, omitted ${omission}`,"cargo",["check",...cargo],omission==="variant"?/no variant.*named `ProjectArchived`/:/non-exhaustive patterns.*ProjectArchived/);
@@ -102,5 +103,7 @@ try {
   await reset();
   await edit(adapter,"        .chain(Shared::VARIANTS.iter().copied().map(shared));","        .chain(Shared::VARIANTS.iter().copied().filter(|s| !matches!(s, Shared::Csrf)).map(shared));");
   expect("CSRF producer retained but profile branch omitted","cargo",["test",...cargo,"--lib","independent_contract"],/assertion `left == right` failed/);
+  await reset();
+  expect("pristine verifier after final reset","node",["experiments/api-slice/web/scripts/s16.mjs"],/PASS: S16 export/,true);
   console.log("PASS: omitted-edit probes detected; disposable source copy removed on exit");
 } finally { await rm(temp,{recursive:true,force:true}); }

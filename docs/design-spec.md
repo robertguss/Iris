@@ -3132,6 +3132,14 @@ contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
 
+- **2026-10-02, S16 mutation build isolation:** The frozen `probe:s16` runner
+  now builds into its disposable copy's own `target`. One `run` function covers
+  the direct cargo commands; the regression exercises the nested verifier's
+  inherited target and the removal of the runner copy when a probe throws. The
+  pristine verifier runs before the first mutation and after the final reset. No
+  dependency, contract, client, CI or schema change. The experiment is not
+  retired.
+
 - **2026-09-30, lifecycle shutdown and session cleanup:** Implemented S18's
   third step in the reference application: SIGINT and SIGTERM handling, one
   drain and close timeline, a supervised session cleanup task, and tracked

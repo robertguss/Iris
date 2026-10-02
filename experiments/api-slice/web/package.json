@@ -9,7 +9,7 @@
     "check:breaking": "node scripts/breaking-change.mjs",
     "generate:s16": "node scripts/s16.mjs --generate",
     "verify:s16": "node scripts/s16.mjs",
-    "probe:s16": "node scripts/s16-probes.mjs",
+    "probe:s16": "node --test scripts/test/s16-probes.test.mjs && node scripts/s16-probes.mjs",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build",
     "verify": "npm run check:contracts && npm run build && npm run check:breaking"

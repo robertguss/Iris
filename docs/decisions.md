@@ -654,6 +654,8 @@ The new probe runner builds in its own temporary target. S16's `probe:s16`
 builds into the checkout's shared `target/`; Astra reproduced in scratch that
 this can leave a mutated build artifact that a later run treats as current. The
 experiment stays frozen, so this is recorded as a known risk rather than fixed.
+The isolation was later authorized and made
+([S16 mutation builds isolated](#s16-mutation-builds-isolated--october-2-2026)).
 
 Limitations: the busy classification of a failed connection open is
 source-inspected; checkpoint A's client and browser acceptance, HEAD and GET
@@ -1217,6 +1219,45 @@ caught; the survivor removes a stop check that the current callers cannot reach.
 and limits. No dependency, npm script, Rust, contract, client, CI, migration or
 frozen-experiment change; the command's tests are not in CI. Linux and GitHub
 Actions have not run on this step.
+
+## S16 mutation builds isolated — October 2, 2026
+
+**Frozen-runner edit, authorized by the owner.** S16's `probe:s16` built into
+the checkout's shared `target/`, recorded on September 26 as a known risk rather
+than fixed. `run` now sets `CARGO_TARGET_DIR` to the runner's disposable
+directory, overriding an inherited target. That one function covers the direct
+cargo commands. The regression exercises the nested `s16.mjs` verifier, which
+inherits the same environment, and the removal of the runner's copy when a probe
+throws. The same private target runs the pristine verifier before the first
+mutation and again after the final reset. The copy is still removed in `finally`
+on success and on a thrown error. Forced termination is not covered.
+
+The regression was written first. Its corrected run, against the old routing in
+a disposable copy of the runner, failed because the nested verifier's cargo
+received the fixture repository's `target` rather than the runner temp's. That
+target stayed inside the disposable fixture. After the override, the same test
+passed, and a copy with the runner's `rm` removed failed because the runner temp
+survived the thrown probe. An earlier draft of the test, before this correction,
+pointed the old runner at the real checkout and its shim wrote
+`target/iris-s16-marker` there. Only that marker was removed. That draft is not
+the recorded red run.
+
+Observed on this orb, Node 26.10.0, Rust 1.98.1:
+
+```sh
+npm --prefix experiments/api-slice/web run probe:s16
+# inherited sentinel target, dedicated temp parent
+# 16 CAUGHT, 7 CONTROL, including both pristine verifier runs; exit 0
+CARGO_TARGET_DIR=/tmp/rob-1116/healthy-target \
+  npm --prefix experiments/api-slice/web run verify:s16
+# before and after the probes: 10 Rust tests, 44 client cases; exit 0
+```
+
+The sentinel target, the checkout `target`, and the checkout source were
+unchanged, and the runner temp was removed. These runs have not been repeated on
+GitHub Actions. `probe:s16` runs the regression before the probes. No
+dependency, contract, client, CI or schema change. The experiment is not
+retired.
 
 ## Maintaining this record
 

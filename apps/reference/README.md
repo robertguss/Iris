@@ -415,6 +415,12 @@ records commands, counts, timings and limits. Historical timings before these
 additions were 72 s after current-state reads, 84 s with checkpoint B, and 39 s
 for checkpoint A. Frozen experiments remain unchanged and in CI.
 
+After integrating the separately reviewed ROB-1121 observer tests, the complete
+runner passed 31 caught probes and 25 controls in 222.75 s on Linux. Its healthy
+reference library control now includes 103 tests. The earlier SQLite Busy
+failures remain recorded; no historical scheduling interleaving is claimed
+reproduced.
+
 | Temporary change                                           | Executed signal                                                              |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Second operation collected without the bridge              | Assembly panics: surviving inferred handler ID `remove_member_endpoint`      |

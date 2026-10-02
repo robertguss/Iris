@@ -1633,9 +1633,9 @@ test's SQLite code 5 error, this time at `lifecycle/tests.rs:472:10`. The exact
 child command remained `cargo test --quiet --locked -p iris -p iris-reference`,
 with its runner-private target and home. The web control after it did not run;
 no PASS was emitted. Further retries stopped for separate diagnosis, with no
-lifecycle changes or weakened checks. A separate post-run healthy Rust/web
-check, fresh-candidate independent verification and full CI remain outstanding;
-this is not a verified final candidate.
+lifecycle changes or weakened checks. At that pause, a separate post-run healthy
+Rust/web check, fresh-candidate independent verification and full CI remained
+outstanding; that version was not a verified final candidate.
 
 After both runs, 128 tracked source/generated/frozen-file SHA-256 hashes stayed
 unchanged; after the final run, 3,036 installed dependency-file hashes and their
@@ -1647,6 +1647,54 @@ cleanup claim. `node --check` and `git diff --check` passed. Documentation uses
 pinned Prettier 3.9.9, width 80, prose wrapping always. No browser workflow,
 workspace-wide suite, Clippy or frozen suite was rerun for this runner-only
 change; none is claimed as evidence here.
+
+### Resumed after the reviewed observer dependency
+
+After ROB-1121 merged at pinned main
+[eb0ecd9](https://github.com/robertguss/Iris/commit/eb0ecd916674f58d9bdf0be273d26b5daf11781a),
+the preserved five-file diff and its SHA-256 were verified unchanged, committed
+as an explicitly UNVERIFIED checkpoint, then integrated with a normal merge.
+Only the shared decision record conflicted; both records were retained and the
+ROB-1121 report below was corrected to distinguish the earlier 31/25 completed
+run from the later 31/23 failure. The separate merged baseline confirmed 103
+reference library tests, including four observer tests. The runner's only
+post-checkpoint code change updates its healthy count matcher from 99 to 103;
+all 31 probes, control commands, diagnostics, isolation and cleanup remain. The
+historical race was not reproduced or assigned a precise interleaving.
+
+The integrated run passed **31 caught probes and 25 controls in 222.75 s**:
+
+```sh
+/usr/bin/time -p env \
+  TMPDIR=/tmp/rob1114-integrated/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-integrated/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-integrated/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+Both internal healthy Rust/web controls passed, and PASS followed successful
+cleanup. Separately, before and after that run, these commands passed on a
+healthy target that never held mutations:
+
+```sh
+env -u IRIS_REFERENCE_FIXTURES \
+  CARGO_TARGET_DIR=/tmp/rob1114-integrated/healthy-target \
+  cargo test --quiet --locked -p iris -p iris-reference
+env -u IRIS_REFERENCE_FIXTURES \
+  CARGO_TARGET_DIR=/tmp/rob1114-integrated/healthy-target \
+  node apps/reference/web/scripts/verify.mjs
+```
+
+Each separate Rust suite passed 158 tests: 34 + 103 + 2 + 12 + 7. Web counts
+remain 4 captured-response Rust tests and 231/51/13/11 client cases, with tsc
+and Vite green. All 128 source/generated/frozen-file hashes and all 3,036
+installed dependency hashes and their inventory remained unchanged against the
+integrated baseline. The inherited target and fixture directories contained only
+their unchanged sentinels; the unrelated sibling survived; the named owned copy
+was removed; the checkout target stayed absent. Earlier failure logs and the
+preserved patch were retained. Syntax, whitespace and pinned Markdown checks
+passed. These are Builder checks; fresh independent verification and full CI for
+the resulting candidate remain separate acceptance gates.
 
 ## ROB-1121 bounded Busy observation — October 2, 2026
 

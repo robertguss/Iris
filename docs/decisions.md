@@ -654,6 +654,8 @@ The new probe runner builds in its own temporary target. S16's `probe:s16`
 builds into the checkout's shared `target/`; Astra reproduced in scratch that
 this can leave a mutated build artifact that a later run treats as current. The
 experiment stays frozen, so this is recorded as a known risk rather than fixed.
+The isolation was later authorized and made
+([S16 mutation builds isolated](#s16-mutation-builds-isolated--october-2-2026)).
 
 Limitations: the busy classification of a failed connection open is
 source-inspected; checkpoint A's client and browser acceptance, HEAD and GET
@@ -1217,6 +1219,28 @@ caught; the survivor removes a stop check that the current callers cannot reach.
 and limits. No dependency, npm script, Rust, contract, client, CI, migration or
 frozen-experiment change; the command's tests are not in CI. Linux and GitHub
 Actions have not run on this step.
+
+## S16 mutation builds isolated — October 2, 2026
+
+**Frozen-runner edit, authorized by the owner.** S16's `probe:s16` built into
+the checkout's shared `target/`, recorded on September 26 as a known risk rather
+than fixed. Every spawned process, including the nested `s16.mjs` verifier, now
+receives `CARGO_TARGET_DIR` inside the runner's disposable directory, overriding
+an inherited target. The same private target runs the pristine verifier before
+the first mutation and again after the final reset. The copy is still removed
+in `finally` on success and on a thrown error.
+
+The regression was written first. Its first run, against the old routing, failed
+because the nested verifier's cargo received the fixture repository's `target`
+rather than the runner temp's. That target stayed inside the disposable fixture;
+the checkout's `target` was not written. After the override, the same test
+passed. An earlier draft of that test pointed the old runner at the real
+checkout and its shim wrote `target/iris-s16-marker` there. Only that marker was
+removed. The test was then rewritten so the wrong target is the fixture's own
+`repo/target`.
+
+`probe:s16` runs the regression before the probes. No dependency, contract,
+client, CI or schema change. The experiment is not retired.
 
 ## Maintaining this record
 

@@ -1954,6 +1954,11 @@ paths and S16's operation IDs; reads use resource paths. Resource-verb routing
 for mutations is a separate, deferred convention question. Listing pending
 invitations waits for explicit visibility rules and must never expose tokens.
 
+**October 2 design update:** [S19](#s19--reference-invitations-and-delivery)
+settles that follow-up as accepted future design, not implementation. Issuance
+returns no credential; invitation listing remains excluded. The earlier
+checkpoint reasoning above is preserved as provenance.
+
 ### Multi-operation assembly
 
 Generalize S16 alternative A without a second handwritten path catalog:
@@ -3174,6 +3179,212 @@ real OIDC provider, hot reloading of Rust code, watch-mode contract
 regeneration, delivery worker or invitations, CI change, change to the frozen
 experiments, or productivity claims.
 
+## S19 — Reference invitations and delivery
+
+**Accepted future design — October 2, 2026; not implemented or verified.**
+ROB-1113 settles S17's invitation follow-up within S18's lifecycle. The reviewed
+source base is
+[89864373](https://github.com/robertguss/Iris/commit/89864373c59b434599346bc65a5689a99776008d).
+The reference application currently has membership commands, reads, session
+identity, persistent development storage and supervised session cleanup, but no
+invitation routes or delivery worker. Its contacts table exists; its seed does
+not populate contacts. The
+[frozen delivery experiment](../experiments/api-slice/delivery.md) is precedent,
+not evidence that this reference design works. Dated rationale and approval
+provenance belong in the
+[decision record](decisions.md#reference-invitation-design--october-2-2026); the
+[application guide](../apps/reference/README.md#future-invitations-not-runnable-yet)
+owns the runnable boundary. Linear owns implementation scope and sequencing.
+
+### Invitation product and authority decisions
+
+Invitations target existing accounts by user ID, grant only `editor`, and expire
+one hour after issuance; equality with `expires_at` is expired. The server
+generates a cryptographically random 32-byte credential encoded as hex. Email is
+delivery metadata, never an identity or account-linking key. Issuance does not
+change membership. Acceptance requires both the credential and the matching
+session recipient; a bearer credential alone is insufficient.
+
+| Decision point                        | Required future behavior                                                                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Issue authorization                   | In the write transaction, check project owner first; absent project and non-owner both yield `invitations.forbidden`.                                                                                  |
+| Remaining issue checks, in order      | Recipient exists; recipient is not already a member; no unexpired, unaccepted invitation is pending; recipient has a usable local `.test` contact. Only then persist invitation and outbox atomically. |
+| Missing or unusable contact           | Return 409 `invitations.recipient_unavailable`, without disclosing an address or treating delivery as optional. Earlier checks still win.                                                              |
+| Issuer loses authority after commit   | Do not revoke the invitation or suppress delivery merely because the issuer is no longer an owner. Fresh issuance needs current authority.                                                             |
+| Unknown credential or wrong recipient | Uniform 404 `invitations.not_found` regardless of acceptance or expiry; do not expose the invitation or its recipient.                                                                                 |
+| Invitation already accepted           | After credential and recipient match, return 409 `invitations.already_accepted` before checking expiry, even when `now >= expires_at`; no second membership effect.                                    |
+| Unaccepted invitation expiry          | After credential and recipient match and the accepted check, return 409 `invitations.expired` when `now >= expires_at`; delivery retries never extend expiry.                                          |
+| Recipient became a member meanwhile   | Acceptance consumes the invitation but preserves the existing membership's role; never promote or downgrade it.                                                                                        |
+| Accepted recipient later removed      | The consumed invitation cannot restore membership on replay.                                                                                                                                           |
+| New invitation after expiry           | A fresh authorized submission may issue a new credential if the checks pass; no automatic reissue.                                                                                                     |
+
+Acceptance and its membership effect are one serialized transaction. Preserve
+the application's failure/finalization classification: a failed rollback or
+uncertain commit cannot be reported as a known rejection or acknowledged
+success. No automatic transaction or client mutation retry is introduced.
+
+Future fresh initialization and explicit reset add local test contacts for the
+seeded accounts; existing databases are never reseeded or contact-backfilled.
+Append-only schema migrations must leave old databases usable. Missing contacts
+cause only issuance's explicit conflict, not a startup failure or a forced
+reset. The happy demonstration is **Bob (`29`) inviting Alice (`11`) to project
+`43`**, where Bob is the seeded owner and Alice is not already a member. Do not
+use project 41's already-member path as the happy case.
+
+### Public invitation wire and recovery contract
+
+Use the existing public v1 envelope, session authentication, CSRF boundary,
+canonical string IDs and shared refusal/failure profile. Do not port the frozen
+experiment's token-preview response. The future declarations are:
+
+| Domain operation / OpenAPI ID             | Route and input                                                                       | Success status and `data`                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `invitations.issue` / `issueInvitation`   | `POST /api/invitations`, body `{project_id, recipient_id}`                            | 201 `{completion: "acknowledged", project_id, recipient_id, expires_at}` |
+| `invitations.accept` / `acceptInvitation` | `POST /api/invitations/accept`, body `{token}`; recipient comes only from the session | 200 `{completion: "acknowledged", project_id}`                           |
+
+`expires_at` is Unix seconds serialized as a string, following the frozen wire
+precedent. Issue acknowledgment means invitation and enqueue committed, not mail
+sent. Accept acknowledgment means acceptance committed, not necessarily a new
+membership row. Neither response returns a token, contact address, receipt,
+delivery status or lookup capability.
+
+| Operation | Domain rejections                                                                                                                                                           |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue     | 403 `invitations.forbidden`; 404 `invitations.recipient_not_found`; 409 `invitations.already_member`, `invitations.invitation_pending`, `invitations.recipient_unavailable` |
+| Accept    | 404 `invitations.not_found`; 409 `invitations.already_accepted`, `invitations.expired`                                                                                      |
+
+Both also use the existing shared 400 invalid-request, 401 unauthenticated, 403
+CSRF, 500 internal and 503 unavailable responses. Body validation must not leak
+whether a credential belongs to another account. Domain 403 and CSRF 403 remain
+distinct codes in the same envelope.
+
+Both operations declare recovery `inspect: false`, `read: false` and
+`replay: false`. A fresh submission requires current authority and intent; it is
+not a retry authorized by a lost response. No invitation listing, preview,
+status or receipt endpoint is included. Manually observing membership later
+never retroactively confirms an unknown issuance or acceptance attempt.
+
+### Outbox, local capture and credential lifetime
+
+The invitation stores a hash; the pending outbox necessarily retains the
+plaintext credential and a snapshot of the recipient contact. Invitation and
+outbox commit or roll back together. Later contact edits cannot redirect an
+existing job. Retries reuse the credential and stable Message-ID, without
+extending expiry or promising receiver deduplication.
+
+Clear the sensitive payload on terminal completion, or in an eligibility sweep
+for expired, accepted or exhausted jobs when the lease permits. Do not clear a
+live lease's payload as though its send had stopped. A stopped worker can leave
+expired plaintext credentials in storage until cleanup resumes. Clearing columns
+is not secure erasure of database pages, journals, backups, process memory or
+captured messages. Resetting the reference database does not clear the separate
+capture inbox; old links can remain visible and invalid.
+
+Delivery is only to a dedicated loopback-bound local `.test` mail capture with
+no relay or real SMTP configuration. Do not reuse a shared historical inbox as
+proof of isolation. The frozen guide records a 24-hour age limit and 500-message
+cap. For the reference application, retain the 24-hour precedent and propose a
+500-message cap, but pin and verify the capture version, configuration and
+retention behavior in the later delivery stage; these are not measurements of
+the current reference app. No capture dependency or service is added now.
+
+Diagnostics are bounded IDs, attempt numbers, stages and result categories.
+Never log tokens, hashes, Message-IDs, addresses, message bodies or raw SMTP
+errors; avoid credential-bearing debug output and attempt snapshots. An SMTP
+acceptance means the capture server accepted the message, not that a user
+received or read it.
+
+### Worker claims, fencing and lifecycle
+
+Use application-owned persistence and existing tracked connections and task
+supervision. Claim in a short write transaction, then perform SMTP outside any
+database transaction. Each claim consumes one of **five claims, not five
+transmissions**, including claims interrupted before send. Leases last 30
+seconds. Retryable failures use 5, 10, 20 and 40 second backoffs after claims
+one through four; exhausted jobs become terminal. Malformed payloads and
+permanent SMTP failures are terminal. Expired or accepted invitations prevent
+future claims, not a send already active. A final crashed claim becomes eligible
+for terminal cleanup after its lease expires.
+
+Completion is fenced by the claimed attempt and a still-live lease. A returned
+`false` means this call made no transition: even an expired lease without a
+replacement claimant can cause it. It is not evidence of another worker or of
+SMTP failure. A database error instead leaves completion acknowledgment unknown;
+do not reinterpret it as `false`. Database errors get bounded diagnostics and
+the next normal tick, not an unbounded retry loop. Unexpected worker exit or
+panic stops the process through existing supervision; do not restart the task
+automatically.
+
+After observed shutdown, start no new claim. A claim admitted before the stop
+may finish, but if shutdown is observed before SMTP begins, do not begin SMTP.
+Do not refund that claim. Preserve S18's 3-second drain, 1-second acknowledged
+connection-close window and the supervisor's outer 5-second kill bound. Neither
+a longer send timeout nor a 30-second lease extends shutdown. If draining or
+closure is not established, preserve termination with the ownership lock held
+until process exit. Interrupted sends remain uncertain; process restart and
+lease recovery can duplicate SMTP acceptance, not supply a request receipt.
+
+| Failure window or intervening event          | Required observation and later behavior                                                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Issuance fails before atomic commit          | No acknowledged invitation or enqueue; finalization uncertainty remains a failure, not a known rejection.                     |
+| Issuance commits but response is lost        | Caller outcome unknown; worker may deliver. No inspect/read/replay capability or automatic resubmission.                      |
+| Issuer authority revoked after commit        | Existing invitation remains usable and deliverable; later new submission rechecks authority.                                  |
+| Expired or accepted before claim             | Suppress new claims; clear payload when no live lease prevents cleanup.                                                       |
+| Expiry or acceptance during SMTP             | Active send may finish; acceptance still checks expiry and consumption.                                                       |
+| Shutdown or crash after claim, before SMTP   | Claim budget is spent even without transmission; observed shutdown inhibits SMTP. Lease recovery may later retry if eligible. |
+| Timeout, interruption or restart during SMTP | SMTP acceptance may already have occurred; retry can duplicate or never occur if expiry, acceptance or budget prevents it.    |
+| SMTP accepted, completion lost or errors     | Database acknowledgment unknown; do not claim durable `sent`. Eligibility and lease recovery govern another claim.            |
+| Stale completion returns `false`             | No transition by this call, not proof of replacement or a database error; no unfenced corrective write.                       |
+| Duplicate mail arrives                       | Same invitation/credential; no exactly-once delivery promise and no repeat acceptance effect.                                 |
+| Acceptance commits but response is lost      | Caller remains unknown even if later membership is visible; consumed token cannot be replayed after removal.                  |
+
+### Browser credential handling
+
+Provide ID-based issuance and explicit acceptance only. Consume and scrub the
+invitation fragment on initial load and every fragment change, including
+malformed values; never accept on navigation or GET. Keep a valid credential
+only in memory, outside attempt snapshots, logs, browser storage and OIDC
+parameters. Clear it after completion (including unknown outcome), dismissal,
+account change, logout or authentication navigation. A full login loses it: sign
+in first, then reopen the capture link. A lost token is not recoverable from a
+status endpoint. Browser extensions, history synchronization and the capture
+system are outside this in-memory privacy guarantee.
+
+### Bounded later implementation candidates
+
+These are constraints on separately scoped Linear issues, not authorization or a
+second backlog. Each candidate must be green within its boundary:
+
+1. **Private persistence and domain tests:** append-only invitation/outbox
+   migrations, fresh-only contact seeds, atomic issue/accept and eligibility
+   rules. Test accepted plus expired returns `invitations.already_accepted`,
+   unaccepted at expiry equality returns `invitations.expired`, and unknown
+   credentials or wrong recipients return `invitations.not_found` regardless of
+   acceptance or expiry. Also test issue-check ordering, concurrent issue and
+   acceptance, retained roles, removal after acceptance, enqueue rollback and
+   old databases without contacts. No public partial feature.
+2. **Private delivery and lifecycle:** tracked connections, claim budget,
+   fencing, backoff, terminal cleanup, local capture isolation and retention,
+   bounded diagnostics and supervised shutdown. Test the failure-window table,
+   distinguishing a stale `false` from a completion database error and a claim
+   from a send. Verify duplicates and interruption without claiming delivery.
+3. **Both public operations and complete client together:** issue and accept
+   HTTP declarations and tests, OpenAPI export followed by generated TypeScript,
+   client declarations, decoder/type/recovery tests, presentation, views and
+   browser coverage in the **same green candidate**. Do not split the public API
+   from its client or hand-edit generated TypeScript. Exercise old-database
+   conflict, Bob-to-Alice success, signed-out link reopening, malformed fragment
+   scrubbing, account changes, replay and unknown outcomes.
+
+This design does not implement those stages. No production mail, signup,
+email-based linking, resend, revoke, manual retry, receipts, framework queue
+abstraction or new feature in a frozen experiment is included. No CI, version
+pin or lifecycle deadline changes are authorized. Extraction into `crates/iris`
+still requires two concrete consumers. Future tests must retain
+storage-exclusive guards for child spawns and isolated mutation source/build
+directories with passing controls, and must not overlap fixed-port or in-place
+browser runs.
+
 ## References and design provenance
 
 The
@@ -3212,6 +3423,12 @@ External references explain influences, not dependencies or permanent API
 contracts; upstream branches may change. Recheck them before copying an API.
 
 ## Change record
+
+- **2026-10-02, reference invitation design:** Added accepted future S19 for
+  ROB-1113: product and wire decisions, disabled recovery capabilities,
+  credential handling, fresh-only contacts, outbox and worker failure windows,
+  lifecycle constraints and three bounded later green candidates. Documentation
+  only; invitations and delivery are neither implemented nor verified here.
 
 - **2026-10-02, S16 mutation build isolation:** The frozen `probe:s16` runner
   now builds into its disposable copy's own `target`. One `run` function covers

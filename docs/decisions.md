@@ -1456,6 +1456,93 @@ unchanged. Fresh independent testing and an actual successful Actions run,
 including both later browser steps and the full job, remain for Lead; this
 correction does not claim Actions acceptance.
 
+## Reference invitation design — October 2, 2026
+
+ROB-1113 accepts the future reference invitation, outbox and worker contract in
+[S19](design-spec.md#s19--reference-invitations-and-delivery). This is a
+**design-only decision, not implemented or verified behavior**. The owner
+delegated product choices to Lead and Oracle. The full approved plan is the
+empty
+[plan commit](https://github.com/robertguss/Iris/commit/1d8bd754a440e528107555bc37541fcd7b85ffba),
+against
+[89864373](https://github.com/robertguss/Iris/commit/89864373c59b434599346bc65a5689a99776008d);
+approval and the one-task High fallback after Grok's pre-tool failure are
+recorded in the
+[owning thread](https://ampcode.com/threads/T-01a0f950-d46b-7216-9ae2-3d0233c84d3a).
+That approval covers this documentation design, not later implementation or a
+claim of completed runtime review. The spec owns contracts, this record owns
+dated rationale and provenance, and the application README owns runnable
+instructions and future prerequisites. Linear remains the work queue.
+
+Existing accounts, editor-only grants, one-hour expiry and recipient-bound
+acceptance keep the slice about authorization and delivery rather than signup or
+identity linking. Server-generated credentials must leave through local capture
+only, not the issue response. This deliberately rejects the frozen experiment's
+demo token preview. The public v1 acknowledgment records the request's committed
+effect, never delivery. No receipt/status endpoint or automatic retry is added:
+both operations' inspect, read and replay recovery capabilities are false. Later
+membership observations do not resolve an earlier unknown attempt.
+
+Checking owner, recipient, existing membership, pending invitation and usable
+contact in that order preserves authority and conflict precedence. The explicit
+409 `invitations.recipient_unavailable` lets an old database without contacts
+remain usable without silently reseeding it or treating delivery as optional.
+Only future fresh initialization/reset adds contacts; schema changes remain
+append-only. Bob-to-Alice on project 43 avoids project 41's existing membership.
+Revoking the issuer's authority after commit does not revoke the invitation.
+Acceptance retains a membership's existing role and cannot restore a removed
+member by replaying a consumed credential.
+
+The frozen [delivery guide](../experiments/api-slice/delivery.md),
+[worker](../experiments/api-slice/server/src/delivery.rs) and
+[outbox](../experiments/embedded-db/sqlite/src/outbox.rs) provide atomic
+enqueue, contact snapshot, lease, backoff and duplicate-delivery precedent. They
+are not the reference implementation. Five claims bound recovery, not five
+actual sends; pre-send interruption spends a claim. A fenced completion
+returning false makes no transition and does not establish a replacement worker,
+whereas a database error leaves acknowledgment unknown. SMTP acceptance is not
+user delivery, and retry after lost completion can duplicate it. Plaintext
+pending payloads are necessary for sending and are cleared on terminal cleanup
+or an eligible sweep, not securely erased; a stopped worker may retain expired
+credentials. Database reset does not erase the separate inbox. The historical
+24-hour retention and 500-message limit are not reference-app measurements; the
+proposed reference cap and capture configuration require later pinning and
+verification in an isolated, loopback-only, no-relay service.
+
+Source inspection of the reference [seed](../apps/reference/src/app.rs),
+[schema](../apps/reference/migrations/0001_initial.sql),
+[HTTP modules](../apps/reference/src/http/mod.rs),
+[lifecycle](../apps/reference/src/lifecycle.rs) and
+[supervisor](../apps/reference/scripts/supervise.mjs) confirmed the design's
+baseline: contacts are not seeded, invitations and delivery are absent, tracked
+connection closure and task supervision exist, and the deadlines are 3 seconds
+to drain, 1 to close, and 5 for the outer supervisor. Those deadlines stay
+fixed. Worker database errors wait for the next normal tick with bounded
+diagnostics; an unexpected exit or panic stops the process rather than
+restarting the task. No claim starts after observed shutdown, and an admitted
+claim cannot begin SMTP after observing shutdown. Active sends may outlive
+invitation eligibility and become uncertain when interrupted. S19 records the
+decision and failure-window tables that later checks must exercise.
+
+Memory-only fragment handling, scrubbing malformed fragments as well as valid
+ones, and clearing on unknown completion or authentication/account transitions
+avoid turning recovery UI into credential storage. Full login deliberately loses
+the token; sign in and reopen the capture link. No invitation preview, listing
+or status workflow is implied.
+
+The three later green boundaries are private persistence/domain tests, private
+delivery/lifecycle, and **both public operations with their entire generated
+contract/client/presentation/views/browser integration together**. Separating
+the public server from its client would expose an incomplete contract. These are
+bounded constraints for separate issues, not an implementation backlog or
+authorization. No runtime, migration, generated file, dependency, frozen
+experiment, CI, version pin or lifecycle deadline changes accompany this design.
+Documentation validation compares factual claims to source and historical
+evidence, checks local links/anchors and whitespace, and uses pinned Prettier
+3.9.9 with width 80 and prose wrapping. No runtime tests or delivery/retention
+measurements are claimed for ROB-1113; implementation evidence must be recorded
+when those later stages actually run.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

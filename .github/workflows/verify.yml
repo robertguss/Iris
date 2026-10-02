@@ -61,6 +61,9 @@ jobs:
           npm --prefix apps/reference/web ci
           npm --prefix apps/reference/web run verify
 
+      - name: Test reference development command
+        run: node --test apps/reference/scripts/test/dev.test.mjs
+
       - name: Install web dependencies
         run: npm --prefix experiments/api-slice/web ci
 

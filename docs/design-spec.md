@@ -2989,6 +2989,27 @@ Limits:
 
 ### Development command evidence
 
+**October 2, 2026 follow-up (ROB-1112):** CI now runs the full
+development-command suite in the foreground immediately after
+`Verify reference client`, before the later browser workflows in the same serial
+job. Normal failure propagation applies; no conditions, skips, retries,
+deadlines or version pins changed. The September 30 evidence and S18's original
+CI exclusion below are historical.
+
+The relative-database test now checks contents rather than inode identity: Alice
+reads Bob's seeded editor role, changes it to viewer with an acknowledged
+authenticated request, and reads viewer after a fresh sign-in across restart
+without rewriting the sentinel. A refused live reset must leave viewer intact; a
+successful stopped reset must restore editor after another fresh sign-in.
+Refusal, success, log, proxy-session and clean-stop checks remain. Lead's actual
+Linux baseline was 21 passed and 1 failed: a successful reset reused
+inode 1579119. Deletion and recreation permit inode reuse; this did not
+establish a runtime defect. The earlier shell tail masked Node's failure status.
+New runs capture Node's exit status before reading log tails. See the dated
+[verification record](decisions.md#development-command-ci-and-content-regression--october-2-2026)
+for local acceptance and isolated mutation evidence; Actions acceptance remains
+for Lead to observe, not a claim from these local checks.
+
 The fourth implementation step, on September 30, 2026, covers recommendation 6.
 [`dev.mjs`](../apps/reference/scripts/dev.mjs) starts the issuer, the API and
 Vite on the persistent database `apps/reference/.dev/reference.db`, which is

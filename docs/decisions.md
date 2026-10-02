@@ -1331,6 +1331,83 @@ remain intact. No contract, dependency, migration, CI or frozen experiment
 source changed. This records local Builder verification, not fresh Tester/Oracle
 acceptance, GitHub Actions results, merge or deployment.
 
+## Development-command CI and content regression — October 2, 2026
+
+ROB-1112 adds the foreground command
+`node --test apps/reference/scripts/test/dev.test.mjs` immediately after
+`Verify reference client` in the existing serial CI job, before both browser
+workflows. It uses normal failure propagation, with no condition, skip, retry,
+background process, deadline or pin change. This supersedes S18's original
+local-only CI exclusion; its September 30 observations and historical macOS
+measurements remain unchanged.
+
+The approved amendment corrects the relative-database test's inode assumption.
+Lead's actual Linux baseline was 21 passed and 1 failed: successful reset reused
+inode 1579119. Deletion and recreation permit reuse, so this was not evidence of
+a runtime defect. A shell tail had masked the failing Node status; every run
+below captured Node's exit code before reading its log tail.
+
+Behavioral assertions were written first. Alice signs in, reads Bob (user 29) in
+project 41 as editor, changes him to viewer using session CSRF and an
+authenticated POST, requires HTTP 200 and `data.completion = acknowledged`, and
+reads viewer. A fresh sign-in after restart reads viewer without rewriting it.
+Live reset still fails with the original status/log checks and a working proxy
+session; readback must remain viewer. After stopping, reset still succeeds with
+the original log checks; a fresh start and sign-in must read editor. The test
+explicitly stops successfully and checks that the ports are free. No runtime,
+dependency, filter or deadline changes ship.
+
+Mutation diagnostics used disposable source `/tmp/rob-1112-source`, absolute
+private target `/tmp/rob-1112-target`, isolated test databases and exclusive
+ports 4001, 3003 and 5175. Each mutant was independently restored, never
+layered. The checkout's target was not used. The diagnostic command was:
+
+```sh
+CARGO_TARGET_DIR=/tmp/rob-1112-target node --test \
+  --test-name-pattern='a relative database persists' \
+  /tmp/rob-1112-source/apps/reference/scripts/test/dev.test.mjs
+```
+
+| Run                                                                                                                                                  | Result                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Unchanged runtime control before mutations                                                                                                           | Exit 0; 1 passed, 0 failed                                                                                      |
+| Persistent binary startup calls `Storage::reset` instead of `Storage::open`                                                                          | Exit 1 at `after restart`: actual editor, expected viewer; initial sentinel setup passed                        |
+| Explicit reset calls `Storage::open` instead of `Storage::reset`                                                                                     | Exit 1 at `after stopped reset`: actual viewer, expected editor; live-refusal and success-log checks passed     |
+| Reset's `InUse` branch updates Bob to editor with existing SQLx, requires one affected row, closes the connection, then returns the original refusal | Exit 1 at `after refused reset`: actual editor, expected viewer; refusal/status/log/proxy-session checks passed |
+| Fully restored runtime control after mutations                                                                                                       | Exit 0; 1 passed, 0 failed                                                                                      |
+
+All three were compiled runtime mutants killed by the intended content
+assertions, not compilation, timeout, authentication or port failures. Raw
+diffs, logs and exit statuses were retained for Tester review; no mutation
+harness or runtime mutant is committed.
+
+Local Linux x64 acceptance used Node 26.10.0, Rust 1.98.1 and npm 10.9.9:
+
+```sh
+npm --prefix apps/reference/web ci
+# 57 packages installed; 0 vulnerabilities.
+CARGO_TARGET_DIR=/tmp/rob-1112-acceptance-target \
+  node --test apps/reference/scripts/test/dev.test.mjs
+# Exit 0: 22 passed, 0 failed, 0 skipped, 0 cancelled; 138.36 s.
+cargo fmt --all --check
+git diff --check
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  apps/reference/README.md docs/design-spec.md docs/decisions.md \
+  apps/reference/scripts/test/dev.test.mjs
+```
+
+Ports were free before and after acceptance. YAML parsing and structural
+comparison against the plan commit confirmed that the sole workflow change is
+the unconditional foreground step immediately after client verification, with
+both browser steps later and all existing configuration unchanged. Markdown/JS
+formatting and whitespace checks passed. An additional Prettier check of the
+workflow reports existing formatting differences on both the plan baseline and
+candidate; that unrelated YAML formatting was left untouched. These are local
+Builder results only; Lead must observe the actual Ubuntu Actions run, its
+tested SHA, all 22 tests, both later browser steps and the full job before
+recording Actions acceptance. No Actions result, independent Tester/Oracle
+acceptance, merge or deployment is claimed.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

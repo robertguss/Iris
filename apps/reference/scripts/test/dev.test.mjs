@@ -17,7 +17,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -610,23 +609,51 @@ test("repeated signals neither end nor shorten the stop", async () => {
 
 test("a relative database persists, and a reset is refused while it is served", async () => {
   const dir = temporary();
+  async function bobRole(cookie, expected, phase) {
+    const response = await fetch(`${API}/api/projects/41/members`, {
+      headers: { cookie },
+    });
+    assert.equal(response.status, 200, phase);
+    const { data } = await response.json();
+    assert.equal(
+      data.items.find((member) => member.user_id === "29")?.role,
+      expected,
+      phase,
+    );
+  }
   const first = command(["--database", "dev.db"], { cwd: dir });
   await ready(first);
   assert.ok(existsSync(join(dir, "dev.db")));
-  const inode = statSync(join(dir, "dev.db")).ino;
+  const firstCookie = await signIn();
+  await bobRole(firstCookie, "editor", "initial seeded role");
+  const { csrf_token } = await session(firstCookie);
+  const changed = await fetch(`${API}/api/memberships/role`, {
+    method: "POST",
+    headers: {
+      origin: ORIGIN,
+      cookie: firstCookie,
+      "x-iris-csrf": csrf_token,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ project_id: "41", user_id: "29", role: "viewer" }),
+  });
+  assert.equal(changed.status, 200, "sentinel role change");
+  assert.equal((await changed.json()).data.completion, "acknowledged");
+  await bobRole(firstCookie, "viewer", "sentinel setup");
   process.kill(first.child.pid, "SIGINT");
   assert.equal((await exit(first)).code, 0, first.output);
 
   const second = command(["--database", "dev.db"], { cwd: dir });
   await ready(second);
-  assert.equal(statSync(join(dir, "dev.db")).ino, inode);
+  const secondCookie = await signIn();
+  await bobRole(secondCookie, "viewer", "after restart");
   const refused = command(["--database", "dev.db", "--reset"], { cwd: dir });
   const { code } = await exit(refused, START);
   assert.equal(code, 1, refused.output);
   assert.match(refused.output, /\[reset\] .*in use/);
   assert.match(final(refused), /^dev: exit 1: reset exited \(1\)$/);
-  assert.equal(statSync(join(dir, "dev.db")).ino, inode);
   assert.equal((await fetch(`${ORIGIN}/api/auth/session`)).status, 200);
+  await bobRole(secondCookie, "viewer", "after refused reset");
   process.kill(second.child.pid, "SIGINT");
   assert.equal((await exit(second)).code, 0, second.output);
 
@@ -634,7 +661,12 @@ test("a relative database persists, and a reset is refused while it is served", 
   assert.equal((await exit(reset, START)).code, 0, reset.output);
   assert.match(reset.output, /\[reset\] .*reset database at/);
   assert.match(final(reset), /^dev: exit 0: reset completed$/);
-  assert.notEqual(statSync(join(dir, "dev.db")).ino, inode);
+  const third = command(["--database", "dev.db"], { cwd: dir });
+  await ready(third);
+  await bobRole(await signIn(), "editor", "after stopped reset");
+  process.kill(third.child.pid, "SIGINT");
+  assert.equal((await exit(third)).code, 0, third.output);
+  await portsFree();
 });
 
 test("a reset binds the seeded identities to the command's issuer", async () => {

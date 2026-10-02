@@ -383,19 +383,34 @@ fn observer_stream(observer: &DiscoveryObserver) -> TcpStream {
 }
 
 #[test]
-fn discovery_observer_reads_fragmented_headers() {
+fn discovery_observer_reads_headers_larger_than_one_buffer() {
     let observer = DiscoveryObserver::start();
     let mut stream = observer_stream(&observer);
-    stream.write_all(b"GET /.well-known/openid").unwrap();
-    stream
-        .write_all(b"-configuration HTTP/1.1\r\nhost: fixture\r\n\r\n")
-        .unwrap();
+    let padding = "x".repeat(1024);
+    write!(
+        stream,
+        "GET /.well-known/openid-configuration HTTP/1.1\r\nhost: fixture\r\n\
+         x-padding: {padding}\r\n\r\n"
+    )
+    .unwrap();
     stream.set_read_timeout(Some(WAIT)).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
     assert_eq!(observer.checkpoint().unwrap(), 1);
     assert_eq!(observer.finish().unwrap(), 1);
+}
+
+#[test]
+fn discovery_observer_rejects_eof_before_complete_headers() {
+    let observer = DiscoveryObserver::start();
+    let mut stream = observer_stream(&observer);
+    stream
+        .write_all(b"GET /.well-known/openid-configuration HTTP/1.1\r\nhost: fixture\r\n")
+        .unwrap();
+    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let error = observer.checkpoint().unwrap_err();
+    assert!(error.contains("ended before complete headers"), "{error}");
 }
 
 #[test]

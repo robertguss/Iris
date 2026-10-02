@@ -3470,10 +3470,13 @@ bounded worker checkpoint. A checkpoint finishes active work and drains queued
 connections through response flush before returning either the completed count
 or the first worker error. The fixture reads complete HTTP headers under a fixed
 size cap and absolute deadline, bounds response writes, and has non-panicking,
-bounded fallback cleanup. Focused controls cover fragmented headers, an accepted
-idle socket, worker-error cleanup and a queued request at snapshot time. The
-mismatch recovery test runs the diagnostic's actual printed command with `exec`,
-under the same bounded child ownership used elsewhere in the suite.
+eventually bounded fallback cleanup. Focused controls cover headers larger than
+one read buffer, EOF before the terminating blank line, an accepted idle socket,
+worker-error cleanup and one queued request at snapshot time. The checkpoint's
+active-work-then-queue-drain algorithm is also established by source review; the
+fixture does not independently exercise simultaneous active and queued requests.
+The mismatch recovery test runs the diagnostic's actual printed command with
+`exec`, under the same bounded child ownership used elsewhere in the suite.
 
 ### Review of the lifecycle proposal
 

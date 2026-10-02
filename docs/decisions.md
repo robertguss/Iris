@@ -2424,8 +2424,10 @@ bounded checkpoint that completes active work and drains queued connections
 through response flush. The new mismatch-recovery command test now prefixes the
 actual printed command with `exec`, owns that process and uses the suite's
 bounded stderr and exit helpers. The older reset-command tests are unchanged.
-The four focused fragmented-input, accepted-idle, safe-error-cleanup and
-synchronized-snapshot controls passed, followed by all 24 `dev_binary` tests.
+The focused larger-than-one-buffer, incomplete-header EOF, accepted-idle,
+safe-error-cleanup and synchronized-snapshot controls passed, followed by all 25
+`dev_binary` tests. The socket and shutdown deadlines make cleanup eventually
+bounded; they are not a strict two-second aggregate shutdown guarantee.
 
 Fix-round verification used `CARGO_TARGET_DIR=/tmp/rob1118-healthy-target`: the
 reference package passed 144 (111 library, 2 contract, 24 development binary and
@@ -2454,6 +2456,27 @@ guard; deleting memberships on refusal failed byte preservation. Each named
 mutant test exited 101 after compilation. Restoring the private production
 source returned all 24 tests to green. The private source, target and logs were
 then deleted.
+
+The final P3 refinement replaced the timing-dependent fragmented-write control
+with one valid request containing a 1024-byte padding header, larger than the
+fixture's 512-byte read buffer and below its 4096-byte cap. A separate
+recognized discovery request ends after ordinary headers without the terminating
+blank line and requires the checkpoint error to say that headers ended
+incomplete. In a disposable private-source counterfactual that performed one
+512-byte read and accepted a recognized prefix, that EOF test failed as intended
+because the checkpoint returned `Ok(1)`; restoring the complete-header reader
+passed all 5 focused observer tests. The one-request checkpoint control does not
+independently exercise simultaneous active and queued requests; source review
+establishes that ordering. No production or observer implementation changed in
+this refinement.
+
+Final refinement verification passed all 5 focused observer tests, all 25
+`dev_binary` tests, 145 reference-package tests and 227 workspace tests.
+Workspace Clippy with all targets and features, rustfmt, pinned Prettier 3.9.9
+and Git's whitespace check passed. The unchanged probes, browser workflow,
+development-command suite and policy mutants were not repeated solely for this
+test-only revision; the fresh Tester and exact final CI cover the resulting
+candidate.
 
 ## Maintaining this record
 

@@ -1132,7 +1132,9 @@ available; they may not weaken policy or mutate state merely to diagnose it.
 
 ### Focused validation before choosing implementation mechanisms
 
-These are future checks, not executed tests or productivity studies:
+These were proposed checks, not productivity studies. The October 2, 2026
+observable-boundary evidence below partially addresses items 2 and 3; it does
+not establish in-commit behavior or a new ownership policy.
 
 1. Exercise begin failure, rejection-before-write, acknowledged rollback and
    failed cleanup separately; preserve stage and both primary/cleanup causes.
@@ -1155,6 +1157,50 @@ The next design step is an operation-specific receipt/replay contract if durable
 reconciliation is required, or a small stage-aware transaction evidence design
 if the baseline suffices. Do not select an executor merely to make telemetry
 look complete. Implementation remains separate work.
+
+### Observable caller-loss boundaries — October 2, 2026
+
+ROB-1110 adds four authenticated reference `change_role` tests, with only
+`cfg(test)` instrumentation. On Axum 0.8.9, Hyper 1.11.1, Tokio 1.53.1 and SQLx
+0.9.0 on this Linux orb:
+
+- Aborting the owned `app().oneshot` future after domain validation but before
+  the write gives a cancelled join. The hold remains armed; tracked connection
+  closure is acknowledged, and a fresh independent connection reads `editor`.
+- A complete raw HTTP/1.1 request held after its write but before commit has
+  exactly one outstanding tracked connection; an independent read sees `editor`.
+  Closing both socket directions and dropping the sole caller handle produces an
+  explicit outer request-service `Dropped` observation while the hold remains
+  armed. Closure is then acknowledged and the role stays `editor`.
+- Holding a successful inner response before exposure to Hyper allows an
+  independent read of `viewer`, but no response byte reaches the caller during
+  the bounded hold check. Full socket loss produces `Dropped` while this hold
+  remains armed; acknowledged closure and `viewer` are checked independently.
+- The loss-free control uses identical framing and both holds, releases them,
+  validates the complete success envelope, observes `Returned`, and checks
+  acknowledged closure and `viewer`.
+
+Every final-state check is followed by an independent SQL transaction writing
+the distinct third role `owner`, committing, and reading it back. Canonical
+database-path and phase-scoped gate registrations are removed by RAII. Holds
+release on failure; server cleanup signals graceful shutdown to accepted
+connections as well as the accept loop, and normal termination is awaited.
+Socket, SQL, phase and join waits are bounded. The existing guarded issuer
+fixture and lifecycle before-commit gate behavior are retained.
+
+The four behavioral tests passed before any production change; none was needed.
+Four separately seeded runtime mutants were caught with green isolated controls
+before and after restoration: premature commit, skipped update, rollback in
+place of commit while still reporting success, and suppressed tracked-close
+acknowledgment. See the
+[dated decision](decisions.md#observable-membership-caller-loss--october-2-2026)
+for commands and counts.
+
+These observations cover only the stated `change_role` boundaries and stack.
+They do not distinguish FIN from RST, interrupt a commit, establish continuation
+after caller loss, cover removal, or provide a receipt. Without a validated
+terminal response, the caller's outcome remains unknown; a current-state read
+does not identify this attempt. In-commit cancellation remains untested here.
 
 ## S15 — Reference result and recovery contract for agents
 
@@ -2915,9 +2961,10 @@ Limits:
   ended between 2.9 s and 4.5 s after the signal, inside the supervisor's 5 s.
 - A transaction interrupted by a forced exit is left to SQLite's rollback
   journal, as after a kill. The unchanged role after reopening is evidence for
-  that gated transaction on that run, not for every forced exit. Losing the
-  response on either side of the commit, and cancelling during the commit, stay
-  open under S14's focused validation items 2 and 3.
+  that gated transaction on that run, not for every forced exit. At that stage,
+  response loss on either side of commit and cancellation during commit remained
+  open. S14's October 2 observable-boundary checks now cover selected loss
+  boundaries; cancellation during commit remains open.
 - `100 Continue` shows that hyper 1.11.1 had begun reading the request's body.
   It shows nothing about authentication or the transaction. That hyper finishes
   an admitted request and refuses new connections during a graceful shutdown is

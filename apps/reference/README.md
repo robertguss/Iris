@@ -21,6 +21,31 @@ The mutations then declared `listProjectMembers` as their current-state read,
 which the console offers after an unconfirmed attempt; a third browser workflow
 covers it.
 
+## Caller-loss boundary checks — October 2, 2026
+
+Run `cargo test --locked -p iris-reference --lib caller_loss` from the
+repository root. Four tests cover authenticated role change: owned-future abort
+before mutation, full raw-socket loss before commit, full raw-socket loss while
+a successful inner response is held before exposure, and a loss-free control
+using the same framing and holds. The socket cases require an explicit
+non-panicking `Dropped` event before releasing the hold, not mere disappearance
+of a connection. Every case checks acknowledged tracked closure, independently
+reads state, and commits and reads back a third role through independent SQL to
+prove writer progress.
+
+The four tests passed on Linux with Axum 0.8.9, Hyper 1.11.1 and SQLx 0.9.0;
+four isolated mutants were caught with green controls. Workspace tests passed
+202 cases, including the reference library's 99. Strict Clippy, rustfmt, web
+verification and all three browser workflows passed. Commands, tool versions,
+mutant failures and isolation details are in the
+[dated decision](../../docs/decisions.md#observable-membership-caller-loss--october-2-2026).
+
+Only test hooks and evidence changed. These holds do not interrupt a commit or
+distinguish FIN from RST, cover removal, promise continued execution, or supply
+a receipt. A caller without a validated terminal response still has an unknown
+outcome. The older browser-withheld-response checks below remain distinct from
+these real socket-loss tests.
+
 ## Run it
 
 From the repository root, with Rust 1.98.1 and Node available (the tests start

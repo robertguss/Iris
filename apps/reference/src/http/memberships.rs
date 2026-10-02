@@ -393,6 +393,8 @@ pub(crate) fn collect() -> Vec<(Collected<AppState>, Mount)> {
 }
 
 #[cfg(test)]
+mod caller_loss;
+#[cfg(test)]
 pub(crate) mod list_tests;
 #[cfg(test)]
 pub(crate) mod tests;

@@ -1331,6 +1331,131 @@ remain intact. No contract, dependency, migration, CI or frozen experiment
 source changed. This records local Builder verification, not fresh Tester/Oracle
 acceptance, GitHub Actions results, merge or deployment.
 
+## Development-command CI and content regression — October 2, 2026
+
+ROB-1112 adds the foreground command
+`node --test apps/reference/scripts/test/dev.test.mjs` immediately after
+`Verify reference client` in the existing serial CI job, before both browser
+workflows. It uses normal failure propagation, with no condition, skip, retry,
+background process, deadline or pin change. This supersedes S18's original
+local-only CI exclusion; its September 30 observations and historical macOS
+measurements remain unchanged.
+
+The approved amendment corrects the relative-database test's inode assumption.
+Lead's actual Linux baseline was 21 passed and 1 failed: successful reset reused
+inode 1579119. Deletion and recreation permit reuse, so this was not evidence of
+a runtime defect. A shell tail had masked the failing Node status; every run
+below captured Node's exit code before reading its log tail.
+
+Behavioral assertions were written first. Alice signs in, reads Bob (user 29) in
+project 41 as editor, changes him to viewer using session CSRF and an
+authenticated POST, requires HTTP 200 and `data.completion = acknowledged`, and
+reads viewer. A fresh sign-in after restart reads viewer without rewriting it.
+Live reset still fails with the original status/log checks and a working proxy
+session; readback must remain viewer. After stopping, reset still succeeds with
+the original log checks; a fresh start and sign-in must read editor. The test
+explicitly stops successfully and checks that the ports are free. No runtime,
+dependency, filter or deadline changes ship.
+
+Mutation diagnostics used disposable source `/tmp/rob-1112-source`, absolute
+private target `/tmp/rob-1112-target`, isolated test databases and exclusive
+ports 4001, 3003 and 5175. Each mutant was independently restored, never
+layered. The checkout's target was not used. The diagnostic command was:
+
+```sh
+CARGO_TARGET_DIR=/tmp/rob-1112-target node --test \
+  --test-name-pattern='a relative database persists' \
+  /tmp/rob-1112-source/apps/reference/scripts/test/dev.test.mjs
+```
+
+| Run                                                                                                                                                  | Result                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Unchanged runtime control before mutations                                                                                                           | Exit 0; 1 passed, 0 failed                                                                                      |
+| Persistent binary startup calls `Storage::reset` instead of `Storage::open`                                                                          | Exit 1 at `after restart`: actual editor, expected viewer; initial sentinel setup passed                        |
+| Explicit reset calls `Storage::open` instead of `Storage::reset`                                                                                     | Exit 1 at `after stopped reset`: actual viewer, expected editor; live-refusal and success-log checks passed     |
+| Reset's `InUse` branch updates Bob to editor with existing SQLx, requires one affected row, closes the connection, then returns the original refusal | Exit 1 at `after refused reset`: actual editor, expected viewer; refusal/status/log/proxy-session checks passed |
+| Fully restored runtime control after mutations                                                                                                       | Exit 0; 1 passed, 0 failed                                                                                      |
+
+All three were compiled runtime mutants killed by the intended content
+assertions, not compilation, timeout, authentication or port failures. Raw
+diffs, logs and exit statuses were retained for Tester review; no mutation
+harness or runtime mutant is committed.
+
+Local Linux x64 acceptance used Node 26.10.0, Rust 1.98.1 and npm 10.9.9:
+
+```sh
+npm --prefix apps/reference/web ci
+# 57 packages installed; 0 vulnerabilities.
+CARGO_TARGET_DIR=/tmp/rob-1112-acceptance-target \
+  node --test apps/reference/scripts/test/dev.test.mjs
+# Exit 0: 22 passed, 0 failed, 0 skipped, 0 cancelled; 138.36 s.
+cargo fmt --all --check
+git diff --check
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  apps/reference/README.md docs/design-spec.md docs/decisions.md \
+  apps/reference/scripts/test/dev.test.mjs
+```
+
+Ports were free before and after acceptance. YAML parsing and structural
+comparison against the plan commit confirmed that the sole workflow change is
+the unconditional foreground step immediately after client verification, with
+both browser steps later and all existing configuration unchanged. Markdown/JS
+formatting and whitespace checks passed. An additional Prettier check of the
+workflow reports existing formatting differences on both the plan baseline and
+candidate; that unrelated YAML formatting was left untouched. These are local
+Builder results only; Lead must observe the actual Ubuntu Actions run, its
+tested SHA, all 22 tests, both later browser steps and the full job before
+recording Actions acceptance. No Actions result, independent Tester/Oracle
+acceptance, merge or deployment is claimed.
+
+### Colored readiness correction — October 2, 2026
+
+The preceding local results remain valid, but
+[Actions run 36961151968](https://github.com/robertguss/Iris/actions/runs/36961151968)
+at
+[`a4112b682438821ece8a46c7b7a53387715544d7`](https://github.com/robertguss/Iris/commit/a4112b682438821ece8a46c7b7a53387715544d7)
+failed with 21 passed and 1 failed. The relative-database/reset test passed. The
+readiness test had already observed `dev: ready` and HTTP 200 from the proxy,
+but its presence assertion at line 373 searched raw Vite output. ANSI sequences
+split both `Local:` and the URL, so the raw regex missed that line. The runtime
+supervisor already strips color when scanning readiness.
+
+The correction imports Node's `stripVTControlCharacters` and searches a local
+`readinessOutput` snapshot immediately before the `at` helper. Raw capture and
+diagnostics, all seven regexes, nonnegative indices, ordering, the final exact
+summary assertion and the HTTP assertion remain unchanged. No runtime,
+supervisor, `until`, color configuration, pins or deadlines changed.
+
+Test-first reproduction used disposable source and absolute private target
+directories. The first `FORCE_COLOR=1` run passed because this orb also exports
+`NO_COLOR` and Vite emitted no ANSI bytes; that was not counted as red evidence.
+Removing `NO_COLOR` from the diagnostic process environment, rather than setting
+it empty, produced a genuine colored Vite `Local` line containing `\u001b[22m`
+before the colon and `\u001b[1m` inside the URL. The old presence assertion then
+failed with Node exit 1 after readiness and HTTP 200 had passed. Applying the
+snapshot correction passed the same focused colored run with exit 0.
+
+A disposable replay extracted the candidate's actual assertion block and seven
+patterns. Both the genuine colored capture and its stripped form passed. For
+each form, deleting each of the seven required lines independently failed the
+presence assertion. Swapping web readiness and final `dev: ready` retained all
+seven matches but failed the order assertion. Raw captures, replay source and
+results, and direct Node statuses were retained; no diagnostic helper ships.
+
+```sh
+env -u NO_COLOR FORCE_COLOR=1 CARGO_TARGET_DIR=/tmp/rob-1112-color-target \
+  node --test apps/reference/scripts/test/dev.test.mjs
+# Exit 0: 22 passed, 0 failed, 0 skipped, 0 cancelled; 107.01 s.
+```
+
+This full acceptance run was unfiltered, with Node 26.10.0, Rust 1.98.1 and npm
+10.9.9. Ports 4001, 3003 and 5175 were exclusive and free before and after. Node
+statuses were saved before log tails. Rust formatting, whitespace and Prettier
+3.9.9 Markdown/JS checks passed. Prior local facts and historical evidence are
+unchanged. Fresh independent testing and an actual successful Actions run,
+including both later browser steps and the full job, remain for Lead; this
+correction does not claim Actions acceptance.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

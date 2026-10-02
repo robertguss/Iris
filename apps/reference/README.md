@@ -111,7 +111,8 @@ that database. A reset interrupted by a signal exits 1; run it again.
 
 The command's tests start it and its children on the same fixed ports, so they
 refuse to run while any is taken and must not run beside the browser workflow.
-They are not part of CI:
+CI runs them in the foreground immediately after reference client verification,
+before the browser workflows in the same serial job. To run them locally:
 
 ```sh
 node --test apps/reference/scripts/test/dev.test.mjs
@@ -378,8 +379,8 @@ and the
   classification is source-inspected only.
 - The client bundles the export it was built with, so client and server must
   ship from the same commit.
-- The development command's tests run only locally, on the command's fixed
-  ports; they are not part of CI.
+- The development command's tests use fixed ports locally and in CI; they must
+  own 4001, 3003 and 5175 exclusively and must not overlap browser workflows.
 - Ajv compiles validators with `new Function`; a strict content security policy
   would need precompiled validators. None is set here.
 - The browser workflows check selected paths in one browser, not every code.

@@ -244,9 +244,10 @@ identity mappings before contacting the configured provider or binding its
 listener. A populated table must contain at least one issuer exactly equal to
 `IRIS_OIDC_ISSUER`; other issuers may coexist, and subjects need not be the
 seeded names. The comparison does not normalize URLs, so a trailing slash is a
-different issuer. If no mapping matches, startup refuses without changing the
-database and first recommends restoring the matching issuer; its printed reset
-command is the explicitly destructive alternative. An empty mapping table warns
+different issuer. If no mapping matches, the read-only issuer check refuses
+startup and first recommends restoring the matching issuer; its printed reset
+command is the explicitly destructive alternative. `Storage::open` may already
+have applied pending migrations before that check. An empty mapping table warns
 and starts normally without seeding it. An inspection error is fatal.
 
 To reset a database by hand, run the server's reset rather than deleting its

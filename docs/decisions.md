@@ -2414,6 +2414,47 @@ still free, the one full rerun passed 22 of 22 in 108.7 seconds and left no
 owned child. No deadline, test filter, runtime policy, CI file, or assertion was
 changed.
 
+Oracle's follow-up found three test-harness weaknesses, with no production-guard
+change requested. Four focused tests were added first and failed to compile on
+the missing checkpoint, finish and accepted-connection APIs. The repaired
+observer now reads complete headers with a 4096-byte cap and two-second absolute
+deadline, applies bounded socket writes, returns worker failures, and cannot
+panic or block indefinitely in fallback cleanup. Every count assertion uses a
+bounded checkpoint that completes active work and drains queued connections
+through response flush. The new mismatch-recovery command test now prefixes the
+actual printed command with `exec`, owns that process and uses the suite's
+bounded stderr and exit helpers. The older reset-command tests are unchanged.
+The four focused fragmented-input, accepted-idle, safe-error-cleanup and
+synchronized-snapshot controls passed, followed by all 24 `dev_binary` tests.
+
+Fix-round verification used `CARGO_TARGET_DIR=/tmp/rob1118-healthy-target`: the
+reference package passed 144 (111 library, 2 contract, 24 development binary and
+7 identity), and the workspace passed 226. Workspace Clippy with all targets and
+features, rustfmt, pinned Prettier 3.9.9 and Git's whitespace check passed. The
+development-identity feature passed 10 library, 6 auth and 8 contract tests,
+with the explicitly fixture-dependent Mailpit test ignored. The reference client
+verifier passed 4 Rust fixture tests, 231 runtime, 51 presentation, 13
+request-construction and 11 transition cases, then built the client. Existing
+probes passed 31 caught and 25 controls, and the browser workflow passed. The
+unfiltered development-command suite passed 22 of 22 in 126.6 seconds; its first
+named case reported 18.8 seconds because the suite's global Cargo build is
+charged to that case.
+
+The repeated counterfactual campaign used the private source
+`/tmp/rob1118-fix-mutations/source` and an initially empty private target
+`/tmp/rob1118-fix-mutations/target`; no active target was copied. A pristine
+24-test build passed, and the integration binary was checked to embed that
+private target's `reference-dev` path before mutation results were accepted. One
+attempted repeat invoked Cargo from the checkout rather than the private source;
+its all-match mutant incorrectly passed, so that result and target were
+discarded before a fresh private-source build. They are not counted here.
+Requiring every issuer to match failed the mixed positive control; trimming a
+configured trailing slash reached provider validation instead of the exact
+guard; deleting memberships on refusal failed byte preservation. Each named
+mutant test exited 101 after compilation. Restoring the private production
+source returned all 24 tests to green. The private source, target and logs were
+then deleted.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

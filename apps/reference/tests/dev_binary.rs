@@ -9,7 +9,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -81,83 +81,360 @@ fn server_with(issuer: &str, args: &[&str]) -> (Owned, mpsc::Receiver<String>) {
 /// startup discovery only.
 struct DiscoveryObserver {
     issuer: String,
-    requests: Arc<AtomicUsize>,
+    commands: mpsc::Sender<ObserverCommand>,
+    accepted: mpsc::Receiver<()>,
     stopping: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
+
+enum ObserverCommand {
+    Checkpoint(mpsc::Sender<Result<usize, String>>),
+    Finish(mpsc::Sender<Result<usize, String>>),
+}
+
+const OBSERVER_WAIT: Duration = Duration::from_secs(2);
+const OBSERVER_IO_POLL: Duration = Duration::from_millis(20);
+const OBSERVER_HEADER_LIMIT: usize = 4096;
 
 impl DiscoveryObserver {
     fn start() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let issuer = format!("http://{}", listener.local_addr().unwrap());
-        let requests = Arc::new(AtomicUsize::new(0));
+        let (commands, command_rx) = mpsc::channel();
+        let (accepted_tx, accepted) = mpsc::channel();
         let stopping = Arc::new(AtomicBool::new(false));
         let thread_issuer = issuer.clone();
-        let thread_requests = requests.clone();
         let thread_stopping = stopping.clone();
         let thread = std::thread::spawn(move || {
-            while !thread_stopping.load(Ordering::SeqCst) {
+            let mut completed = 0;
+            let mut worker_error = None;
+            loop {
+                if let Ok(command) = command_rx.try_recv()
+                    && handle_observer_command(
+                        command,
+                        &listener,
+                        &thread_issuer,
+                        &accepted_tx,
+                        &thread_stopping,
+                        &mut completed,
+                        &mut worker_error,
+                    )
+                {
+                    break;
+                }
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let mut request = [0_u8; 4096];
-                        let read = stream.read(&mut request).unwrap();
-                        let request = String::from_utf8_lossy(&request[..read]);
-                        let body = if request.starts_with("GET /.well-known/openid-configuration ")
-                        {
-                            json!({
-                                "issuer": thread_issuer,
-                                "authorization_endpoint": format!("{thread_issuer}/authorize"),
-                                "token_endpoint": format!("{thread_issuer}/token"),
-                                "jwks_uri": format!("{thread_issuer}/jwks"),
-                                "response_types_supported": ["code"],
-                                "subject_types_supported": ["public"],
-                                "id_token_signing_alg_values_supported": ["RS256"],
-                                "grant_types_supported": ["authorization_code"],
-                                "code_challenge_methods_supported": ["S256"],
-                                "token_endpoint_auth_methods_supported": ["none"]
-                            })
-                            .to_string()
-                        } else if request.starts_with("GET /jwks ") {
-                            json!({"keys": []}).to_string()
-                        } else {
-                            panic!("unexpected discovery request: {request}");
-                        };
-                        write!(
-                            stream,
-                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
-                             content-length: {}\r\nconnection: close\r\n\r\n{body}",
-                            body.len()
-                        )
-                        .unwrap();
-                        stream.flush().unwrap();
-                        thread_requests.fetch_add(1, Ordering::SeqCst);
+                        let _ = accepted_tx.send(());
+                        observe_connection(
+                            &mut stream,
+                            &thread_issuer,
+                            &thread_stopping,
+                            true,
+                            &mut completed,
+                            &mut worker_error,
+                        );
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(5));
+                        match command_rx.recv_timeout(OBSERVER_IO_POLL) {
+                            Ok(command) => {
+                                if handle_observer_command(
+                                    command,
+                                    &listener,
+                                    &thread_issuer,
+                                    &accepted_tx,
+                                    &thread_stopping,
+                                    &mut completed,
+                                    &mut worker_error,
+                                ) {
+                                    break;
+                                }
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
                     }
-                    Err(error) => panic!("discovery observer: {error}"),
+                    Err(error) => {
+                        worker_error.get_or_insert_with(|| {
+                            format!("discovery observer accept failed: {error}")
+                        });
+                    }
                 }
             }
         });
         Self {
             issuer,
-            requests,
+            commands,
+            accepted,
             stopping,
             thread: Some(thread),
         }
     }
 
-    fn count(&self) -> usize {
-        self.requests.load(Ordering::SeqCst)
+    fn checkpoint(&self) -> Result<usize, String> {
+        let (send, receive) = mpsc::channel();
+        self.commands
+            .send(ObserverCommand::Checkpoint(send))
+            .map_err(|_| "discovery observer worker stopped".to_owned())?;
+        receive
+            .recv_timeout(OBSERVER_WAIT)
+            .map_err(|_| "discovery observer checkpoint timed out".to_owned())?
+    }
+
+    fn wait_for_accept(&self) -> Result<(), String> {
+        self.accepted
+            .recv_timeout(OBSERVER_WAIT)
+            .map_err(|_| "discovery observer did not accept a connection".to_owned())
+    }
+
+    fn finish(mut self) -> Result<usize, String> {
+        self.shutdown()
+    }
+
+    fn shutdown(&mut self) -> Result<usize, String> {
+        self.stopping.store(true, Ordering::SeqCst);
+        let (send, receive) = mpsc::channel();
+        self.commands
+            .send(ObserverCommand::Finish(send))
+            .map_err(|_| "discovery observer worker stopped".to_owned())?;
+        let result = receive
+            .recv_timeout(OBSERVER_WAIT)
+            .map_err(|_| "discovery observer shutdown timed out".to_owned());
+        if result.is_ok()
+            && let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            return Err("discovery observer worker panicked".to_owned());
+        }
+        result?
     }
 }
 
 impl Drop for DiscoveryObserver {
     fn drop(&mut self) {
-        self.stopping.store(true, Ordering::SeqCst);
-        self.thread.take().unwrap().join().unwrap();
+        let _ = self.shutdown();
+        // A timed-out worker is detached rather than making cleanup block or
+        // panic while another assertion is already unwinding.
+        let _ = self.thread.take();
     }
+}
+
+fn handle_observer_command(
+    command: ObserverCommand,
+    listener: &TcpListener,
+    issuer: &str,
+    accepted: &mpsc::Sender<()>,
+    stopping: &AtomicBool,
+    completed: &mut usize,
+    worker_error: &mut Option<String>,
+) -> bool {
+    let (reply, finish) = match command {
+        ObserverCommand::Checkpoint(reply) => (reply, false),
+        ObserverCommand::Finish(reply) => (reply, true),
+    };
+    let deadline = Instant::now() + OBSERVER_WAIT;
+    loop {
+        if Instant::now() >= deadline {
+            worker_error.get_or_insert_with(|| {
+                "discovery observer queued-connection drain timed out".to_owned()
+            });
+            break;
+        }
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let _ = accepted.send(());
+                observe_connection(
+                    &mut stream,
+                    issuer,
+                    stopping,
+                    false,
+                    completed,
+                    worker_error,
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => {
+                worker_error.get_or_insert_with(|| {
+                    format!("discovery observer accept failed while draining: {error}")
+                });
+                break;
+            }
+        }
+    }
+    let result = match worker_error {
+        Some(error) => Err(error.clone()),
+        None => Ok(*completed),
+    };
+    let _ = reply.send(result);
+    finish
+}
+
+fn observe_connection(
+    stream: &mut TcpStream,
+    issuer: &str,
+    stopping: &AtomicBool,
+    abort_on_stop: bool,
+    completed: &mut usize,
+    worker_error: &mut Option<String>,
+) {
+    match respond_to_discovery(stream, issuer, stopping, abort_on_stop) {
+        Ok(true) => *completed += 1,
+        Ok(false) => {}
+        Err(error) => {
+            worker_error.get_or_insert(error);
+        }
+    }
+}
+
+fn respond_to_discovery(
+    stream: &mut TcpStream,
+    issuer: &str,
+    stopping: &AtomicBool,
+    abort_on_stop: bool,
+) -> Result<bool, String> {
+    let deadline = Instant::now() + OBSERVER_WAIT;
+    let mut request = Vec::new();
+    while !request.ends_with(b"\r\n\r\n") {
+        if request.len() == OBSERVER_HEADER_LIMIT {
+            return Err(format!(
+                "discovery observer request exceeded {OBSERVER_HEADER_LIMIT}-byte header limit"
+            ));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("discovery observer request header timed out".to_owned());
+        }
+        stream
+            .set_read_timeout(Some(remaining.min(OBSERVER_IO_POLL)))
+            .map_err(|error| format!("discovery observer read timeout setup failed: {error}"))?;
+        let mut buffer = [0_u8; 512];
+        let capacity = (OBSERVER_HEADER_LIMIT - request.len()).min(buffer.len());
+        match stream.read(&mut buffer[..capacity]) {
+            Ok(0) => {
+                return Err("discovery observer request ended before complete headers".to_owned());
+            }
+            Ok(read) => request.extend_from_slice(&buffer[..read]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if abort_on_stop && stopping.load(Ordering::SeqCst) {
+                    return Ok(false);
+                }
+            }
+            Err(error) => return Err(format!("discovery observer read failed: {error}")),
+        }
+    }
+    let request = String::from_utf8_lossy(&request);
+    let body = if request.starts_with("GET /.well-known/openid-configuration ") {
+        json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/authorize"),
+            "token_endpoint": format!("{issuer}/token"),
+            "jwks_uri": format!("{issuer}/jwks"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"]
+        })
+        .to_string()
+    } else if request.starts_with("GET /jwks ") {
+        json!({"keys": []}).to_string()
+    } else {
+        return Err(format!("unexpected discovery request: {request}"));
+    };
+    let response = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+         content-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let mut written = 0;
+    while written < response.len() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("discovery observer response write timed out".to_owned());
+        }
+        stream
+            .set_write_timeout(Some(remaining.min(OBSERVER_IO_POLL)))
+            .map_err(|error| format!("discovery observer write timeout setup failed: {error}"))?;
+        match stream.write(&response.as_bytes()[written..]) {
+            Ok(0) => return Err("discovery observer response write made no progress".to_owned()),
+            Ok(count) => written += count,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => return Err(format!("discovery observer response write failed: {error}")),
+        }
+    }
+    stream
+        .flush()
+        .map_err(|error| format!("discovery observer response flush failed: {error}"))?;
+    Ok(true)
+}
+
+fn observer_stream(observer: &DiscoveryObserver) -> TcpStream {
+    TcpStream::connect(observer.issuer.strip_prefix("http://").unwrap()).unwrap()
+}
+
+#[test]
+fn discovery_observer_reads_fragmented_headers() {
+    let observer = DiscoveryObserver::start();
+    let mut stream = observer_stream(&observer);
+    stream.write_all(b"GET /.well-known/openid").unwrap();
+    stream
+        .write_all(b"-configuration HTTP/1.1\r\nhost: fixture\r\n\r\n")
+        .unwrap();
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    assert_eq!(observer.checkpoint().unwrap(), 1);
+    assert_eq!(observer.finish().unwrap(), 1);
+}
+
+#[test]
+fn discovery_observer_shutdown_is_bounded_with_an_accepted_idle_socket() {
+    let observer = DiscoveryObserver::start();
+    let _idle = observer_stream(&observer);
+    observer.wait_for_accept().unwrap();
+    let started = Instant::now();
+    assert_eq!(observer.finish().unwrap(), 0);
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn discovery_observer_surfaces_worker_errors_without_panicking_on_cleanup() {
+    let cleanup = std::panic::catch_unwind(|| {
+        let observer = DiscoveryObserver::start();
+        let mut stream = observer_stream(&observer);
+        stream.write_all(&vec![b'x'; 4097]).unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let error = observer.checkpoint().unwrap_err();
+        assert!(error.contains("header limit"), "{error}");
+        drop(observer);
+    });
+    assert!(cleanup.is_ok(), "observer cleanup panicked");
+}
+
+#[test]
+fn discovery_observer_checkpoint_drains_queued_completed_requests() {
+    let observer = DiscoveryObserver::start();
+    let mut stream = observer_stream(&observer);
+    stream
+        .write_all(b"GET /jwks HTTP/1.1\r\nhost: fixture\r\n\r\n")
+        .unwrap();
+    assert_eq!(observer.checkpoint().unwrap(), 1);
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.contains("{\"keys\":[]}"), "{response}");
+    assert_eq!(observer.finish().unwrap(), 1);
 }
 
 fn persistent_args(path: &Path) -> [&str; 3] {
@@ -654,7 +931,11 @@ async fn issuer_mapping_guard_is_exact_and_does_not_reseed() {
     drop(storage);
 
     start_and_stop(&path, &configured);
-    assert_eq!(configured.count(), 2, "exact issuer discovery is completed");
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        2,
+        "exact issuer discovery is completed"
+    );
 
     replace_identities(
         &path,
@@ -665,12 +946,16 @@ async fn issuer_mapping_guard_is_exact_and_does_not_reseed() {
     )
     .await;
     start_and_stop(&path, &configured);
-    assert_eq!(configured.count(), 4, "one exact mapping is sufficient");
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        4,
+        "one exact mapping is sufficient"
+    );
 
     replace_identities(&path, &[(&configured.issuer, "custom-subject", 11)]).await;
     start_and_stop(&path, &configured);
     assert_eq!(
-        configured.count(),
+        configured.checkpoint().unwrap(),
         6,
         "custom subjects do not affect issuer matching"
     );
@@ -684,7 +969,11 @@ async fn issuer_mapping_guard_is_exact_and_does_not_reseed() {
                 && line.contains("does not seed")),
         "{output:?}"
     );
-    assert_eq!(configured.count(), 8, "empty database still discovers");
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        8,
+        "empty database still discovers"
+    );
     let mut conn = iris_reference::app::connect(&path).await.unwrap();
     let identities: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM iris_external_identities")
         .fetch_one(&mut conn)
@@ -707,10 +996,14 @@ async fn issuer_mapping_guard_is_exact_and_does_not_reseed() {
         "{output}"
     );
     assert!(!output.contains("Address already in use"), "{output}");
-    assert_eq!(missing.count(), 0, "missing issuer must not be contacted");
+    assert_eq!(
+        missing.checkpoint().unwrap(),
+        0,
+        "missing issuer must not be contacted"
+    );
 
     replace_identities(&path, &[(&configured.issuer, "custom", 11)]).await;
-    let requests = configured.count();
+    let requests = configured.checkpoint().unwrap();
     let trailing = format!("{}/", configured.issuer);
     let output = refused_with_held_port(&path, &trailing);
     assert!(
@@ -718,7 +1011,7 @@ async fn issuer_mapping_guard_is_exact_and_does_not_reseed() {
         "{output}"
     );
     assert_eq!(
-        configured.count(),
+        configured.checkpoint().unwrap(),
         requests,
         "trailing-slash mismatch must precede discovery"
     );
@@ -774,7 +1067,11 @@ async fn mismatch_preserves_the_closed_database_and_printed_recovery_works() {
         "{output}"
     );
     assert!(!output.contains("listening on"), "{output}");
-    assert_eq!(replacement.count(), 0, "mismatch must precede discovery");
+    assert_eq!(
+        replacement.checkpoint().unwrap(),
+        0,
+        "mismatch must precede discovery"
+    );
     assert!(
         std::fs::read(&path).unwrap() == before_bytes,
         "database bytes changed during mismatch refusal"
@@ -799,17 +1096,19 @@ async fn mismatch_preserves_the_closed_database_and_printed_recovery_works() {
         binary.parent().unwrap().display(),
         std::env::var("PATH").unwrap()
     );
-    let reset_output = Command::new("sh")
-        .args(["-c", reset])
-        .env("PATH", search)
-        .env("IRIS_OIDC_ISSUER", &replacement.issuer)
-        .output()
-        .unwrap();
-    assert!(
-        reset_output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&reset_output.stderr)
+    let reset = format!("exec {reset}");
+    let mut reset_process = Owned(
+        Command::new("sh")
+            .args(["-c", &reset])
+            .env("PATH", search)
+            .env("IRIS_OIDC_ISSUER", &replacement.issuer)
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
     );
+    let reset_stderr = lines(reset_process.0.stderr.take().unwrap());
+    let (reset_code, reset_output) = code(&mut reset_process, reset_stderr);
+    assert_eq!(reset_code, Some(0), "{reset}: {reset_output}");
 
     let mut conn = iris_reference::app::connect(&path).await.unwrap();
     let issuers: Vec<String> =
@@ -834,7 +1133,7 @@ async fn mismatch_preserves_the_closed_database_and_printed_recovery_works() {
     assert_eq!(user(&http, &reset_address, &cookie).await, Value::Null);
     signal(&reset_server, "TERM");
     assert_eq!(code(&mut reset_server, stderr).0, Some(0));
-    assert_eq!(replacement.count(), 2);
+    assert_eq!(replacement.checkpoint().unwrap(), 2);
 }
 
 #[tokio::test]
@@ -868,7 +1167,7 @@ async fn identity_inspection_errors_refuse_before_discovery_and_release_ownershi
         !output.contains("no matching IRIS_OIDC_ISSUER identity mappings"),
         "{output}"
     );
-    assert_eq!(observer.count(), 0);
+    assert_eq!(observer.checkpoint().unwrap(), 0);
 
     let mut conn = iris_reference::app::connect(&path).await.unwrap();
     sqlx::query("ALTER TABLE hidden_identities RENAME TO iris_external_identities")
@@ -877,7 +1176,7 @@ async fn identity_inspection_errors_refuse_before_discovery_and_release_ownershi
         .unwrap();
     conn.close().await.unwrap();
     start_and_stop(&path, &observer);
-    assert_eq!(observer.count(), 2);
+    assert_eq!(observer.checkpoint().unwrap(), 2);
 }
 
 /// Sends `name` (TERM or INT) to a running server.

@@ -3465,6 +3465,16 @@ earlier operational advice that any different issuer requires reset; reset is
 now only the intentional-discard option after restoring a matching issuer has
 been considered.
 
+The integration observer synchronizes every request-count assertion with a
+bounded worker checkpoint. A checkpoint finishes active work and drains queued
+connections through response flush before returning either the completed count
+or the first worker error. The fixture reads complete HTTP headers under a fixed
+size cap and absolute deadline, bounds response writes, and has non-panicking,
+bounded fallback cleanup. Focused controls cover fragmented headers, an accepted
+idle socket, worker-error cleanup and a queued request at snapshot time. The
+mismatch recovery test runs the diagnostic's actual printed command with `exec`,
+under the same bounded child ownership used elsewhere in the suite.
+
 ### Review of the lifecycle proposal
 
 The oracle, Astra (GPT-6 through Codex), reviewed S18 at `f83688e` under the

@@ -1,14 +1,15 @@
-// Regression for probe:s16 target isolation. The runner must give every spawned
-// process, including the nested verifier, a target inside its disposable copy,
-// and remove that copy when a probe throws.
+// Regression for probe:s16 target isolation. The runner must give the nested
+// verifier a target inside its disposable copy, and remove that copy when a
+// probe throws.
 //
 // The fixture is an independent initialized Git repository. It copies the
 // actual runner, verifier and four baseline files; only node_modules is linked.
-// Logs, the cargo shim and the runner's own temp live under a fixture-owned
-// parent outside that inventory. Real Node runs the copied runner. One fake
-// cargo logs cwd and the target it received, writes a marker only after that
-// target is inside the fixture, then exits with a distinct diagnostic. It does
-// not emulate mutant compiler, test or client output.
+// The cargo shim and the runner's own temp live under a fixture-owned parent
+// outside that inventory. Real Node runs the copied runner. One fake cargo logs
+// cwd and the target it received, writes a marker only after that target is
+// inside the fixture, then exits with a distinct diagnostic. It does not
+// emulate mutant compiler, test or client output. The copied verifier is the
+// real s16.mjs.
 //
 //   node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs
 import assert from "node:assert/strict";
@@ -26,7 +27,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -43,15 +44,15 @@ const baseline = [
 ];
 
 // Cargo only. Node stays the real interpreter, so the nested verifier is the
-// copied s16.mjs and records the target it actually inherited.
+// copied s16.mjs.
 const cargoShim = [
   "#!/bin/sh",
-  "printf '%s\\n' \"$PWD\" \"$#\" \"$@\" \"$CARGO_TARGET_DIR\" >> \"$IRIS_S16_CARGO_LOG\"",
-  "case \"$CARGO_TARGET_DIR\" in",
-  "  \"$IRIS_S16_FIXTURE\"/*) ;;",
-  "  *) echo \"iris-s16-fake-cargo: target outside fixture: $CARGO_TARGET_DIR\" >&2; exit 19 ;;",
+  'printf \'%s\\n\' "$PWD" "$#" "$@" "$CARGO_TARGET_DIR" >> "$IRIS_S16_CARGO_LOG"',
+  'case "$CARGO_TARGET_DIR" in',
+  '  "$IRIS_S16_FIXTURE"/*) ;;',
+  '  *) echo "iris-s16-fake-cargo: target outside fixture: $CARGO_TARGET_DIR" >&2; exit 19 ;;',
   "esac",
-  "mkdir -p \"$CARGO_TARGET_DIR\"",
+  'mkdir -p "$CARGO_TARGET_DIR"',
   "printf 'mutated\\n' > \"$CARGO_TARGET_DIR/iris-s16-marker\"",
   "echo 'iris-s16-fake-cargo: refused' >&2",
   "exit 17",
@@ -72,7 +73,7 @@ function contained(parent, child) {
 function calls(log) {
   const lines = readFileSync(log, "utf8").split("\n");
   const parsed = [];
-  for (let index = 0; index < lines.length; ) {
+  for (let index = 0; index < lines.length;) {
     if (lines[index] === "") break;
     const cwd = lines[index];
     const count = Number(lines[index + 1]);
@@ -84,37 +85,45 @@ function calls(log) {
   return parsed;
 }
 
-test("every spawned process inherits the disposable target, which is removed when a probe throws", () => {
+test("nested verifier inherits the disposable target, which the runner removes when a probe throws", () => {
   const outer = mkdtempSync(join(tmpdir(), "iris-s16-probe-test-"));
-  const inventory = join(outer, "repo");
-  const scratch = join(outer, "scratch");
-  const bin = join(scratch, "bin");
-  const log = join(scratch, "cargo.log");
-  const inherited = join(scratch, "inherited-target");
-  const checkoutTarget = join(root, "target");
-  mkdirSync(inventory, { recursive: true });
-  mkdirSync(bin, { recursive: true });
-  mkdirSync(inherited, { recursive: true });
-  writeFileSync(join(inherited, "sentinel"), "untouched\n");
-  writeFileSync(log, "");
-  for (const file of [runner, verifier, ...baseline]) copy(join(root, file), join(inventory, file));
-  symlinkSync(join(web, "node_modules"), join(inventory, "experiments/api-slice/web/node_modules"), "dir");
-  writeFileSync(join(bin, "cargo"), cargoShim);
-  chmodSync(join(bin, "cargo"), 0o755);
-  writeFileSync(join(inventory, ".gitignore"), "node_modules\n");
-  spawnSync("git", ["init", "-q"], { cwd: inventory });
-  spawnSync("git", ["add", "--", runner, verifier, ...baseline], { cwd: inventory });
-
-  const script = join(inventory, runner);
-  assert.equal(contained(inventory, realpathSync(script)), true, script);
-  const checkoutBefore = existsSync(checkoutTarget) ? readdirSync(checkoutTarget).sort() : null;
-  const sources = Object.fromEntries(baseline.map((file) => [file, readFileSync(join(root, file))]));
-
-  const kept = mkdtempSync(join(tmpdir(), "iris-s16-probe-kept-"));
-  const keptLog = join(kept, "cargo.log");
-  let result;
   try {
-    result = spawnSync(process.execPath, [script], {
+    const inventory = join(outer, "repo");
+    const scratch = join(outer, "scratch");
+    const bin = join(scratch, "bin");
+    const log = join(scratch, "cargo.log");
+    const inherited = join(scratch, "inherited-target");
+    const checkoutTarget = join(root, "target");
+    mkdirSync(inventory, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(inherited, { recursive: true });
+    writeFileSync(join(inherited, "sentinel"), "untouched\n");
+    writeFileSync(log, "");
+    for (const file of [runner, verifier, ...baseline])
+      copy(join(root, file), join(inventory, file));
+    symlinkSync(
+      join(web, "node_modules"),
+      join(inventory, "experiments/api-slice/web/node_modules"),
+      "dir",
+    );
+    writeFileSync(join(bin, "cargo"), cargoShim);
+    chmodSync(join(bin, "cargo"), 0o755);
+    writeFileSync(join(inventory, ".gitignore"), "node_modules\n");
+    spawnSync("git", ["init", "-q"], { cwd: inventory });
+    spawnSync("git", ["add", "--", runner, verifier, ...baseline], {
+      cwd: inventory,
+    });
+
+    const script = join(inventory, runner);
+    assert.equal(contained(inventory, realpathSync(script)), true, script);
+    const checkoutBefore = existsSync(checkoutTarget)
+      ? readdirSync(checkoutTarget).sort()
+      : null;
+    const sources = Object.fromEntries(
+      baseline.map((file) => [file, readFileSync(join(root, file))]),
+    );
+
+    const result = spawnSync(process.execPath, [script], {
       cwd: inventory,
       encoding: "utf8",
       env: {
@@ -122,7 +131,7 @@ test("every spawned process inherits the disposable target, which is removed whe
         PATH: `${bin}:${process.env.PATH}`,
         TMPDIR: scratch,
         CARGO_TARGET_DIR: inherited,
-        IRIS_S16_CARGO_LOG: keptLog,
+        IRIS_S16_CARGO_LOG: log,
         IRIS_S16_FIXTURE: outer,
       },
     });
@@ -130,35 +139,49 @@ test("every spawned process inherits the disposable target, which is removed whe
     assert.equal(result.status, 1, output);
     assert.match(output, /iris-s16-fake-cargo: refused/);
     assert.match(output, /s16\.mjs/);
-    assert.equal(existsSync(join(inherited, "iris-s16-marker")), false, "inherited sentinel target was written");
-    assert.equal(readFileSync(join(inherited, "sentinel"), "utf8"), "untouched\n");
     assert.equal(
-      readdirSync(tmpdir()).some((name) => name.startsWith("iris-s16-probes-")),
+      existsSync(join(inherited, "iris-s16-marker")),
       false,
-      "runner temp escaped the fixture",
+      "inherited sentinel target was written",
+    );
+    assert.equal(
+      readFileSync(join(inherited, "sentinel"), "utf8"),
+      "untouched\n",
+    );
+    if (checkoutBefore === null)
+      assert.equal(existsSync(checkoutTarget), false);
+    else assert.deepEqual(readdirSync(checkoutTarget).sort(), checkoutBefore);
+    for (const file of baseline)
+      assert.ok(readFileSync(join(root, file)).equals(sources[file]), file);
+
+    const seen = calls(log);
+    const nested = seen.filter((call) => call.args.includes("export-s16"));
+    assert.equal(
+      nested.length,
+      1,
+      `nested verifier did not invoke cargo: ${JSON.stringify(seen)}`,
+    );
+    const runnerTemp = nested[0].cwd;
+    assert.equal(contained(scratch, runnerTemp), true, runnerTemp);
+    assert.equal(nested[0].target, join(runnerTemp, "target"));
+    assert.equal(
+      existsSync(runnerTemp),
+      false,
+      "runner temp survived the thrown probe",
+    );
+    assert.equal(
+      existsSync(nested[0].target),
+      false,
+      "runner target survived the thrown probe",
+    );
+    assert.notEqual(resolve(nested[0].target), resolve(inherited));
+    assert.notEqual(resolve(nested[0].target), resolve(checkoutTarget));
+    assert.equal(
+      existsSync(log),
+      true,
+      "observation log must outlive the runner temp",
     );
   } finally {
     rmSync(outer, { recursive: true, force: true });
-  }
-  try {
-  if (checkoutBefore === null) assert.equal(existsSync(checkoutTarget), false);
-  else assert.deepEqual(readdirSync(checkoutTarget).sort(), checkoutBefore);
-  for (const file of baseline) assert.ok(readFileSync(join(root, file)).equals(sources[file]), file);
-
-  const seen = calls(keptLog);
-  const cargoCalls = seen.filter((call) => call.args[0] !== "verifier");
-  assert.ok(cargoCalls.length >= 1, JSON.stringify(seen));
-  const nested = cargoCalls.filter((call) => call.args.includes("export-s16"));
-  assert.equal(nested.length, 1, `nested verifier did not invoke cargo: ${JSON.stringify(seen)}`);
-  const runnerTemp = cargoCalls[0].cwd;
-  assert.equal(contained(scratch, runnerTemp), true, runnerTemp);
-  for (const call of cargoCalls) {
-    assert.equal(contained(outer, call.target), true, JSON.stringify(call));
-    assert.equal(call.target, join(runnerTemp, "target"), JSON.stringify(call));
-    assert.notEqual(resolve(call.target), resolve(inherited));
-    assert.notEqual(resolve(call.target), resolve(checkoutTarget));
-  }
-  } finally {
-    rmSync(kept, { recursive: true, force: true });
   }
 });

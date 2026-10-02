@@ -1543,6 +1543,111 @@ evidence, checks local links/anchors and whitespace, and uses pinned Prettier
 measurements are claimed for ROB-1113; implementation evidence must be recorded
 when those later stages actually run.
 
+## Reference omission parity — October 2, 2026
+
+ROB-1114 extends the existing reference runner rather than adding a probe
+engine. The [complete mapping](design-spec.md#reference-omission-parity) covers
+all frozen S16 omitted-edit families and their controls. The application,
+library, committed OpenAPI/generated TypeScript, dependency manifests and frozen
+experiments are unchanged. No experiment is retired. The sole CI change moves
+the existing reference-probe step after reference-client verification and the
+development-command tests, which supply installed web dependencies first.
+
+The tests distinguish the suspected mistakes before accepting their evidence:
+adding a shared refusal must reach both domain operations and actual exported
+response branches; the independent compatibility expectations deliberately stay
+unchanged. A status change must first fail Rust contracts, then stale generated
+types, then obsolete TypeScript handling, with a passing two-branch repair.
+Generation uses a temporary web-directory Node child and
+`openapiTS`/`astToString` only: `npm generate` would run unchanged Rust
+expectations before the intended TypeScript signal. Projector completion
+compiles. An otherwise valid mounted request passes with 200 before a
+router-fold-only omission produces raw 404; both contract integration tests
+still pass. This is stronger than the frozen runner's empty-layer panic. CSRF
+declaration removal filters only the mapping, not the method exemption, while
+producer-linkage removal leaves export intact and fails the runtime envelope
+assertion.
+
+All touched baseline bytes, including generated files and temporary tests, are
+registered before writes; reset restores and compares them. `Fixture::new`
+preserves the storage-exclusive child-spawn guard. Named behavioral failures and
+their diagnostics are required, including bare integration-test names; spawn
+errors, signals and zero tests cannot satisfy them. A full fake-output emulator
+was not added: actual Rust, export, TypeScript and web executions are the
+discriminating checks. The runner copies dependencies because symlinking
+`node_modules` lets Vite write its temporary configuration into the checkout.
+Executable symlinks retain their relative targets inside that copy. Cargo uses
+copied registry/git caches offline in a private home; nested verifiers inherit
+the private target and temporary directory, not the caller's fixture path.
+
+Verification used Linux, Rust 1.98.1, Node 26.10.0 and the locked reference web
+dependencies, installed with `npm --prefix apps/reference/web ci` outside the
+runner. The first separate healthy baseline command was:
+
+```sh
+env -u IRIS_REFERENCE_FIXTURES \
+  CARGO_TARGET_DIR=/tmp/rob1114-evidence/healthy-target \
+  cargo test --quiet --locked -p iris -p iris-reference
+```
+
+It failed before mutations: 98 reference library tests passed and
+`lifecycle::tests::session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outlives_a_busy_tick`
+failed at `apps/reference/src/lifecycle/tests.rs:477:14` with:
+
+```text
+called `Result::unwrap()` on an `Err` value: Database(SqliteError { code: 5, message: "database is locked" })
+```
+
+An unchanged rerun passed. This does not diagnose or fix the lock failure; no
+lifecycle test or runtime was changed. The first runner attempt also failed
+closed when an older missing-variant diagnostic matcher did not match Rust
+1.98.1's actual E0599 wording. The final matcher names the exact missing
+`ProjectArchived` variant diagnostic. That failed attempt removed its owned copy
+and left inherited target/fixture sentinels intact.
+
+The full isolated command was run with conflicting inherited paths containing
+sentinels, and an unrelated sibling sentinel beside the runner's owned copies:
+
+```sh
+/usr/bin/time -p env \
+  TMPDIR=/tmp/rob1114-evidence/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-evidence/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-evidence/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+One complete run passed **31 caught probes and 25 controls in 216.10 s**,
+including the initial and final full Rust/web controls. Healthy Rust comprises
+34 library tests, 99 reference library tests, 2 contract tests, 12 development
+tests and 7 session tests (154 total). Web verification runs 4 captured-response
+Rust tests, 231 client cases, 51 presentation cases, 13 request/readback cases,
+11 directory cases, typechecking and the Vite build. The separate unchanged
+healthy Rust rerun and `node apps/reference/web/scripts/verify.mjs` also passed
+on `/tmp/rob1114-evidence/healthy-target` before that complete run.
+
+The final version then changed only evidence printing, to show actual matched
+multiline diagnostics rather than their regex text. Its repeat took 212.42 s,
+caught all 31 negatives and passed 23 controls, but **failed the final restored
+healthy Rust control**, with 98 reference library passes and the same lifecycle
+test's SQLite code 5 error, this time at `lifecycle/tests.rs:472:10`. The exact
+child command remained `cargo test --quiet --locked -p iris -p iris-reference`,
+with its runner-private target and home. The web control after it did not run;
+no PASS was emitted. Further retries stopped for separate diagnosis, with no
+lifecycle changes or weakened checks. A separate post-run healthy Rust/web
+check, fresh-candidate independent verification and full CI remain outstanding;
+this is not a verified final candidate.
+
+After both runs, 128 tracked source/generated/frozen-file SHA-256 hashes stayed
+unchanged; after the final run, 3,036 installed dependency-file hashes and their
+file inventory also matched. Both inherited directories contained only their
+unchanged sentinels, the unrelated sibling survived, and each specifically named
+owned copy was absent. The checkout's `target` remained absent. These are
+owned-path checks, not a global temporary-directory scan or a forced-termination
+cleanup claim. `node --check` and `git diff --check` passed. Documentation uses
+pinned Prettier 3.9.9, width 80, prose wrapping always. No browser workflow,
+workspace-wide suite, Clippy or frozen suite was rerun for this runner-only
+change; none is claimed as evidence here.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

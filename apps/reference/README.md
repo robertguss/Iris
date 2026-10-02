@@ -383,11 +383,37 @@ per page load.
 ## Omission probes
 
 `scripts/probes.mjs` edits a disposable source copy, builds it in its own
-temporary target, and removes both on exit. It never edits the checkout. It ran
-in 72 s locally with a cold target after the current-state read probes were
-added (1 min 24 s on an earlier run with checkpoint B's; 39 s before them). The
-checkpoint B probes require their named independent tests to fail, and a probe
-whose edit changed nothing makes the script fail.
+temporary target, and removes both on exit. It never edits the checkout. Install
+dependencies as setup before running it; the runner never installs packages:
+
+```sh
+cargo fetch --locked
+npm --prefix apps/reference/web ci
+node apps/reference/scripts/probes.mjs
+```
+
+The runner copies installed web dependencies (not a symlink, because Vite writes
+inside `node_modules`) and Cargo registry/git caches. Cargo runs offline with a
+private home; build, cache and fixture writes stay disposable. Direct and nested
+commands override inherited `CARGO_TARGET_DIR`, and inherited
+`IRIS_REFERENCE_FIXTURES` is removed. Allow disk space for a cold target and the
+dependency copies. Both before the first mutation and after byte-for-byte
+restoration, it runs `cargo test --quiet --locked -p iris -p iris-reference` and
+the real web verifier. Behavioral negatives require the named failing test and
+its intended diagnostic; compilation failures or zero tests do not count. `PASS`
+is printed only after cleanup succeeds, not before `finally`.
+
+The
+[complete S16-to-reference mapping](../../docs/design-spec.md#reference-omission-parity)
+adds shared-rejection omissions, status/export/generated-client drift, required
+success projection, raw DTO bypass, runtime mounting and both CSRF directions to
+the existing checks below. A valid mounted request first passes with 200; its
+omitted-mount variant asserts raw 404 versus 200 before attempting to decode an
+envelope. The declared inventory and export remain valid in that variant. The
+[dated evidence](../../docs/decisions.md#reference-omission-parity--october-2-2026)
+records commands, counts, timings and limits. Historical timings before these
+additions were 72 s after current-state reads, 84 s with checkpoint B, and 39 s
+for checkpoint A. Frozen experiments remain unchanged and in CI.
 
 | Temporary change                                           | Executed signal                                                              |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |

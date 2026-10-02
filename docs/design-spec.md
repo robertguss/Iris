@@ -2130,6 +2130,53 @@ Expectations are written independently of descriptor-generated fixtures (S12).
 | Probes                 | Extend the omitted-edit probes with a changed GET parameter bound and an omitted visibility predicate that an independent test, not the compiler, catches                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Current-state read     | Assembly fails on each unsupported declaration: the descriptor's shape; an unresolved or non-Iris target; a non-GET target or one with recovery; a missing or extra binding; a required parameter outside the path; a body field that is undeclared, optional or of a different schema. A hand-written recovery contract for both mutations; the client refuses any recovery shape it does not support; exact unconfirmed wording. Committed mutations whose responses are withheld, read back showing a matching role, an absent member and a 403 after self-removal, each resolving nothing and resending nothing |
 
+### Reference omission parity
+
+The reference [runner](../apps/reference/scripts/probes.mjs) carries the
+remaining frozen S16 omission families. This is seeded-mistake evidence, not
+exhaustive mutation coverage or authorization to retire S16. The frozen runner
+stays unchanged and in CI. The reference runner owns one disposable source copy
+with private direct/nested Cargo targets, copied dependencies, private writable
+caches and isolated fixtures. It registers pristine bytes before any mutation or
+subprocess generation and restores and compares them before its final healthy
+Rust and web controls. The
+[application guide](../apps/reference/README.md#omission-probes) owns setup and
+commands; the
+[dated record](decisions.md#reference-omission-parity--october-2-2026) owns
+measured evidence.
+
+Every row below maps the frozen `s16-probes.mjs` family to an executed reference
+check. Existing equivalent bridge, collection and path probes are reused, not
+duplicated. A runtime negative needs its named test failure and diagnostic;
+spawn failure, a signal, compilation failure or zero selected tests is not that
+evidence.
+
+| Frozen S16 omitted edit/control                        | Reference check and discriminating control                                                                                                                                                                                                                          |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New rejection without enum variant                     | `ProjectArchived` descriptor/status/policy references produce the missing-variant compiler diagnostic.                                                                                                                                                              |
+| New rejection without descriptor                       | Exhaustive descriptor match rejects uncovered `Rejection::ProjectArchived`.                                                                                                                                                                                         |
+| New rejection without HTTP projection                  | Exhaustive shared status match rejects uncovered `Rejection::ProjectArchived`.                                                                                                                                                                                      |
+| New rejection without policy                           | Temporary `archived_probe` gets `Ok(Acknowledged)` instead of the expected rejection. Complete shared policy passes role change and removal using `Fixture::new`.                                                                                                   |
+| New rejection without independent compatibility update | Both hand-written mutation contract tests fail their exact tuple comparison.                                                                                                                                                                                        |
+| New rejection enumerated without a hand-written list   | Direct export succeeds; parsed actual 409 response branches contain exactly one new rejection for each mutation, not merely a string elsewhere in the document.                                                                                                     |
+| Last-owner 409→422 without compatibility update        | Both independent mutation contracts fail.                                                                                                                                                                                                                           |
+| Last-owner 409→422 without regeneration                | Named `exported_document_is_current` fails with `reference contract drift`; direct export updates only the temporary committed schema. The real web verifier then rejects stale generated TS before Rust runs.                                                      |
+| Regenerated 422 without client handling                | A generation-only Node child in the temporary web directory uses `openapiTS`/`astToString`; direct `tsc` rejects obsolete 409 in `narrowing.ts`. Repairing both mutation branches makes `tsc` pass. No production verifier bypass or `npm generate` is introduced.  |
+| Required success field without projector               | Missing `role` initializer fails compilation; completing the projector compiles.                                                                                                                                                                                    |
+| Raw response bypasses success DTO                      | Empty data compiles but the named whole-request test reports `schema rejected`.                                                                                                                                                                                     |
+| Omitted operation collection                           | Existing removal-collection omission fails the named independent inventory.                                                                                                                                                                                         |
+| Omitted response linkage                               | Existing second-operation bridge omission fails assembly with surviving inferred handler ID.                                                                                                                                                                        |
+| Wrong collected path                                   | Compiler passes; existing independent inventory rejects the changed path.                                                                                                                                                                                           |
+| Omitted runtime route mounting                         | Only the app router fold changes: compilation and both integration contracts pass, while a temporary known-valid request changes from 200 control to raw 404-versus-200 assertion failure before envelope collection. This replaces S16's weaker empty-layer panic. |
+| CSRF declared, producer linkage omitted                | Classifier linkage omission compiles and both integration contracts pass; the named whole-request test rejects missing envelope `kind` (`Null` versus `refused`).                                                                                                   |
+| CSRF producer retained, declaration omitted            | Only `Shared::Csrf` mappings are filtered, not `csrf_exempt`; both independent mutation contracts fail.                                                                                                                                                             |
+| Pristine verifier before/after                         | Full `iris` + `iris-reference` tests and real reference web verification pass before the first mutation and after byte restoration, using the same private target. PASS follows successful cleanup.                                                                 |
+
+Reference-only duplicate-ID, shared metadata/component, GET-bound, authorization
+and current-state-read probes remain. CI runs reference probes after client
+verification and development-command tests so installed web dependencies are
+available; all other steps remain serial and unchanged.
+
 ### Explicit exclusions
 
 No generic Action trait or executor, typed registration wrapper (S16 alternative

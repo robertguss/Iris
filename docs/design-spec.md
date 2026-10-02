@@ -2959,6 +2959,21 @@ messages, and one leaves the binary's cleanup task unstarted. The previous
 step's 43 mutations, one adjusted for the binary's changed return, were run
 again on this tree and each caught.
 
+ROB-1121's October 2 test-only observation repair retains those runtime
+contracts. Each cleanup observation phase has one absolute 20 s deadline for
+pool acquisition, both identifier SELECTs and retry sleeps. Only SQLite Busy
+(the existing `app::is_busy` primary/extended-code classification) discards and
+retries the whole observation; other errors, including pool timeout, fail
+immediately. Initial deletion and post-release observations may poll unexpected
+rows. While the writer is held, the first successful observation must match
+exactly, and worker liveness is checked before releasing the writer. Busy never
+means empty rows or success. Real-lock regressions and three cleanup semantic
+negative controls are recorded in the
+[decision record](decisions.md#rob-1121-bounded-busy-observation--october-2-2026).
+The previously reported pristine Busy failure did not recur within the fixed
+diagnostic budget; this does not establish its exact interleaving or repair
+unrelated historical timing cases.
+
 Limits:
 
 - The budgets are configured values with a measured margin, not a guarantee

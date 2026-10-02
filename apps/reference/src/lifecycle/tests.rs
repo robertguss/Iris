@@ -465,19 +465,17 @@ fn the_messages_name_each_outcome_and_only_a_signalled_drained_closed_stop_is_cl
     assert!(!stop(None, true, vec![]).clean(true));
 }
 
-async fn identifiers(pool: &SqlitePool) -> Vec<String> {
+async fn identifiers(pool: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
     let mut ids: Vec<String> = sqlx::query_scalar("SELECT id FROM iris_sessions")
         .fetch_all(pool)
-        .await
-        .unwrap();
+        .await?;
     ids.extend(
         sqlx::query_scalar::<_, String>("SELECT state FROM iris_login_attempts")
             .fetch_all(pool)
-            .await
-            .unwrap(),
+            .await?,
     );
     ids.sort();
-    ids
+    Ok(ids)
 }
 
 async fn plant(pool: &SqlitePool, name: &str, expires_at: i64) {
@@ -497,15 +495,197 @@ async fn plant(pool: &SqlitePool, name: &str, expires_at: i64) {
     .unwrap();
 }
 
-async fn eventually(pool: &SqlitePool, expected: &[&str]) {
-    let started = Instant::now();
-    loop {
-        let ids = identifiers(pool).await;
-        if ids == expected {
-            return;
+// One phase deadline covers acquisition, both SELECTs and every retry sleep.
+// A Busy discards the entire observation; it is never an empty or cached row set.
+async fn observe(
+    pool: &SqlitePool,
+    expected: &[&str],
+    phase: &str,
+    deadline: tokio::time::Instant,
+    eventual: bool,
+) -> Result<(), String> {
+    let mut last = "no completed observation".to_owned();
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            match identifiers(pool).await {
+                Ok(ids) if ids == expected => return Ok(()),
+                Ok(ids) => {
+                    last = format!("unexpected rows {ids:?}");
+                    // While the writer is held, the FIRST successful read must match.
+                    if !eventual {
+                        return Err(format!("{phase}: {last}"));
+                    }
+                }
+                Err(error) if crate::app::is_busy(&error) => last = error.to_string(),
+                Err(error) => return Err(format!("{phase}: {error}")),
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert!(started.elapsed() < WAIT, "still {ids:?}");
-        tokio::time::sleep(Duration::from_millis(10)).await;
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(format!(
+            "{phase}: observation deadline expired; last: {last}"
+        ))
+    })
+}
+
+#[tokio::test]
+async fn observer_transient_busy_is_not_an_observation() {
+    let _processes = shared();
+    let (_dir, root) = canonical_dir();
+    let path = root.join("dev.db");
+    let _storage = Storage::open(&path, ISSUER).await.unwrap();
+    let pool = pool(&path, Duration::from_millis(30)).await;
+    plant(&pool, "live", 9_000).await;
+    let mut writer = connect(&path).await.unwrap();
+    let tx = writer.begin_with("BEGIN EXCLUSIVE").await.unwrap();
+    assert!(crate::app::is_busy(&identifiers(&pool).await.unwrap_err()));
+    let observation = observe(
+        &pool,
+        &["attempt-live", "session-live"],
+        "transient",
+        tokio::time::Instant::now() + WAIT,
+        false,
+    );
+    tokio::pin!(observation);
+    assert!(
+        timeout(Duration::from_millis(120), &mut observation)
+            .await
+            .is_err()
+    );
+    tx.rollback().await.unwrap();
+    observation.await.unwrap();
+}
+
+#[tokio::test]
+async fn observer_persistent_busy_exhausts_one_deadline() {
+    let _processes = shared();
+    let (_dir, root) = canonical_dir();
+    let path = root.join("dev.db");
+    let _storage = Storage::open(&path, ISSUER).await.unwrap();
+    let pool = pool(&path, Duration::from_millis(30)).await;
+    let mut writer = connect(&path).await.unwrap();
+    let tx = writer.begin_with("BEGIN EXCLUSIVE").await.unwrap();
+    assert!(crate::app::is_busy(&identifiers(&pool).await.unwrap_err()));
+    let deadline = tokio::time::Instant::now() + SHORT;
+    let error = timeout(WAIT, observe(&pool, &[], "persistent", deadline, true))
+        .await
+        .unwrap()
+        .unwrap_err();
+    assert!(tokio::time::Instant::now() >= deadline);
+    assert!(
+        error.contains("persistent")
+            && error.contains("deadline")
+            && error.contains("database is locked"),
+        "{error}"
+    );
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn observer_non_busy_and_held_writer_wrong_rows_fail_immediately() {
+    let _processes = shared();
+    let (_dir, root) = canonical_dir();
+    let path = root.join("dev.db");
+    let _storage = Storage::open(&path, ISSUER).await.unwrap();
+    let pool = pool(&path, Duration::from_millis(30)).await;
+    plant(&pool, "wrong", 9_000).await;
+    let error = timeout(
+        SHORT,
+        observe(
+            &pool,
+            &[],
+            "held-writer",
+            tokio::time::Instant::now() + WAIT,
+            false,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert!(
+        error.contains("held-writer") && error.contains("attempt-wrong"),
+        "{error}"
+    );
+    sqlx::query("DROP TABLE iris_login_attempts")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let error = timeout(
+        SHORT,
+        observe(
+            &pool,
+            &[],
+            "non-busy",
+            tokio::time::Instant::now() + WAIT,
+            true,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert!(
+        error.contains("non-busy") && error.contains("no such table"),
+        "{error}"
+    );
+    pool.close().await;
+    let error = timeout(
+        SHORT,
+        observe(
+            &pool,
+            &[],
+            "closed-pool",
+            tokio::time::Instant::now() + WAIT,
+            true,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert!(
+        error.contains("closed-pool") && !error.contains("deadline"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn observer_bounds_acquisition_and_does_not_retry_pool_timeout() {
+    let _processes = shared();
+    let (_dir, root) = canonical_dir();
+    let path = root.join("dev.db");
+    let _storage = Storage::open(&path, ISSUER).await.unwrap();
+    for acquire_timeout in [WAIT, Duration::from_millis(30)] {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(4)
+            .acquire_timeout(acquire_timeout)
+            .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))
+            .await
+            .unwrap();
+        let mut held = Vec::new();
+        for _ in 0..4 {
+            held.push(pool.acquire().await.unwrap());
+        }
+        let deadline = tokio::time::Instant::now() + SHORT;
+        let error = timeout(
+            SHORT * 2,
+            observe(&pool, &[], "acquisition", deadline, true),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.contains("acquisition"), "{error}");
+        if acquire_timeout == WAIT {
+            assert!(error.contains("deadline"), "{error}");
+            assert!(tokio::time::Instant::now() >= deadline);
+        } else {
+            assert!(
+                error.contains("pool timed out") && !error.contains("deadline"),
+                "{error}"
+            );
+        }
+        drop(held);
+        pool.close().await;
     }
 }
 
@@ -535,7 +715,15 @@ async fn session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outli
         "session-live",
         "session-soon",
     ];
-    eventually(&pool, &kept).await;
+    observe(
+        &pool,
+        &kept,
+        "initial deletion",
+        tokio::time::Instant::now() + WAIT,
+        true,
+    )
+    .await
+    .unwrap();
 
     // A writer holds the database past the pool's busy timeout, so ticks
     // fail; the task reports them and keeps running.
@@ -543,12 +731,28 @@ async fn session_cleanup_deletes_expired_rows_on_a_persistent_database_and_outli
     let tx = writer.begin_with("BEGIN IMMEDIATE").await.unwrap();
     CLEANUP_CLOCK.store(2_000, SeqCst);
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(identifiers(&pool).await, kept);
+    observe(
+        &pool,
+        &kept,
+        "held writer",
+        tokio::time::Instant::now() + WAIT,
+        false,
+    )
+    .await
+    .unwrap();
     assert!(!running.stopped.is_finished());
     tx.rollback().await.unwrap();
     writer.close().await.unwrap();
     // A later tick.
-    eventually(&pool, &["attempt-live", "session-live"]).await;
+    observe(
+        &pool,
+        &["attempt-live", "session-live"],
+        "post release",
+        tokio::time::Instant::now() + WAIT,
+        true,
+    )
+    .await
+    .unwrap();
 
     running.signal.send("SIGTERM").unwrap();
     let stopped = stopped(running.stopped).await;
@@ -587,7 +791,7 @@ async fn a_cleanup_in_flight_at_the_signal_runs_to_its_end() {
     let stopped = stopped(running.stopped).await;
     assert!(stopped.clean(true), "{stopped:?}");
     // Both statements ran: the unit was not cut short by the stop.
-    assert_eq!(identifiers(&pool).await, [] as [&str; 0]);
+    assert_eq!(identifiers(&pool).await.unwrap(), [] as [&str; 0]);
 }
 
 #[tokio::test]

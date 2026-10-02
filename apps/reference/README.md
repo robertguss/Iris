@@ -413,7 +413,8 @@ envelope. The declared inventory and export remain valid in that variant. The
 [dated evidence](../../docs/decisions.md#reference-omission-parity--october-2-2026)
 records commands, counts, timings and limits. Historical timings before these
 additions were 72 s after current-state reads, 84 s with checkpoint B, and 39 s
-for checkpoint A. Frozen experiments remain unchanged and in CI.
+for checkpoint A. Frozen experiment source remains unchanged; the bounded
+ROB-1115 CI retirement below supersedes the earlier all-entrypoints-in-CI state.
 
 After integrating the separately reviewed ROB-1121 observer tests, the complete
 runner passed 31 caught probes and 25 controls in 222.75 s on Linux. Its healthy
@@ -458,6 +459,50 @@ record lists those mutations for
 [checkpoint B](../../docs/decisions.md#reference-application-checkpoint-b-client--september-27-2026)
 and the
 [current-state read](../../docs/decisions.md#reference-application-current-state-read--september-27-2026).
+
+## Partial S16 CI retirement
+
+ROB-1115 removes automatic direct `verify:s16` and frozen omission mutations,
+not the frozen Rust tests or runner safety regression. The
+[assertion-level matrix](../../docs/design-spec.md#partial-s16-ci-retirement)
+maps all 10 Rust tests, 19 captured plus 25 hand-written client cases, uncounted
+recovery and type narrowing, both drift edges, 16 omissions and 7 controls to
+maintained reference checks. It explicitly records the marked-response and
+current-state-read semantic adaptations; aggregate test counts are not parity.
+
+CI still runs normal frozen-web `verify`, workspace/default and dev-identity
+Rust, reference Rust/client/probes, and every other existing check. In the old
+compound `probe:s16` position, after web dependencies, CI now runs only:
+
+```sh
+node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs
+```
+
+This is one mechanics regression for nested private-target inheritance and
+exception cleanup, not the real 16-mutant suite. Direct frozen export/snapshot/
+generated-TypeScript synchronization and frozen narrowing/client executions no
+longer run automatically through S16 entrypoints; reference equivalents remain
+automatic.
+
+Historical manual entrypoints are unchanged:
+
+```sh
+npm --prefix experiments/api-slice/web run verify:s16
+npm --prefix experiments/api-slice/web run probe:s16
+```
+
+Install web dependencies before either command. For an isolated standalone
+`verify:s16`, run it in an externally prepared disposable source copy with an
+explicit private `CARGO_TARGET_DIR`: the verifier itself isolates fixtures but
+does **not** isolate Cargo. The compound `probe:s16` first runs the mechanics
+regression, then its runner owns a disposable source copy and private target,
+including nested verifier builds. Do not overlap fixed-port suites or in-place
+mutations; preserve checkout hashes and target sentinels and check cleanup. No
+frozen source, artifact, package script or dependency changed, and retaining
+these commands does not promise they stay green indefinitely without CI. The
+[dated baseline](../../docs/decisions.md#partial-s16-ci-retirement--october-2-2026)
+records what was actually executed; candidate reference verification is a
+separate gate.
 
 ## Limits
 

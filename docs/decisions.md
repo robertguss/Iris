@@ -1987,6 +1987,110 @@ or any production cleanup repair. Full exact-candidate CI, fresh Tester and
 Lead/Oracle review remain separate gates; no merge or broader runtime claim is
 made here.
 
+## Partial S16 CI retirement — October 2, 2026
+
+ROB-1115 makes a bounded CI change after accepted ROB-1114 parity. The approved
+plan is
+[`62f67213a578f2b38a27d94724ff6c51f2fe059c`](https://github.com/robertguss/Iris/commit/62f67213a578f2b38a27d94724ff6c51f2fe059c),
+whose parent is accepted base
+[`493c00207cec72a0beda05e2c5e5e3185dceb614`](https://github.com/robertguss/Iris/commit/493c00207cec72a0beda05e2c5e5e3185dceb614).
+The Builder required that exact remote plan tip before work. The
+[Builder thread](https://ampcode.com/threads/T-01a0fbc9-4eff-71ae-8405-47444c454dfd)
+owns this baseline/check evidence. The approved ROB-1115-only built-in High
+Builder exception followed documented pre-tool Grok47 failures; it changes no
+default or provider availability claim.
+
+The [matrix](design-spec.md#partial-s16-ci-retirement) was written before the CI
+edit. It audits all ten frozen Rust tests, the 19 captured and 25 independent
+client cases, common one-call/no-diagnostic assertions, uncounted recovery and
+compile-time narrowing, both drift edges, all 16 omissions and seven controls.
+No unique unmapped obligation was found. The mapping is not based on 231 being
+larger than 44: it names assertions and records marked Forbidden 403 becoming
+LoginFailed 401 (raw 403 retained), and the maintained current-state-read
+declaration with independent metadata expectations and `read: false` acceptance.
+These are semantic adaptations, not wire identity.
+
+Only the direct `verify:s16` line leaves the mixed web verification step. Normal
+web `verify` remains. The compound `probe:s16` step becomes explicit
+`node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs` in the
+same serial position after dependency installation. That regression retains
+ROB-1116's nested-target and exception-cleanup evidence, independently of real
+contract/omission parity. Every other workflow field, step, pin and ordering is
+preserved. Only the workflow, application README, spec and this record change;
+no frozen source, artifact, package script, manifest or dependency changes.
+
+Consequently, direct automatic frozen export/snapshot/generated-TS
+synchronization, frozen client/narrowing executions and frozen omission
+mutations stop. Frozen Rust still executes in workspace/default and API
+dev-identity suites. Reference equivalents and explicit frozen mechanics remain
+automatic. Historical manual commands and evidence remain available, without a
+permanent manual-green promise. This supersedes earlier statements that all S16
+entrypoints stay in CI; those dated decisions remain historical records.
+
+### Accepted-base baseline and configuration evidence
+
+One standalone verifier and one **full compound** probe baseline ran against a
+`git archive` of the exact accepted base above, not the edited checkout. Tools:
+Linux x64, Rust/Cargo 1.98.1, Node 26.10.0, npm 10.9.9. The source copy was an
+independently initialized Git inventory so the omission runner copied only its
+owned source. Dependencies were installed before either runner. With `scratch`
+set to an owned `mktemp -d /tmp/rob1115-baseline.XXXXXX` directory, the commands
+were:
+
+```sh
+mkdir "$scratch/source" "$scratch/tmp" "$scratch/inherited-target"
+printf 'untouched\n' > "$scratch/inherited-target/sentinel"
+git archive 493c00207cec72a0beda05e2c5e5e3185dceb614 | tar -x -C "$scratch/source"
+git -C "$scratch/source" init -q
+git -C "$scratch/source" add .
+npm --prefix "$scratch/source/experiments/api-slice/web" ci
+TMPDIR="$scratch/tmp" CARGO_TARGET_DIR="$scratch/private-target" \
+  npm --prefix "$scratch/source/experiments/api-slice/web" run verify:s16
+TMPDIR="$scratch/tmp" CARGO_TARGET_DIR="$scratch/inherited-target" \
+  npm --prefix "$scratch/source/experiments/api-slice/web" run probe:s16
+```
+
+The standalone command passed **10 Rust tests and 44 whole-request runtime
+cases**, with one attempt each and no raw diagnostics, plus export/type drift
+and narrowing. The compound command passed **one mechanics regression, 16 caught
+omissions and seven controls**, including both real pristine verifiers, and
+exited 0. Export success and the separate exported-content assertion are two
+controls, not one. The exact omission/control names and equivalences are in the
+spec matrix.
+
+Safety checks compared SHA-256 hashes of all protected tracked experiment,
+reference and library files and Cargo manifests/lockfile before/after (the
+authorized reference README edit excluded). All matched. The checkout target
+remained absent; the inherited target contained only its unchanged `untouched`
+sentinel. No `iris-*` source/target/fixture directories survived under the owned
+temporary parent. Node's compile cache did remain there; it was not a runner
+leak and was removed with the externally owned source/private target after
+evidence collection. No checkout/shared-target mutation or fixed-port suite
+overlap occurred. Standalone `verify:s16` does not isolate Cargo itself;
+external disposable source and `CARGO_TARGET_DIR` were essential here.
+
+An ephemeral Node check using installed `js-yaml` parsed both the plan workflow
+and candidate, preserved mapping-key and step order, and allowed only the two
+labels, direct-line removal and compound-step replacement. It passed the
+candidate and rejected three discriminating fixtures: unchanged baseline,
+candidate without normal web `verify`, and candidate without mechanics. These
+fixtures stayed outside the committed patch. Configuration/documentation needs
+these structural checks, not invented runtime TDD. Formatting/check commands:
+
+```sh
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  apps/reference/README.md docs/design-spec.md docs/decisions.md
+git diff --check
+```
+
+Candidate runtime evidence is deliberately a separate gate: the fresh Tester
+owns the real forced-color reference **31 caught / 25 controls** run with actual
+initial/final healthy Rust and web, retained explicit mechanics, hashes,
+sentinels and cleanup. The Builder does not duplicate that run, rerun the full
+frozen baseline on the candidate, or claim it passed here. Exact-candidate
+Tester, Lead/Oracle review and full CI remain required before merge. No PR,
+merge, deployment or release is claimed by this record.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

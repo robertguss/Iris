@@ -1,5 +1,12 @@
 # Handoff
 
+> Historical snapshot from September 30, 2026. Current work tracking, approvals,
+> and next-task selection live in the
+> [Iris Linear project](https://linear.app/robert-guss/project/iris-8b30c90a23d4).
+> Do not update this file as a rolling queue. The dated environment and pending
+> work below are historical; unsuperseded safety and authorization constraints
+> still apply. See `AGENTS.md` for the current development workflow.
+
 ## 1. State
 
 Observed September 30, 2026, by the outgoing driver.

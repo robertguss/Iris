@@ -239,6 +239,16 @@ symbolic link, has another hard link, is not in SQLite's rollback journal mode,
 is missing while its `-journal`, `-wal` or `-shm` files remain, or whose name
 ends in one of those three suffixes.
 
+After opening and migrating the database, `reference-dev` inspects its external
+identity mappings before contacting the configured provider or binding its
+listener. A populated table must contain at least one issuer exactly equal to
+`IRIS_OIDC_ISSUER`; other issuers may coexist, and subjects need not be the
+seeded names. The comparison does not normalize URLs, so a trailing slash is a
+different issuer. If no mapping matches, startup refuses without changing the
+database and first recommends restoring the matching issuer; its printed reset
+command is the explicitly destructive alternative. An empty mapping table warns
+and starts normally without seeding it. An inspection error is fatal.
+
 To reset a database by hand, run the server's reset rather than deleting its
 files:
 

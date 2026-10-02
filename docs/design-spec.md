@@ -3437,6 +3437,34 @@ Limits:
 - The browser workflow ran once, just before the last change, which touches
   neither the runner nor the shared module; on macOS only.
 
+### Development issuer mapping refusal
+
+After storage opening and existing-database migration, but before OIDC discovery
+and listener binding, `reference-dev` performs one read-only, parameterized
+observation of `iris_external_identities`. A populated table is accepted when
+any row's issuer is exactly equal to `IRIS_OIDC_ISSUER`; unrelated issuers may
+coexist and subjects are not constrained to seeded names. URL normalization is
+intentionally absent, including for a trailing slash. An empty table emits a
+warning and continues without seeding. A query error is fatal and cannot become
+the empty-table case.
+
+A populated table with no exact match is refused before discovery or binding.
+The diagnostic names the database and the inability to resolve a fresh login,
+then offers recovery in preservation-first order: restore the intended matching
+issuer, or intentionally discard the database with the printed, shell-quoted
+reset command. Startup never resets, reseeds, or relinks identities. The check
+does not claim that a particular subject can log in or identify how mappings
+were created.
+
+The preservation guarantee begins with a fully current, closed database.
+`Storage::open` still applies pending migrations before the check. On the
+handled refusal path, the session pool is closed and its closure awaited before
+storage ownership is dropped. Reacquisition after refusal is recovery evidence;
+the awaited ordering itself is established by source review. This supersedes the
+earlier operational advice that any different issuer requires reset; reset is
+now only the intentional-discard option after restoring a matching issuer has
+been considered.
+
 ### Review of the lifecycle proposal
 
 The oracle, Astra (GPT-6 through Codex), reviewed S18 at `f83688e` under the

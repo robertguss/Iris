@@ -2347,6 +2347,73 @@ durability at hook entry, a receipt, retry safety, universal ambiguity/liveness
 behavior or guaranteed commit under faults. No production runtime, dependency,
 CI, generated contract, frozen experiment or journal policy changed.
 
+## 2026-10-02 — Development issuer mismatch refusal
+
+`reference-dev` now refuses a populated development database when none of its
+external identity mappings has an issuer exactly equal to the configured
+`IRIS_OIDC_ISSUER`. The decision is existence-based rather than requiring every
+row to match; mixed issuers and custom subjects remain valid. Strings are not
+normalized. An empty table warns and starts without reseeding, while an
+inspection error is fatal. The check runs after the existing migration path and
+before provider discovery or listener binding.
+
+The mismatch diagnostic is preservation-first: restore the intended matching
+issuer, or intentionally discard the data by running the shell-quoted reset
+command it prints. The check is read-only. Tests compare both bytes and complete
+deterministically ordered rows for every application table and SQLx's migration
+table immediately after refusal, then prove recovery with the original issuer,
+the retained domain change and authenticated session. They separately execute
+the printed reset command for a quoted path and verify replacement mappings and
+cleared state.
+
+A counted disposable HTTP observer distinguishes refusal from discovery. Exact,
+mixed, custom-subject and empty controls discover successfully; wrong and
+trailing-slash issuers, and a renamed identity table, make zero requests. The
+query-error case restores the table and starts successfully, showing that a
+later process can reacquire ownership. That does not prove pool-close ordering:
+source review establishes that `run` awaits `pool.close()` before dropping
+`Storage` on every `serve` error.
+
+The old-code test-first run reached the observer and failed with the
+deliberately held listener's `Address already in use` error instead of the
+required mismatch diagnostic. This is the intended red: the provider had been
+contacted and bind had been attempted. No production authentication behavior,
+schema, migration, seed, reset branch, dependency, generated artifact, frozen
+fixture, or CI configuration changed.
+
+Three compiled counterfactuals used private source and target directories under
+`/tmp/rob1118-mutations`, one at a time, with production source restored from
+the checkout between them. Requiring every issuer to match stopped at the mixed
+positive control; trimming trailing slashes reached provider issuer validation
+instead of the guard diagnostic; deleting memberships on refusal failed the
+database-byte equality assertion. Each invocation exited 101 after running its
+named test; none counted a compile failure or external timeout. The restored
+isolated `dev_binary` control then passed all 20 tests. The mutation source,
+target, logs and disposable databases were removed after recording the results.
+
+Healthy verification used `CARGO_TARGET_DIR=/tmp/rob1118-healthy-target`:
+`dev_binary` passed 20; the reference package passed 140 (111 library, 2
+contract, 20 development binary and 7 identity); the workspace passed 222 (34
+
+- 10 + 6 + 2 + 111 + 2 + 20 + 7 + 4 + 3 + 2 + 10 + 1 + 10). Workspace Clippy
+  with all targets and features, rustfmt, pinned Prettier 3.9.9 and Git's
+  whitespace check passed. The reference client verifier passed its Rust
+  fixture, 231 runtime, 51 presentation, 13 request-construction and 11
+  transition cases, then built the client. Existing probes passed 31 caught and
+  25 controls, and the browser workflow passed all described checkpoints.
+
+The first unfiltered development-command invocation found a missing local
+prerequisite rather than a product failure: 9 passed and 13 failed after each
+early `Vite is not installed; run npm --prefix apps/reference/web ci` exit was
+followed by the test helper's 60-second `until` bound. During a bounded
+inspection there were no Cargo/rustc/server children, Cargo locks, or listeners
+on ports 4001, 3003, or 5175; the Node harness was sleeping in `ep_poll`.
+Installing exactly the lockfile with `npm --prefix apps/reference/web ci` added
+57 untracked dependency packages and changed no tracked file. With the ports
+still free, the one full rerun passed 22 of 22 in 108.7 seconds and left no
+owned child. No deadline, test filter, runtime policy, CI file, or assertion was
+changed.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

@@ -271,7 +271,7 @@ fn sidecars(target: &Path) -> impl Iterator<Item = PathBuf> {
 
 /// The command a refusal names for discarding a database, with the path
 /// quoted for a POSIX shell so that it can be pasted as printed.
-fn reset_command(target: &Path) -> String {
+pub fn reset_command(target: &Path) -> String {
     format!(
         "reference-dev --local-oidc-demo --database {} --reset",
         shell_quote(&target.display().to_string())

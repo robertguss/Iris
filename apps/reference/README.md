@@ -93,8 +93,8 @@ the local OIDC issuer fixture from `experiments/api-slice/checks`):
 
 ```sh
 cargo test --locked -p iris -p iris-reference
-node apps/reference/scripts/probes.mjs
 npm --prefix apps/reference/web ci
+node apps/reference/scripts/probes.mjs
 npm --prefix apps/reference/web run verify
 node apps/reference/scripts/browser.mjs --artifacts /tmp/reference-artifacts
 cargo run --locked -p iris-reference --bin export-openapi -- apps/reference/openapi.json

@@ -106,6 +106,38 @@ a receipt. A caller without a validated terminal response still has an unknown
 outcome. The older browser-withheld-response checks below remain distinct from
 these real socket-loss tests.
 
+## Actual-COMMIT cancellation checks — October 2, 2026
+
+ROB-1111 adds three authenticated owned-future controls, separate from the four
+historical socket tests above. Run from the repository root:
+
+```sh
+cargo test --locked -p iris-reference --lib commit_latch
+cargo test --locked -p iris-reference --lib commit_hook_
+cargo test --locked -p iris-reference --lib caller_loss
+```
+
+The first command checks persistent early release, controller-drop cleanup and
+unoverwriteable deadline provenance. The three request cases cancel before
+COMMIT, cancel while the actual transaction's SQLite commit hook is held, and
+retain the request through a schema-valid successful acknowledgment. Each checks
+tracked closure, exact independent role readback, and a fresh one-row writer's
+commit/readback. While COMMIT is held, tracked closure remains unacknowledged
+and the same application's unmatched real HTTP GET returns 404 without database
+or session access. No fresh database read is attempted during the hook hold.
+
+The test pins SQLite 3.51.3, its full source ID and DELETE journal mode before
+installing the test-only hook; a mismatch requires mechanism re-review. Internal
+waits are bounded, a synchronous 30-second latch deadline unblocks the worker,
+and abnormal release provenance fails the scenario. See the
+[dated evidence](../../docs/decisions.md#rob-1111-actual-commit-cancellation--october-2-2026)
+for the fingerprint, eight compiled counterfactuals, controls and verification.
+
+This demonstrates continuation of an already-entered COMMIT on the pinned stack
+after owned-request cancellation. It is not actual socket-loss evidence inside
+COMMIT, a detached-operation policy, durability at hook entry, a receipt, safe
+retry, or guaranteed commit/liveness under faults. S14 item 3 remains partial.
+
 ## Run it
 
 From the repository root, with Rust 1.98.1 and Node available (the tests start

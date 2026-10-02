@@ -428,6 +428,13 @@ errors retain raw output. A real run with `NO_COLOR` unset,
 controls in 230.37 s, including healthy controls and cleanup. The decision
 record retains the CI failure and the real-ESC replay checks separately.
 
+Later CI exposed a separate startup-test Busy observer. After integrating the
+reviewed ROB-1176 dependency, the byte-identical runner passed the complete
+forced-color 31/25 sequence in 219.82 s. Separate healthy before/after suites
+passed 163 Rust tests, including 103 library and 17 dev-binary tests, plus the
+web verifier. The CI failure and unknown historical interleaving remain
+recorded; no probe or control was relaxed.
+
 | Temporary change                                           | Executed signal                                                              |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Second operation collected without the bridge              | Assembly panics: surviving inferred handler ID `remove_member_endpoint`      |

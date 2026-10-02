@@ -1757,6 +1757,63 @@ checks passed. The earlier plain passes remain historical evidence, not proof of
 CI color handling. Fresh independent Tester, Oracle review and exact candidate
 CI remain required; this local run does not claim those gates passed.
 
+### Resumed after the separate startup observer dependency
+
+[CI 36977253816](https://github.com/robertguss/Iris/actions/runs/36977253816) at
+[f77e3e7](https://github.com/robertguss/Iris/commit/f77e3e7176d79e564238cb3bb6fbbaf04c08ed14)
+caught all 31 probes and passed 23 controls, then failed the final pristine
+`cargo test --quiet --locked -p iris -p iris-reference`. The 34/103/2 groups
+passed; `dev_binary` passed 11 of 12 tests. Its
+`a_start_deletes_expired_sessions_and_login_attempts_and_keeps_live_ones` failed
+at `apps/reference/tests/dev_binary.rs:757:14`, the first SELECT unwrap, with:
+
+```text
+called `Result::unwrap()` on an `Err` value: Database(SqliteError { code: 5, message: "database is locked" })
+```
+
+The raw failed CI log was retained. The runner emitted no overall PASS and the
+final web control did not run. This was a separate integration-test observer,
+not ROB-1121's library helper. Work paused without retries or weakened controls
+until separately reviewed ROB-1176 merged at pinned main
+[38bdbf8](https://github.com/robertguss/Iris/commit/38bdbf81e160c911c16272fb10ae4f57dacf3788).
+A normal merge integrated that dependency without conflicts, preserving both
+observer records and the ROB-1121 provenance correction. The runner remained
+byte-identical to the pushed candidate; no status, diagnostic, isolation or
+cleanup check changed. No exact historical lock-holder or interleaving is
+claimed reproduced.
+
+The merged dependency passed the complete real forced-color runner: **31 caught
+probes and 25 controls in 219.82 s**, with both initial/final healthy controls
+and cleanup before PASS:
+
+```sh
+/usr/bin/time -p env -u NO_COLOR CARGO_TERM_COLOR=always FORCE_COLOR=1 \
+  CARGO_HOME=/tmp/rob1114-1176/cargo-home \
+  TMPDIR=/tmp/rob1114-1176/owned-tmp \
+  CARGO_TARGET_DIR=/tmp/rob1114-1176/inherited-target \
+  IRIS_REFERENCE_FIXTURES=/tmp/rob1114-1176/inherited-fixtures \
+  node apps/reference/scripts/probes.mjs
+```
+
+Separate healthy before/after commands were
+`cargo test --quiet --locked -p iris -p iris-reference` and
+`node apps/reference/web/scripts/verify.mjs`, using an unmutated archive,
+private copied dependencies/caches, a separate `healthy-target`, private
+temporary paths, the same forced-color flags and inherited fixture output unset.
+Each Rust suite passed **163 tests (34 + 103 + 2 + 17 + 7)**. The library count
+remains 103; the separate dev-binary suite now has 17. Each web verifier passed
+4 captured-response Rust tests, 231/51/13/11 client cases, tsc and Vite.
+
+All 128 tracked source/generated/frozen-file hashes and 3,036 dependency-file
+hashes and inventory matched the merged baseline. The inherited target and
+fixture directories contained only unchanged sentinels; the unrelated sibling
+survived; the named runner-owned copy was absent; the checkout target remained
+absent. The runner's SHA-256 remained unchanged across integration and checks:
+`3f2b96fd0a4cc0885022a077bb2282dd56176f8e7cdb0bd6019c10976135d123`. The prior CI
+failure log was retained separately. Syntax, pinned Markdown and diff checks
+passed. These are Builder results, not fresh independent Tester, Oracle or
+exact-candidate CI acceptance; those remain required before merge.
+
 ## ROB-1121 bounded Busy observation — October 2, 2026
 
 The Lead reported repeated pristine ROB-1114 controls failing in

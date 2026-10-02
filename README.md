@@ -120,12 +120,15 @@ mutations' declared current-state read. Only what two operations demonstrably
 share moves into the private, provisionally named `crates/iris`; none of it is
 framework API.
 
-What comes next is the owner's choice. The
-[S17 design](docs/design-spec.md#s17--reference-application-and-first-reads)
-records two candidates: a design for invitation issuance and acceptance in the
-reference application, and a lifecycle pass (persistent storage, seed policy,
-journal mode, worker supervision, one development command). Neither is
-authorized yet.
+The [S18 lifecycle](docs/design-spec.md#s18--reference-application-lifecycle)
+now supplies persistent development storage, reset and migration refusal,
+shutdown and session cleanup, and one development command. Invitations and a
+delivery worker remain follow-up work.
+
+Track current work, priorities, approvals, and next-task selection in the
+[Iris Linear project](https://linear.app/robert-guss/project/iris-8b30c90a23d4).
+The living spec and decision record remain the technical sources of truth;
+`HANDOFF.md` is a historical snapshot, not the active backlog.
 
 ## Provenance and status
 

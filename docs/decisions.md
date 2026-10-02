@@ -1259,6 +1259,78 @@ GitHub Actions. `probe:s16` runs the regression before the probes. No
 dependency, contract, client, CI or schema change. The experiment is not
 retired.
 
+## Observable membership caller loss — October 2, 2026
+
+ROB-1110 adds test-only observation at three authenticated `change_role`
+boundaries, not a new execution owner. The owned future is aborted before
+mutation; complete raw HTTP/1.1 caller sockets are fully closed while held
+before commit or after a successful inner response but before exposure. The
+outer guard distinguishes `Returned`, non-panicking `Dropped`, and `Panicked`.
+Neither loss test releases its hold to obtain the required `Dropped` event;
+timeout and a closed observer channel fail. Each then independently awaits
+tracked closure, reads the expected role, and commits and reads back a third
+role through direct SQL to prove writer progress. The identical-framing
+loss-free control checks the entire success envelope.
+
+The new tests passed against unchanged production behavior. Meaningful red
+evidence came from exactly four isolated mutants, not missing-symbol failures.
+Source was copied to `/tmp/rob-1110/source`, excluding `.git`, `target`,
+`node_modules`, `.amp` and `.dev`. Every probe and control set
+`CARGO_TARGET_DIR=/tmp/rob-1110/target`; no mutation touched checkout source or
+its target. Each mutant was restored before the next; the complete four-test
+control passed initially and after each of the four restorations (five green
+controls, 20 test passes). Disposable paths describe this run, not an expected
+future environment.
+
+All probes used `cargo test --locked -p iris-reference --lib` with the named
+`caller_loss::` filter below. Each compiled, ran one test and exited 101 with
+one runtime failure; none hung:
+
+| Mutant                                                               | Filter                                 | Decisive failure                                                              |
+| -------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------- |
+| Move awaited commit before the pre-commit hold, retaining its result | `socket_loss_before_commit`            | `uncommitted write is invisible`: viewer instead of editor                    |
+| Skip the role UPDATE                                                 | `same_framing_loss_free_control`       | `commit precedes response exposure`: editor instead of viewer                 |
+| Replace commit with rollback, retaining apparent acknowledgment      | `socket_loss_before_response_exposure` | `commit precedes response exposure`: editor instead of viewer                 |
+| Await close but suppress its tracked acknowledgment                  | `owned_future_abort_before_mutation`   | Ten-second bounded `Connections.closed()` wait expired; test ended in 10.26 s |
+
+Checks on this Linux x64 orb:
+
+```sh
+cargo test --locked -p iris-reference --lib caller_loss
+# 4 passed, 0 failed (95 filtered out)
+npm --prefix experiments/agent-interface ci
+# Dependency preparation only; frozen source unchanged.
+cargo test --workspace --locked
+# 202 passed, 0 failed, 0 ignored; reference library: 99 passed.
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+# Passed.
+cargo fmt --all --check
+# Passed.
+npm --prefix apps/reference/web ci
+npm --prefix apps/reference/web run verify
+# 4 Rust captures; 231 runtime, 51 presentation, 13 request/readback,
+# 11 directory cases; type checks, export drift checks and build passed.
+node apps/reference/scripts/browser.mjs
+# Exclusive fixed-port run: all three workflows passed.
+npx --yes prettier@3.9.9 --print-width 80 --prose-wrap always --check \
+  docs/design-spec.md docs/decisions.md apps/reference/README.md
+# Passed.
+```
+
+Versions: Rust 1.98.1 (`48a229cea`), Cargo 1.98.1 (`797e8a9bc`), rustfmt
+1.9.0-stable (`48a229ceae`), Node 26.10.0, npm 10.9.9, Prettier 3.9.9,
+agent-browser 0.38.1; Axum 0.8.9, Hyper 1.11.1, Tokio 1.53.1, SQLx 0.9.0. The
+browser run reported a 77.4 ms validator compile; this is one observation, not a
+performance comparison.
+
+Limits: these are held observable stages, never an interruption inside commit.
+No FIN/RST distinction, removal coverage, continuation guarantee, receipt,
+retry, recovery change or production ownership change is claimed. Caller outcome
+remains unknown without a validated terminal response. Existing lifecycle tests
+remain intact. No contract, dependency, migration, CI or frozen experiment
+source changed. This records local Builder verification, not fresh Tester/Oracle
+acceptance, GitHub Actions results, merge or deployment.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

@@ -208,6 +208,8 @@ async fn apply(
                 .bind(project_id).fetch_one(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
             if owners == 1 { return Err(StopReason::Rejected(Rejection::LastOwner)); }
         }
+        #[cfg(test)]
+        gate::pass_phase(&mut tx, gate::Phase::BeforeMutation).await;
         if let Some(role) = target {
             sqlx::query("UPDATE memberships SET role=? WHERE project_id=? AND user_id=?")
                 .bind(role.as_str()).bind(project_id).bind(user_id).execute(&mut *tx).await.map_err(|e| execution(Stage::Body, e))?;
@@ -248,6 +250,58 @@ pub(crate) mod gate {
 
     static GATES: Mutex<Vec<(PathBuf, Arc<Gate>)>> = Mutex::new(Vec::new());
 
+    #[derive(Clone, Copy, PartialEq)]
+    pub(crate) enum Phase {
+        BeforeMutation,
+        BeforeCommit,
+    }
+
+    static SCOPED: Mutex<Vec<(PathBuf, Phase, Arc<Gate>)>> = Mutex::new(Vec::new());
+
+    pub(crate) struct Hold {
+        pub(crate) gate: Arc<Gate>,
+    }
+
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            SCOPED
+                .lock()
+                .unwrap()
+                .retain(|(_, _, gate)| !Arc::ptr_eq(gate, &self.gate));
+            self.gate.release();
+        }
+    }
+
+    pub(crate) fn hold(path: &Path, phase: Phase) -> Hold {
+        let gate = Gate::new();
+        SCOPED
+            .lock()
+            .unwrap()
+            .push((std::fs::canonicalize(path).unwrap(), phase, gate.clone()));
+        Hold { gate }
+    }
+
+    pub(super) async fn pass_phase(conn: &mut SqliteConnection, phase: Phase) {
+        if SCOPED.lock().unwrap().is_empty() {
+            return;
+        }
+        let file: String =
+            sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name='main'")
+                .fetch_one(conn)
+                .await
+                .unwrap();
+        let path = std::fs::canonicalize(file).unwrap();
+        let gate = SCOPED
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(p, at, _)| p == &path && *at == phase)
+            .map(|(_, _, gate)| gate.clone());
+        if let Some(gate) = gate {
+            gate.pass().await;
+        }
+    }
+
     /// Gates every mutation of the database at `path` from now on.
     pub(crate) fn before_commit(path: &Path) -> Arc<Gate> {
         let gate = Gate::new();
@@ -257,6 +311,7 @@ pub(crate) mod gate {
     }
 
     pub(super) async fn pass(conn: &mut SqliteConnection) {
+        pass_phase(conn, Phase::BeforeCommit).await;
         if GATES.lock().unwrap().is_empty() {
             return;
         }

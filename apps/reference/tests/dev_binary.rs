@@ -4,9 +4,15 @@
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
+    path::Path,
     process::{Child, Command, Stdio},
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
@@ -68,6 +74,458 @@ fn server_with(issuer: &str, args: &[&str]) -> (Owned, mpsc::Receiver<String>) {
             ("IRIS_LISTEN", "127.0.0.1:0"),
         ],
     )
+}
+
+/// A minimal disposable discovery endpoint whose completed requests are
+/// counted. It deliberately implements no login flow: these tests exercise
+/// startup discovery only.
+struct DiscoveryObserver {
+    issuer: String,
+    commands: mpsc::Sender<ObserverCommand>,
+    accepted: mpsc::Receiver<()>,
+    stopping: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+enum ObserverCommand {
+    Checkpoint(mpsc::Sender<Result<usize, String>>),
+    Finish(mpsc::Sender<Result<usize, String>>),
+}
+
+const OBSERVER_WAIT: Duration = Duration::from_secs(2);
+const OBSERVER_IO_POLL: Duration = Duration::from_millis(20);
+const OBSERVER_HEADER_LIMIT: usize = 4096;
+
+impl DiscoveryObserver {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let issuer = format!("http://{}", listener.local_addr().unwrap());
+        let (commands, command_rx) = mpsc::channel();
+        let (accepted_tx, accepted) = mpsc::channel();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let thread_issuer = issuer.clone();
+        let thread_stopping = stopping.clone();
+        let thread = std::thread::spawn(move || {
+            let mut completed = 0;
+            let mut worker_error = None;
+            loop {
+                if let Ok(command) = command_rx.try_recv()
+                    && handle_observer_command(
+                        command,
+                        &listener,
+                        &thread_issuer,
+                        &accepted_tx,
+                        &thread_stopping,
+                        &mut completed,
+                        &mut worker_error,
+                    )
+                {
+                    break;
+                }
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = accepted_tx.send(());
+                        observe_connection(
+                            &mut stream,
+                            &thread_issuer,
+                            &thread_stopping,
+                            true,
+                            &mut completed,
+                            &mut worker_error,
+                        );
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        match command_rx.recv_timeout(OBSERVER_IO_POLL) {
+                            Ok(command) => {
+                                if handle_observer_command(
+                                    command,
+                                    &listener,
+                                    &thread_issuer,
+                                    &accepted_tx,
+                                    &thread_stopping,
+                                    &mut completed,
+                                    &mut worker_error,
+                                ) {
+                                    break;
+                                }
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    Err(error) => {
+                        worker_error.get_or_insert_with(|| {
+                            format!("discovery observer accept failed: {error}")
+                        });
+                    }
+                }
+            }
+        });
+        Self {
+            issuer,
+            commands,
+            accepted,
+            stopping,
+            thread: Some(thread),
+        }
+    }
+
+    fn checkpoint(&self) -> Result<usize, String> {
+        let (send, receive) = mpsc::channel();
+        self.commands
+            .send(ObserverCommand::Checkpoint(send))
+            .map_err(|_| "discovery observer worker stopped".to_owned())?;
+        receive
+            .recv_timeout(OBSERVER_WAIT)
+            .map_err(|_| "discovery observer checkpoint timed out".to_owned())?
+    }
+
+    fn wait_for_accept(&self) -> Result<(), String> {
+        self.accepted
+            .recv_timeout(OBSERVER_WAIT)
+            .map_err(|_| "discovery observer did not accept a connection".to_owned())
+    }
+
+    fn finish(mut self) -> Result<usize, String> {
+        self.shutdown()
+    }
+
+    fn shutdown(&mut self) -> Result<usize, String> {
+        self.stopping.store(true, Ordering::SeqCst);
+        let (send, receive) = mpsc::channel();
+        self.commands
+            .send(ObserverCommand::Finish(send))
+            .map_err(|_| "discovery observer worker stopped".to_owned())?;
+        let result = receive
+            .recv_timeout(OBSERVER_WAIT)
+            .map_err(|_| "discovery observer shutdown timed out".to_owned());
+        if result.is_ok()
+            && let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            return Err("discovery observer worker panicked".to_owned());
+        }
+        result?
+    }
+}
+
+impl Drop for DiscoveryObserver {
+    fn drop(&mut self) {
+        let _ = self.shutdown();
+        // A timed-out worker is detached rather than making cleanup block or
+        // panic while another assertion is already unwinding.
+        let _ = self.thread.take();
+    }
+}
+
+fn handle_observer_command(
+    command: ObserverCommand,
+    listener: &TcpListener,
+    issuer: &str,
+    accepted: &mpsc::Sender<()>,
+    stopping: &AtomicBool,
+    completed: &mut usize,
+    worker_error: &mut Option<String>,
+) -> bool {
+    let (reply, finish) = match command {
+        ObserverCommand::Checkpoint(reply) => (reply, false),
+        ObserverCommand::Finish(reply) => (reply, true),
+    };
+    let deadline = Instant::now() + OBSERVER_WAIT;
+    loop {
+        if Instant::now() >= deadline {
+            worker_error.get_or_insert_with(|| {
+                "discovery observer queued-connection drain timed out".to_owned()
+            });
+            break;
+        }
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let _ = accepted.send(());
+                observe_connection(
+                    &mut stream,
+                    issuer,
+                    stopping,
+                    false,
+                    completed,
+                    worker_error,
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => {
+                worker_error.get_or_insert_with(|| {
+                    format!("discovery observer accept failed while draining: {error}")
+                });
+                break;
+            }
+        }
+    }
+    let result = match worker_error {
+        Some(error) => Err(error.clone()),
+        None => Ok(*completed),
+    };
+    let _ = reply.send(result);
+    finish
+}
+
+fn observe_connection(
+    stream: &mut TcpStream,
+    issuer: &str,
+    stopping: &AtomicBool,
+    abort_on_stop: bool,
+    completed: &mut usize,
+    worker_error: &mut Option<String>,
+) {
+    match respond_to_discovery(stream, issuer, stopping, abort_on_stop) {
+        Ok(true) => *completed += 1,
+        Ok(false) => {}
+        Err(error) => {
+            worker_error.get_or_insert(error);
+        }
+    }
+}
+
+fn respond_to_discovery(
+    stream: &mut TcpStream,
+    issuer: &str,
+    stopping: &AtomicBool,
+    abort_on_stop: bool,
+) -> Result<bool, String> {
+    let deadline = Instant::now() + OBSERVER_WAIT;
+    let mut request = Vec::new();
+    while !request.ends_with(b"\r\n\r\n") {
+        if request.len() == OBSERVER_HEADER_LIMIT {
+            return Err(format!(
+                "discovery observer request exceeded {OBSERVER_HEADER_LIMIT}-byte header limit"
+            ));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("discovery observer request header timed out".to_owned());
+        }
+        stream
+            .set_read_timeout(Some(remaining.min(OBSERVER_IO_POLL)))
+            .map_err(|error| format!("discovery observer read timeout setup failed: {error}"))?;
+        let mut buffer = [0_u8; 512];
+        let capacity = (OBSERVER_HEADER_LIMIT - request.len()).min(buffer.len());
+        match stream.read(&mut buffer[..capacity]) {
+            Ok(0) => {
+                return Err("discovery observer request ended before complete headers".to_owned());
+            }
+            Ok(read) => request.extend_from_slice(&buffer[..read]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if abort_on_stop && stopping.load(Ordering::SeqCst) {
+                    return Ok(false);
+                }
+            }
+            Err(error) => return Err(format!("discovery observer read failed: {error}")),
+        }
+    }
+    let request = String::from_utf8_lossy(&request);
+    let body = if request.starts_with("GET /.well-known/openid-configuration ") {
+        json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/authorize"),
+            "token_endpoint": format!("{issuer}/token"),
+            "jwks_uri": format!("{issuer}/jwks"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"]
+        })
+        .to_string()
+    } else if request.starts_with("GET /jwks ") {
+        json!({"keys": []}).to_string()
+    } else {
+        return Err(format!("unexpected discovery request: {request}"));
+    };
+    let response = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+         content-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let mut written = 0;
+    while written < response.len() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("discovery observer response write timed out".to_owned());
+        }
+        stream
+            .set_write_timeout(Some(remaining.min(OBSERVER_IO_POLL)))
+            .map_err(|error| format!("discovery observer write timeout setup failed: {error}"))?;
+        match stream.write(&response.as_bytes()[written..]) {
+            Ok(0) => return Err("discovery observer response write made no progress".to_owned()),
+            Ok(count) => written += count,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => return Err(format!("discovery observer response write failed: {error}")),
+        }
+    }
+    stream
+        .flush()
+        .map_err(|error| format!("discovery observer response flush failed: {error}"))?;
+    Ok(true)
+}
+
+fn observer_stream(observer: &DiscoveryObserver) -> TcpStream {
+    TcpStream::connect(observer.issuer.strip_prefix("http://").unwrap()).unwrap()
+}
+
+#[test]
+fn discovery_observer_reads_headers_larger_than_one_buffer() {
+    let observer = DiscoveryObserver::start();
+    let mut stream = observer_stream(&observer);
+    let padding = "x".repeat(1024);
+    write!(
+        stream,
+        "GET /.well-known/openid-configuration HTTP/1.1\r\nhost: fixture\r\n\
+         x-padding: {padding}\r\n\r\n"
+    )
+    .unwrap();
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    assert_eq!(observer.checkpoint().unwrap(), 1);
+    assert_eq!(observer.finish().unwrap(), 1);
+}
+
+#[test]
+fn discovery_observer_rejects_eof_before_complete_headers() {
+    let observer = DiscoveryObserver::start();
+    let mut stream = observer_stream(&observer);
+    stream
+        .write_all(b"GET /.well-known/openid-configuration HTTP/1.1\r\nhost: fixture\r\n")
+        .unwrap();
+    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let error = observer.checkpoint().unwrap_err();
+    assert!(error.contains("ended before complete headers"), "{error}");
+}
+
+#[test]
+fn discovery_observer_shutdown_is_bounded_with_an_accepted_idle_socket() {
+    let observer = DiscoveryObserver::start();
+    let _idle = observer_stream(&observer);
+    observer.wait_for_accept().unwrap();
+    let started = Instant::now();
+    assert_eq!(observer.finish().unwrap(), 0);
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn discovery_observer_surfaces_worker_errors_without_panicking_on_cleanup() {
+    let cleanup = std::panic::catch_unwind(|| {
+        let observer = DiscoveryObserver::start();
+        let mut stream = observer_stream(&observer);
+        stream.write_all(&vec![b'x'; 4097]).unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let error = observer.checkpoint().unwrap_err();
+        assert!(error.contains("header limit"), "{error}");
+        drop(observer);
+    });
+    assert!(cleanup.is_ok(), "observer cleanup panicked");
+}
+
+#[test]
+fn discovery_observer_checkpoint_drains_queued_completed_requests() {
+    let observer = DiscoveryObserver::start();
+    let mut stream = observer_stream(&observer);
+    stream
+        .write_all(b"GET /jwks HTTP/1.1\r\nhost: fixture\r\n\r\n")
+        .unwrap();
+    assert_eq!(observer.checkpoint().unwrap(), 1);
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.contains("{\"keys\":[]}"), "{response}");
+    assert_eq!(observer.finish().unwrap(), 1);
+}
+
+fn persistent_args(path: &Path) -> [&str; 3] {
+    ["--local-oidc-demo", "--database", path.to_str().unwrap()]
+}
+
+fn start_and_stop(path: &Path, observer: &DiscoveryObserver) -> Vec<String> {
+    let args = persistent_args(path);
+    let (mut server, stderr) = server_with(&observer.issuer, &args);
+    let started = listening(&stderr);
+    signal(&server, "TERM");
+    let (status, output) = code(&mut server, stderr);
+    assert_eq!(status, Some(0), "{output}");
+    started
+}
+
+fn refused_with_held_port(path: &Path, issuer: &str) -> String {
+    let held = TcpListener::bind("127.0.0.1:0").unwrap();
+    let listen = held.local_addr().unwrap().to_string();
+    let args = persistent_args(path);
+    let (mut server, stderr) = spawn(
+        &args,
+        &[
+            ("IRIS_PUBLIC_ORIGIN", ORIGIN),
+            ("IRIS_OIDC_ISSUER", issuer),
+            ("IRIS_LISTEN", &listen),
+        ],
+    );
+    let (success, output) = exited(&mut server, stderr);
+    assert!(!success, "{output}");
+    output
+}
+
+async fn replace_identities(path: &Path, rows: &[(&str, &str, i64)]) {
+    use sqlx::Connection;
+    let mut conn = iris_reference::app::connect(path).await.unwrap();
+    sqlx::query("DELETE FROM iris_external_identities")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    for &(issuer, subject, user_id) in rows {
+        sqlx::query("INSERT INTO iris_external_identities VALUES(?,?,?)")
+            .bind(issuer)
+            .bind(subject)
+            .bind(user_id)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+    }
+    conn.close().await.unwrap();
+}
+
+async fn database_rows(path: &Path) -> Vec<Vec<String>> {
+    use sqlx::Connection;
+    let mut conn = iris_reference::app::connect(path).await.unwrap();
+    let queries = [
+        "SELECT printf('%lld|%s',id,quote(display_name)) FROM users ORDER BY id",
+        "SELECT printf('%lld|%s',id,quote(name)) FROM projects ORDER BY id",
+        "SELECT printf('%lld|%lld|%s',project_id,user_id,quote(role)) FROM memberships ORDER BY project_id,user_id",
+        "SELECT printf('%lld|%s',user_id,quote(email)) FROM user_contacts ORDER BY user_id",
+        "SELECT printf('%s|%s|%lld',quote(id),quote(data),expires_at) FROM iris_sessions ORDER BY id",
+        "SELECT printf('%s|%s|%lld',quote(issuer),quote(subject),user_id) FROM iris_external_identities ORDER BY issuer,subject",
+        "SELECT printf('%s|%s|%s|%s|%lld',quote(state),quote(browser_id),quote(nonce),quote(verifier),expires_at) FROM iris_login_attempts ORDER BY state",
+        "SELECT printf('%lld|%s|%s|%lld|%s|%lld',version,quote(description),quote(installed_on),success,hex(checksum),execution_time) FROM _sqlx_migrations ORDER BY version",
+    ];
+    let mut tables = Vec::new();
+    for query in queries {
+        tables.push(
+            sqlx::query_scalar::<_, String>(query)
+                .fetch_all(&mut conn)
+                .await
+                .unwrap(),
+        );
+    }
+    conn.close().await.unwrap();
+    tables
 }
 
 /// Starts the binary with exactly the given `IRIS_` variables.
@@ -471,6 +929,269 @@ fn the_reset_command_in_a_refusal_runs_as_printed() {
             "{name}"
         );
     }
+}
+
+#[tokio::test]
+async fn issuer_mapping_guard_is_exact_and_does_not_reseed() {
+    use sqlx::Connection;
+    let configured = DiscoveryObserver::start();
+    let other = DiscoveryObserver::start();
+    let missing = DiscoveryObserver::start();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("issuer cases.db");
+
+    let storage = iris_reference::storage::Storage::open(&path, &configured.issuer)
+        .await
+        .unwrap();
+    drop(storage);
+
+    start_and_stop(&path, &configured);
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        2,
+        "exact issuer discovery is completed"
+    );
+
+    replace_identities(
+        &path,
+        &[
+            (&other.issuer, "alice-other", 11),
+            (&configured.issuer, "not-a-seed-name", 29),
+        ],
+    )
+    .await;
+    start_and_stop(&path, &configured);
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        4,
+        "one exact mapping is sufficient"
+    );
+
+    replace_identities(&path, &[(&configured.issuer, "custom-subject", 11)]).await;
+    start_and_stop(&path, &configured);
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        6,
+        "custom subjects do not affect issuer matching"
+    );
+
+    replace_identities(&path, &[]).await;
+    let output = start_and_stop(&path, &configured);
+    assert!(
+        output
+            .iter()
+            .any(|line| line.contains("no external identity mappings")
+                && line.contains("does not seed")),
+        "{output:?}"
+    );
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        8,
+        "empty database still discovers"
+    );
+    let mut conn = iris_reference::app::connect(&path).await.unwrap();
+    let identities: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM iris_external_identities")
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    assert_eq!(identities, 0, "startup must not reseed an empty table");
+
+    replace_identities(
+        &path,
+        &[
+            (&configured.issuer, "custom-a", 11),
+            (&other.issuer, "custom-b", 29),
+        ],
+    )
+    .await;
+    let output = refused_with_held_port(&path, &missing.issuer);
+    assert!(
+        output.contains("no matching IRIS_OIDC_ISSUER identity mappings"),
+        "{output}"
+    );
+    assert!(!output.contains("Address already in use"), "{output}");
+    assert_eq!(
+        missing.checkpoint().unwrap(),
+        0,
+        "missing issuer must not be contacted"
+    );
+
+    replace_identities(&path, &[(&configured.issuer, "custom", 11)]).await;
+    let requests = configured.checkpoint().unwrap();
+    let trailing = format!("{}/", configured.issuer);
+    let output = refused_with_held_port(&path, &trailing);
+    assert!(
+        output.contains("no matching IRIS_OIDC_ISSUER identity mappings"),
+        "{output}"
+    );
+    assert_eq!(
+        configured.checkpoint().unwrap(),
+        requests,
+        "trailing-slash mismatch must precede discovery"
+    );
+}
+
+#[tokio::test]
+async fn mismatch_preserves_the_closed_database_and_printed_recovery_works() {
+    use sqlx::Connection;
+    let (_provider, original_issuer) = issuer();
+    let replacement = DiscoveryObserver::start();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keep 'all data'.db");
+    let args = persistent_args(&path);
+    let http = no_redirects();
+
+    let (mut server, stderr) = server_with(&original_issuer, &args);
+    let first_address = address(&listening(&stderr));
+    let cookie = sign_in(&http, &first_address).await;
+    let changed = http
+        .post(format!("{first_address}/api/memberships/role"))
+        .header("origin", ORIGIN)
+        .header("x-iris-csrf", csrf(&http, &first_address, &cookie).await)
+        .header("cookie", &cookie)
+        .json(&json!({"project_id": "41", "user_id": "29", "role": "viewer"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(changed.status(), 200);
+    signal(&server, "TERM");
+    assert_eq!(code(&mut server, stderr).0, Some(0));
+
+    let mut conn = iris_reference::app::connect(&path).await.unwrap();
+    sqlx::raw_sql(
+        "INSERT INTO iris_sessions VALUES('expired-sentinel','{}',1),('live-sentinel','{}',4102444800);
+         INSERT INTO iris_login_attempts VALUES
+           ('expired-sentinel','b-expired','n-expired','v-expired',1),
+           ('live-sentinel','b-live','n-live','v-live',4102444800)",
+    )
+    .execute(&mut conn)
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    let before_bytes = std::fs::read(&path).unwrap();
+    let before_rows = database_rows(&path).await;
+    let output = refused_with_held_port(&path, &replacement.issuer);
+    assert!(output.contains(path.to_str().unwrap()), "{output}");
+    assert!(
+        output.contains("no matching IRIS_OIDC_ISSUER identity mappings")
+            && output.contains("fresh login cannot resolve")
+            && output.contains("restoring the intended matching issuer")
+            && output.contains("--reset"),
+        "{output}"
+    );
+    assert!(!output.contains("listening on"), "{output}");
+    assert_eq!(
+        replacement.checkpoint().unwrap(),
+        0,
+        "mismatch must precede discovery"
+    );
+    assert!(
+        std::fs::read(&path).unwrap() == before_bytes,
+        "database bytes changed during mismatch refusal"
+    );
+    assert_eq!(database_rows(&path).await, before_rows);
+
+    let (mut recovered, stderr) = server_with(&original_issuer, &args);
+    let recovered_address = address(&listening(&stderr));
+    assert_eq!(user(&http, &recovered_address, &cookie).await, "11");
+    assert_eq!(role(path.to_str().unwrap()).await, "viewer");
+    signal(&recovered, "TERM");
+    assert_eq!(code(&mut recovered, stderr).0, Some(0));
+
+    let reset = output
+        .split_once("run: ")
+        .unwrap_or_else(|| panic!("no reset command in {output}"))
+        .1
+        .trim();
+    let binary = Path::new(env!("CARGO_BIN_EXE_reference-dev"));
+    let search = format!(
+        "{}:{}",
+        binary.parent().unwrap().display(),
+        std::env::var("PATH").unwrap()
+    );
+    let reset = format!("exec {reset}");
+    let mut reset_process = Owned(
+        Command::new("sh")
+            .args(["-c", &reset])
+            .env("PATH", search)
+            .env("IRIS_OIDC_ISSUER", &replacement.issuer)
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let reset_stderr = lines(reset_process.0.stderr.take().unwrap());
+    let (reset_code, reset_output) = code(&mut reset_process, reset_stderr);
+    assert_eq!(reset_code, Some(0), "{reset}: {reset_output}");
+
+    let mut conn = iris_reference::app::connect(&path).await.unwrap();
+    let issuers: Vec<String> =
+        sqlx::query_scalar("SELECT issuer FROM iris_external_identities ORDER BY subject")
+            .fetch_all(&mut conn)
+            .await
+            .unwrap();
+    let sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM iris_sessions")
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    assert_eq!(
+        issuers,
+        [replacement.issuer.clone(), replacement.issuer.clone()]
+    );
+    assert_eq!(sessions, 0);
+    assert_eq!(role(path.to_str().unwrap()).await, "editor");
+
+    let (mut reset_server, stderr) = server_with(&replacement.issuer, &args);
+    let reset_address = address(&listening(&stderr));
+    assert_eq!(user(&http, &reset_address, &cookie).await, Value::Null);
+    signal(&reset_server, "TERM");
+    assert_eq!(code(&mut reset_server, stderr).0, Some(0));
+    assert_eq!(replacement.checkpoint().unwrap(), 2);
+}
+
+#[tokio::test]
+async fn identity_inspection_errors_refuse_before_discovery_and_release_ownership() {
+    use sqlx::Connection;
+    let observer = DiscoveryObserver::start();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("query-error.db");
+    let storage = iris_reference::storage::Storage::open(&path, &observer.issuer)
+        .await
+        .unwrap();
+    drop(storage);
+    let mut conn = iris_reference::app::connect(&path).await.unwrap();
+    sqlx::query("ALTER TABLE iris_external_identities RENAME TO hidden_identities")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+
+    let output = refused_with_held_port(&path, &observer.issuer);
+    assert!(
+        output.contains("inspect external identity issuer mappings")
+            && output.contains("no such table: iris_external_identities"),
+        "{output}"
+    );
+    assert!(
+        !output.contains("no external identity mappings"),
+        "{output}"
+    );
+    assert!(
+        !output.contains("no matching IRIS_OIDC_ISSUER identity mappings"),
+        "{output}"
+    );
+    assert_eq!(observer.checkpoint().unwrap(), 0);
+
+    let mut conn = iris_reference::app::connect(&path).await.unwrap();
+    sqlx::query("ALTER TABLE hidden_identities RENAME TO iris_external_identities")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    start_and_stop(&path, &observer);
+    assert_eq!(observer.checkpoint().unwrap(), 2);
 }
 
 /// Sends `name` (TERM or INT) to a running server.

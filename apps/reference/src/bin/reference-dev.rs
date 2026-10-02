@@ -9,7 +9,7 @@ use iris_reference::{
     app::{AppState, app, unix_time},
     identity::{Auth, store::Store},
     lifecycle::{self, Connections, Process, Stopped},
-    storage::Storage,
+    storage::{Storage, reset_command},
 };
 
 const USAGE: &str = "usage: reference-dev --local-oidc-demo [--database PATH [--reset]]; \
@@ -137,6 +137,7 @@ async fn serve(
     listen: &str,
     data: &str,
 ) -> Result<Stopped, Box<dyn std::error::Error>> {
+    check_identity_issuer(&pool, database, &issuer).await?;
     let store = Store {
         pool,
         now: unix_time,
@@ -155,4 +156,39 @@ async fn serve(
     eprintln!("listening on http://{}", listener.local_addr()?);
     let tasks = vec![lifecycle::session_cleanup(store, lifecycle::CLEANUP_PERIOD)];
     Ok(lifecycle::serve(listener, app, tasks, signal, lifecycle::DRAIN).await)
+}
+
+/// Refuses a populated development database that cannot resolve a fresh login
+/// from the configured issuer. An empty mapping table is valid and is not
+/// seeded here.
+async fn check_identity_issuer(
+    pool: &sqlx::SqlitePool,
+    database: &Path,
+    issuer: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (any, matching): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM iris_external_identities), \
+         EXISTS(SELECT 1 FROM iris_external_identities WHERE issuer = ?)",
+    )
+    .bind(issuer)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("could not inspect external identity issuer mappings: {error}"))?;
+    if !any {
+        eprintln!(
+            "reference-dev: warning: database {} has no external identity mappings; startup \
+             does not seed existing databases",
+            database.display()
+        );
+    } else if !matching {
+        return Err(format!(
+            "database {} has no matching IRIS_OIDC_ISSUER identity mappings, so a fresh login \
+             cannot resolve; preserve the database by restoring the intended matching issuer; \
+             to intentionally discard it instead, run: {}",
+            database.display(),
+            reset_command(database)
+        )
+        .into());
+    }
+    Ok(())
 }

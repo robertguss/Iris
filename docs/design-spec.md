@@ -3211,9 +3211,9 @@ session recipient; a bearer credential alone is insufficient.
 | Remaining issue checks, in order      | Recipient exists; recipient is not already a member; no unexpired, unaccepted invitation is pending; recipient has a usable local `.test` contact. Only then persist invitation and outbox atomically. |
 | Missing or unusable contact           | Return 409 `invitations.recipient_unavailable`, without disclosing an address or treating delivery as optional. Earlier checks still win.                                                              |
 | Issuer loses authority after commit   | Do not revoke the invitation or suppress delivery merely because the issuer is no longer an owner. Fresh issuance needs current authority.                                                             |
-| Unknown credential or wrong recipient | Uniform 404 `invitations.not_found`; do not expose the invitation or its recipient.                                                                                                                    |
-| Unexpired invitation already accepted | 409 `invitations.already_accepted`; no second membership effect.                                                                                                                                       |
-| Expiry                                | Reject expired invitations; expiry never renews on a delivery retry.                                                                                                                                   |
+| Unknown credential or wrong recipient | Uniform 404 `invitations.not_found` regardless of acceptance or expiry; do not expose the invitation or its recipient.                                                                                 |
+| Invitation already accepted           | After credential and recipient match, return 409 `invitations.already_accepted` before checking expiry, even when `now >= expires_at`; no second membership effect.                                    |
+| Unaccepted invitation expiry          | After credential and recipient match and the accepted check, return 409 `invitations.expired` when `now >= expires_at`; delivery retries never extend expiry.                                          |
 | Recipient became a member meanwhile   | Acceptance consumes the invitation but preserves the existing membership's role; never promote or downgrade it.                                                                                        |
 | Accepted recipient later removed      | The consumed invitation cannot restore membership on replay.                                                                                                                                           |
 | New invitation after expiry           | A fresh authorized submission may issue a new credential if the checks pass; no automatic reissue.                                                                                                     |
@@ -3357,9 +3357,12 @@ second backlog. Each candidate must be green within its boundary:
 
 1. **Private persistence and domain tests:** append-only invitation/outbox
    migrations, fresh-only contact seeds, atomic issue/accept and eligibility
-   rules. Test ordering, equality at expiry, wrong recipient, concurrent issue
-   and acceptance, retained roles, removal after acceptance, enqueue rollback
-   and old databases without contacts. No public partial feature.
+   rules. Test accepted plus expired returns `invitations.already_accepted`,
+   unaccepted at expiry equality returns `invitations.expired`, and unknown
+   credentials or wrong recipients return `invitations.not_found` regardless of
+   acceptance or expiry. Also test issue-check ordering, concurrent issue and
+   acceptance, retained roles, removal after acceptance, enqueue rollback and
+   old databases without contacts. No public partial feature.
 2. **Private delivery and lifecycle:** tracked connections, claim budget,
    fencing, backoff, terminal cleanup, local capture isolation and retention,
    bounded diagnostics and supervised shutdown. Test the failure-window table,

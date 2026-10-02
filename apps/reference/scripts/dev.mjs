@@ -98,6 +98,12 @@ async function step(name, command, args, options = {}) {
   const output = prefixed(name);
   child.stdout?.on("data", (chunk) => output(chunk, "stdout"));
   child.stderr?.on("data", (chunk) => output(chunk, "stderr"));
+  child.stdout?.on("end", () => output.end?.("stdout"));
+  child.stderr?.on("end", () => output.end?.("stderr"));
+  child.once("close", () => {
+    output.end?.("stdout");
+    output.end?.("stderr");
+  });
   const result = await Promise.race([exited, supervisor.stopped]);
   if (result.code !== 0) throw new Error(`${name} ${describe(result)}`);
 }

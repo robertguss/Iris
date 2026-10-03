@@ -21,8 +21,9 @@ Observed October 3, 2026, by the outgoing driver.
   posting), its CI, and its merge. Check `gh pr list --state all --limit 3` for
   the outcome rather than assuming it.
 - CI: the post-merge `Verify` run for `bdf5ba7` (PR #14) succeeded (run
-  37119292679). The run for `e4ba261` (37122553127) was still in progress when
-  this was written. The exact-candidate run for PR #15 (37121865287) succeeded.
+  37119292679). The run for `e4ba261` (37122553127) failed in the unrelated
+  agent-interface MCP step (section 7, ROB-1227). The exact-candidate run for PR
+  #15 (37121865287) succeeded.
 - Apart from this handoff, the working tree was clean, and no pull request was
   open.
 
@@ -39,6 +40,9 @@ Linear team `ROB`, project `Iris`. Snapshot October 3, 2026:
 - `Backlog`: ROB-1123 (CSP-safe runtime validators). It is parked on purpose:
   the reference app has no restrictive CSP, and the owner picks a CSP policy
   before it can be released. The `[driver]` comment of October 2 records this.
+- `Backlog`: ROB-1227 (intermittent agent-interface MCP focused-check failures
+  in CI). The driver filed it on October 3 after a second failure (section 8).
+  The owner decides whether to release it.
 
 The next substantive work is **not in Linear yet**. Building invitations follows
 the three stages in `docs/design-spec.md` S19, "Bounded later implementation
@@ -144,11 +148,13 @@ worker-reported:
 - **Worker:** `pi` with no arguments, as recorded in `AGENTS.md`. No worker is
   running. The oracle is Codex in the right pane.
 - **Jobs and processes:** no local process was left running, and ports 4001,
-  3003 and 5175 were free after the last suites. One GitHub run was still
-  outstanding: the post-merge `Verify` run 37122553127 for `e4ba261`. The
-  outgoing driver checks its conclusion before merging this handoff's PR and
-  reports a failure to the owner. A rerun needs the owner's approval. A fresh
-  driver re-checks it with `gh run view 37122553127`.
+  3003 and 5175 were free after the last suites. The post-merge `Verify` run
+  37122553127 for `e4ba261` **failed** in the agent-interface MCP step
+  (ROB-1227), not in anything ROB-1120 changed. The outgoing driver reported it
+  to the owner and did not rerun it, since a rerun needs the owner's approval.
+  At this update, `main`'s latest push run is red. A later successful run would
+  not establish that ROB-1227 is resolved. This handoff's first PR run
+  (37123140729, at `0311dac`) passed.
 - **Evidence:** this session's scratch directory
   (`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/361b7984-181f-491b-b2e2-0162b0f2be55/scratchpad/`)
   keeps only logs and reports: `evidence-1119/`, `driver-1119/*.log`,
@@ -177,11 +183,11 @@ worker-reported:
   was once exhausted mid-chunk. Batch reads, and retry writes later instead of
   in a loop.
 - **The agent-interface MCP test**
-  (`experiments/agent-interface/runner.test.mjs:70`) failed once in CI after 11
-  s (run 37068803231, attempt 1) on a JS-only diff, passed locally (5/5, about
-  50 s), and passed on rerun. The cause is not diagnosed. Reruns need the
-  owner's approval. If it recurs, propose a Backlog issue rather than rerunning
-  blindly.
+  (`experiments/agent-interface/runner.test.mjs:70`) failed twice in CI, after
+  11–14 s: run 37068803231, attempt 1, on a JS-only diff, which passed on rerun;
+  and run 37122553127 on a documentation-only merge. It passed locally (5/5,
+  about 50 s). The cause is not diagnosed, and ROB-1227 tracks it. Reruns need
+  the owner's approval.
 - **Rust on this Mac:** Homebrew's `rustc` 1.99.0 shadows the
   `rust-toolchain.toml` pin 1.98.1. CI uses the pins. Record the actual version
   in evidence.

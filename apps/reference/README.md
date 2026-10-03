@@ -117,6 +117,10 @@ cargo test --locked -p iris-reference --lib commit_hook_
 cargo test --locked -p iris-reference --lib caller_loss
 ```
 
+October 2026 clarification (ROB-1120): those four are the historical caller-loss
+tests from the preceding section: two socket-loss cases, one owned-future abort
+case and one loss-free control.
+
 The first command checks persistent early release, controller-drop cleanup and
 unoverwriteable deadline provenance. The three request cases cancel before
 COMMIT, cancel while the actual transaction's SQLite commit hook is held, and
@@ -419,6 +423,16 @@ Measured September 26–27, 2026, on macOS with Node 24.20.0 (CI pins 26.10.0);
 the client checks also passed under Node 26.8.1. The development server,
 development database, lifecycle and workspace rows were measured again, and the
 development command row first, on September 30.
+
+October 2026 pointer (ROB-1120): later evidence does not make the historical
+rows below current verification. ROB-1112 moved the development command's tests
+into CI; see candidate
+[run 36962543467](https://github.com/robertguss/Iris/actions/runs/36962543467)
+and post-merge
+[run 36963506985](https://github.com/robertguss/Iris/actions/runs/36963506985).
+ROB-1119 preserved final unterminated development-child output; see the
+[decision entry](../../docs/decisions.md#development-child-output-tails--october-2-2026)
+and PR [#14](https://github.com/robertguss/Iris/pull/14).
 
 | Check                  | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

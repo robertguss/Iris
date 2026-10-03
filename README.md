@@ -115,10 +115,10 @@ action's full HTTP contract, with rejection metadata, precise per-code schemas
 and whole-request client validation, on an isolated route; the existing API is
 unchanged. The [reference application](apps/reference/README.md) (S17) tests
 whether that contract generalizes: two membership mutations and two paged reads
-over session identity, a React client whose browser workflows run in CI, and the
-mutations' declared current-state read. Only what two operations demonstrably
-share moves into the private, provisionally named `crates/iris`; none of it is
-framework API.
+over session identity, a React client with browser workflows that were run by CI
+before CI was disabled on 2026-10-03 (ROB-1229), and the mutations' declared
+current-state read. Only what two operations demonstrably share moves into the
+private, provisionally named `crates/iris`; none of it is framework API.
 
 The [S18 lifecycle](docs/design-spec.md#s18--reference-application-lifecycle)
 now supplies persistent development storage, reset and migration refusal,

@@ -218,9 +218,10 @@ The port check is not a reservation. Readiness is still recognized from child
 logs, not active probes. The defensive stop-before-spawn guard remains even
 though current callers do not reach it. The macOS EPERM/catch-all process-group
 probe and escaped-session limit are unchanged pending macOS-specific evidence; a
-Linux result would not settle that behavior. CI runs them in the foreground
-immediately after reference client verification, before the browser workflows in
-the same serial job. To run them locally:
+Linux result would not settle that behavior. Before CI was disabled on
+2026-10-03 (ROB-1229), CI ran them in the foreground immediately after reference
+client verification, before the browser workflows in the same serial job. To run
+them locally:
 
 ```sh
 node --test apps/reference/scripts/test/dev.test.mjs
@@ -559,9 +560,10 @@ recovery and type narrowing, both drift edges, 16 omissions and 7 controls to
 maintained reference checks. It explicitly records the marked-response and
 current-state-read semantic adaptations; aggregate test counts are not parity.
 
-CI still runs normal frozen-web `verify`, workspace/default and dev-identity
-Rust, reference Rust/client/probes, and every other existing check. In the old
-compound `probe:s16` position, after web dependencies, CI now runs only:
+Before CI was disabled on 2026-10-03 (ROB-1229), CI still ran normal frozen-web
+`verify`, workspace/default and dev-identity Rust, reference Rust/client/probes,
+and every other existing check. In the old compound `probe:s16` position, after
+web dependencies, CI ran only:
 
 ```sh
 node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs
@@ -570,8 +572,9 @@ node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs
 This is one mechanics regression for nested private-target inheritance and
 exception cleanup, not the real 16-mutant suite. Direct frozen export/snapshot/
 generated-TypeScript synchronization and frozen narrowing/client executions no
-longer run automatically through S16 entrypoints; reference equivalents remain
-automatic.
+longer ran through S16 entrypoints in CI. The reference equivalent commands
+still perform their drift checks automatically when those commands are invoked,
+but they are no longer scheduled by CI.
 
 Historical manual entrypoints are unchanged:
 
@@ -599,8 +602,9 @@ separate gate.
   classification is source-inspected only.
 - The client bundles the export it was built with, so client and server must
   ship from the same commit.
-- The development command's tests use fixed ports locally and in CI; they must
-  own 4001, 3003 and 5175 exclusively and must not overlap browser workflows.
+- The development command's tests use fixed ports; they must own 4001, 3003 and
+  5175 exclusively and must not overlap browser workflows. Before CI was
+  disabled on 2026-10-03 (ROB-1229), CI also ran them.
 - Ajv compiles validators with `new Function`; a strict content security policy
   would need precompiled validators. None is set here.
 - The browser workflows check selected paths in one browser, not every code.

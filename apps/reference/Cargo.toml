@@ -20,6 +20,7 @@ openidconnect = { version = "=4.0.1", default-features = false, features = ["req
 getrandom = "0.4"
 subtle = "2"
 sha2 = "0.10"
+lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1"] }
 tokio = { workspace = true, features = ["net", "signal"] }
 tempfile.workspace = true
 

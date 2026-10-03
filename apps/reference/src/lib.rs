@@ -4,5 +4,6 @@ pub mod domains;
 pub mod http;
 pub mod identity;
 pub mod lifecycle;
+pub mod mail;
 pub mod read;
 pub mod storage;

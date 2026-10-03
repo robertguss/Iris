@@ -108,6 +108,18 @@ fn rejected(_: impl std::fmt::Display) -> ApiError {
     ApiError(ErrorCode::LoginFailed)
 }
 
+/// A canonical `scheme://host[:port]` origin that is HTTPS, or HTTP on
+/// `127.0.0.1` or `localhost`.
+pub(crate) fn canonical_origin(origin: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(origin) else {
+        return false;
+    };
+    url.origin().ascii_serialization() == origin
+        && (url.scheme() == "https"
+            || (url.scheme() == "http"
+                && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))))
+}
+
 impl Auth {
     pub async fn discover(
         store: Store,
@@ -118,11 +130,7 @@ impl Auth {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let url = reqwest::Url::parse(&origin)?;
         let secure = url.scheme() == "https";
-        if url.origin().ascii_serialization() != origin
-            || (!secure
-                && !(url.scheme() == "http"
-                    && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))))
-        {
+        if !canonical_origin(&origin) {
             return Err(
                 "origin must be a canonical HTTPS origin or explicit HTTP loopback origin".into(),
             );

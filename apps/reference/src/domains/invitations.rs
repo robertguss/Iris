@@ -167,7 +167,7 @@ fn token_hash(token: &str) -> String {
 /// A deliberately narrow local policy, not a deliverability check: one `@`,
 /// a non-empty local part, no whitespace, and a domain ending in `.test`
 /// with a non-empty label before it, ignoring case.
-fn usable_contact(email: &str) -> bool {
+pub(crate) fn usable_contact(email: &str) -> bool {
     let email = email.to_ascii_lowercase();
     let Some((local, domain)) = email.split_once('@') else {
         return false;

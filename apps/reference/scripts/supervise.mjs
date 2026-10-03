@@ -130,12 +130,15 @@ export class Supervisor {
         done({ code, signal });
       });
     });
-    const entry = { child, exited, name, running: () => running };
+    const closed = new Promise((done) => child.once("close", done));
+    const entry = { child, exited, closed, name, running: () => running };
     // The group stays owned after its leader exits, until its last member
     // has: a descendant left behind is still this supervisor's to stop.
     entry.gone = exited.then(() => emptied(child.pid));
     this.owned.add(entry);
-    entry.gone.then(() => this.owned.delete(entry));
+    Promise.all([entry.gone, entry.closed]).then(() =>
+      this.owned.delete(entry),
+    );
     if (name && child.pid) this.say(`started ${name} (pid ${child.pid})`);
     return entry;
   }
@@ -167,6 +170,7 @@ export class Supervisor {
     const result = await entry.exited;
     await entry.gone;
     clearTimeout(force);
+    await entry.closed;
     return result;
   }
 
@@ -225,6 +229,12 @@ export class Supervisor {
       };
       server.child.stdout?.on("data", (chunk) => scan(chunk, "stdout"));
       server.child.stderr?.on("data", (chunk) => scan(chunk, "stderr"));
+      server.child.stdout?.on("end", () => output.end?.("stdout"));
+      server.child.stderr?.on("end", () => output.end?.("stderr"));
+      server.child.once("close", () => {
+        output.end?.("stdout");
+        output.end?.("stderr");
+      });
       server.exited.then(() => clearTimeout(timer));
     });
     return { server, ready: Promise.race([ready, this.stopped]) };
@@ -291,11 +301,20 @@ export class Supervisor {
  */
 export function prefixed(name) {
   const partial = { stdout: "", stderr: "" };
-  return (chunk, stream) => {
+  const ended = { stdout: false, stderr: false };
+  const output = (chunk, stream) => {
     const lines = (partial[stream] + chunk).split("\n");
     partial[stream] = lines.pop();
     for (const line of lines) process.stderr.write(`[${name}] ${line}\n`);
   };
+  output.end = (stream) => {
+    if (ended[stream]) return;
+    ended[stream] = true;
+    if (partial[stream] === "") return;
+    process.stderr.write(`[${name}] ${partial[stream]}\n`);
+    partial[stream] = "";
+  };
+  return output;
 }
 
 /**

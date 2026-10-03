@@ -3336,11 +3336,13 @@ exit before a stop, a readiness timeout or a failed build stops the rest and
 exits 1. SIGINT or SIGTERM begins a stop: SIGTERM to every process group,
 SIGKILL 5 s later to any group with a process left, and every member's exit
 awaited. A group stays owned until its last member has exited, not only its
-leader. The first cause of a stop is kept, and later signals are only reported.
-A stop that a signal requested exits 0 whatever the children's exit codes, which
-it prints: the API's exit 1 after an expired drain is its own outcome, not a
-failure of the command. A child that needed SIGKILL makes the stop exit 1, and
-so does a signal that interrupts a reset.
+leader, and until the child's stdio has closed, so a descendant that still holds
+a pipe can finish an unterminated output line before the command's final
+`dev: exit …` report. The first cause of a stop is kept, and later signals are
+only reported. A stop that a signal requested exits 0 whatever the children's
+exit codes, which it prints: the API's exit 1 after an expired drain is its own
+outcome, not a failure of the command. A child that needed SIGKILL makes the
+stop exit 1, and so does a signal that interrupts a reset.
 
 The plan review found that the browser runner's one-shot handlers let a second
 Ctrl-C end the supervisor during its cleanup, which the oracle reproduced under
@@ -3433,7 +3435,25 @@ Limits:
   child's bind makes that child exit, which stops the command.
 - Readiness is each child's own address line; the command does not probe the
   addresses.
-- A child's final output line is printed only if it ends with a newline.
+- Historical ROB-1112 behavior printed a child's final output line only if it
+  ended with a newline. ROB-1119 supersedes only that tail behavior: `prefixed`
+  remains a real-data callback and flushes each stream's nonempty unterminated
+  tail once on that stream's end, with a close fallback. Complete lines, blank
+  lines, whitespace-only tails, per-stream separation, chunk decoding and
+  readiness scanning otherwise stay unchanged.
+- The stop-before-spawn guard is retained even though current callers cannot
+  reach it: readiness resumes the next start in the same microtask turn, and the
+  browser runner checks before it calls. It remains defensive for future shared
+  callers.
+- Cleanup reaches process groups, not escaped sessions. A descendant that starts
+  its own session or group may keep an inherited pipe open after the owned group
+  is gone; the final report then waits for pipe closure. No stream is destroyed,
+  no forced `process.exit` is used, and there is no arbitrary output-drain
+  timeout or promise that every stop completes within 5 s.
+- The EPERM/catch-all group probe remains unchanged pending actual macOS
+  evidence; Linux behavior is not macOS evidence.
+- Readiness remains log-based, the port check remains non-reserving, and UTF-8
+  decoding still uses chunk-local `String(chunk)` rather than `StringDecoder`.
 - The browser workflow ran once, just before the last change, which touches
   neither the runner nor the shared module; on macOS only.
 

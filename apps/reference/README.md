@@ -175,21 +175,28 @@ any of ports 4001, 3003 or 5175 is taken, builds the development server, then
 starts the local issuer on 4001, the server on 3003 and Vite on 5175, each only
 once the one before has reported its address, and prints `dev: ready: …` when
 all three have. Each child's output is shown under its name (`[issuer]`,
-`[api]`, `[web]`). The data persists in `apps/reference/.dev/reference.db`,
-which is gitignored; `--database PATH` uses another file, resolved against the
-current directory, in a directory that must exist. The command sets every
-address it owns itself: an inherited `IRIS_API_TARGET`, `IRIS_LISTEN`,
-`IRIS_PUBLIC_ORIGIN` or `IRIS_OIDC_ISSUER` does not reach its children, so the
-console cannot reach another server or database.
+`[api]`, `[web]`). A final line without a trailing newline is printed once when
+that stream closes, before the command's final `dev: exit …` line. Complete
+lines, blank lines, whitespace-only tails, stdout/stderr separation, chunk local
+decoding and readiness scanning otherwise keep the existing behavior. The data
+persists in `apps/reference/.dev/reference.db`, which is gitignored;
+`--database PATH` uses another file, resolved against the current directory, in
+a directory that must exist. The command sets every address it owns itself: an
+inherited `IRIS_API_TARGET`, `IRIS_LISTEN`, `IRIS_PUBLIC_ORIGIN` or
+`IRIS_OIDC_ISSUER` does not reach its children, so the console cannot reach
+another server or database.
 
 To stop it, press Ctrl-C or send it SIGTERM. It sends SIGTERM to each child's
 process group, SIGKILL to any group still running five seconds later, and waits
-for all three. It prints how each child exited, then exits 0 once all three
-have, whatever their own exit codes, or 1 if one needed SIGKILL. The server's
-exit code is its own drain and closure outcome, described below: its exit 1
-after an expired drain is printed, not treated as a failure of the command. A
-later Ctrl-C does not shorten the stop. If a child exits on its own, or is not
-ready within 60 seconds, the command stops the others and exits 1, naming it.
+for all three process groups and their stdio closure. It prints how each child
+exited, then exits 0 once all three have, whatever their own exit codes, or 1 if
+one needed SIGKILL. A descendant that escaped the owned group can keep an
+inherited pipe open and delay the final report; there is no stream destroy,
+forced process exit or output-drain timeout. The server's exit code is its own
+drain and closure outcome, described below: its exit 1 after an expired drain is
+printed, not treated as a failure of the command. A later Ctrl-C does not
+shorten the stop. If a child exits on its own, or is not ready within 60
+seconds, the command stops the others and exits 1, naming it.
 
 To start over, reset through the command:
 
@@ -203,8 +210,13 @@ that database. A reset interrupted by a signal exits 1; run it again.
 
 The command's tests start it and its children on the same fixed ports, so they
 refuse to run while any is taken and must not run beside the browser workflow.
-CI runs them in the foreground immediately after reference client verification,
-before the browser workflows in the same serial job. To run them locally:
+The port check is not a reservation. Readiness is still recognized from child
+logs, not active probes. The defensive stop-before-spawn guard remains even
+though current callers do not reach it. The macOS EPERM/catch-all process-group
+probe and escaped-session limit are unchanged pending macOS-specific evidence; a
+Linux result would not settle that behavior. CI runs them in the foreground
+immediately after reference client verification, before the browser workflows in
+the same serial job. To run them locally:
 
 ```sh
 node --test apps/reference/scripts/test/dev.test.mjs

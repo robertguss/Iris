@@ -2478,6 +2478,65 @@ development-command suite and policy mutants were not repeated solely for this
 test-only revision; the fresh Tester and exact final CI cover the resulting
 candidate.
 
+## Development-child output tails — October 2, 2026
+
+ROB-1119 preserves a development child's final unterminated output line without
+weakening process cleanup. The shared formatter remains a real-data consumer,
+`(chunk, stream) => void`, and adds an idempotent `end(stream)` operation. Both
+callers that use it (`Supervisor.start` and the `dev.mjs` build/reset step) wire
+readable-stream `end` plus a child-`close` fallback; plain callbacks such as the
+browser runner still receive only data events. The implementation does not flush
+on process exit, readiness or synthetic sentinels.
+
+Ownership now distinguishes leader exit, process-group emptiness and stdio
+closure. Unexpected exits still abort immediately on the leader's `exited`
+promise, and step failures still classify on `exited`; entries remain owned
+until both `gone` and `closed` resolve. `terminate` still signals SIGTERM and
+arms the existing 5 s SIGKILL escalation before waiting, awaits `exited` and
+`gone`, clears escalation, and only then awaits `closed`, keeping the final
+`dev: exit <code>: <cause>` line last.
+
+Measured checks in this working session used Node 24.20.0, npm 11.19.0 and Rust
+1.99.0. The final forced-color development-command suite passed 31 of 31 tests.
+The first base-copy red run at commit `7840188`, with the new tests and fixture
+copied in, used the original direct-spawn plain-callback control: that control
+and the spawn/non-piped-stdio control passed, while seven new assertions failed.
+Both formatter tests had no `output.end`; `start` and the dev build step never
+flushed their unterminated tails; the failing cargo shim's diagnostic was absent
+before the final report; the group-gone/pipe-open case printed `dev: exit`
+before external release; and the leader/helper case did not produce the exact
+joined `prefix-suffix` tail. After the control was corrected to exercise
+`Supervisor.start` with a plain browser-shaped callback, that single revised
+control was rerun against the base copy and passed. The tests now explicitly
+acknowledge, via a fixture gate, that the initial `prefix-` stdout fragment
+reached the formatter before killing the leader.
+
+Six disposable-copy mutants were caught with green controls before and after:
+(a) dropping `end` wiring in `Supervisor.start` was caught by the start tail
+test; (b) dropping `end` wiring in the dev step was caught by the build-step
+tail test and the failing-cargo diagnostic test; (c) flushing on leader exit was
+caught by premature `[tail] prefix-` before the helper suffix; (d) releasing
+ownership at `gone` alone and (e) omitting `terminate`'s close wait were each
+caught by the group-gone/pipe-open test seeing the final report before external
+release; and (f) awaiting close before signalling and arming escalation was
+caught by the leader/helper test's bounded still-running failure. After adding
+the explicit `prefix-` formatter acknowledgement, mutant (c) was rerun
+separately and was still caught by the premature `[tail] prefix-` assertion.
+
+Source inspection, not a runtime close-without-end proof, covers the close
+fallback path. Historical S18/ROB-1112 measurements above are preserved; this
+entry supersedes only the old tail-loss statement. Evidence logs were kept in
+session scratch for the worker/driver handoff and are not retained in the
+repository.
+
+Limits intentionally retained: the defensive stop-before-spawn guard remains
+although current callers cannot reach it; the EPERM/catch-all group probe is
+unchanged pending actual macOS evidence (Linux is not macOS evidence); escaped
+sessions can delay closure by holding an inherited pipe; readiness remains
+log-based; the port check is not a reservation; UTF-8 decoding still happens per
+chunk rather than via `StringDecoder`. Invalid scratch attempts that failed by
+timeout or bad fixture wiring were not counted as evidence.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

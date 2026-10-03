@@ -27,11 +27,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { afterEach, before, test } from "node:test";
+import { Supervisor, prefixed } from "../supervise.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../../..");
 const DEV = join(root, "apps/reference/scripts/dev.mjs");
 const GATED = join(here, "gated-supervisor.mjs");
+const TAIL = join(here, "output-tail-fixture.mjs");
 const ORIGIN = "http://127.0.0.1:5175";
 const API = "http://127.0.0.1:3003";
 const ISSUER = "http://127.0.0.1:4001";
@@ -81,8 +83,12 @@ function launch(script, args, { env = process.env, cwd = root } = {}) {
   child.stdout.on("data", (chunk) => (command.output += chunk));
   child.stderr.on("data", (chunk) => (command.output += chunk));
   command.exited = new Promise((done) =>
-    child.once("exit", (code, signal) => done({ code, signal })),
+    child.once("exit", (code, signal) => {
+      command.exitedAt = Date.now();
+      done({ code, signal });
+    }),
   );
+  command.closed = new Promise((done) => child.once("close", () => done(true)));
   command.exited.then(() => (command.done = true));
   launched.push(command);
   return command;
@@ -100,7 +106,7 @@ afterEach(async () => {
         try {
           process.kill(-pid, signal);
         } catch {}
-    await command.exited;
+    await Promise.race([command.closed, sleep(5_000)]);
   }
 });
 
@@ -116,10 +122,24 @@ async function until(command, pattern, ms = START) {
   }
 }
 /** Waits, bounded, for the command's exit. */
+async function bounded(promise, ms, label) {
+  const timeout = Symbol("timeout");
+  const result = await Promise.race([promise, sleep(ms).then(() => timeout)]);
+  if (result === timeout) throw new Error(`${label} after ${ms} ms`);
+  return result;
+}
+/** Waits, bounded, for the command's exit and captured streams to close. */
 async function exit(command, ms = 20_000) {
-  const result = await Promise.race([command.exited, sleep(ms)]);
-  if (!result)
-    throw new Error(`still running after ${ms} ms:\n${command.output}`);
+  const result = await bounded(
+    command.exited,
+    ms,
+    `still running after ${ms} ms:\n${command.output}`,
+  );
+  await bounded(
+    command.closed,
+    ms,
+    `streams still open after ${ms} ms:\n${command.output}`,
+  );
   return result;
 }
 /** The process group a command reported for one of its children. */
@@ -136,6 +156,127 @@ function final(command) {
   const lines = command.output.trimEnd().split("\n");
   return lines[lines.length - 1];
 }
+
+function capturePrefixed(fn) {
+  const write = process.stderr.write;
+  let output = "";
+  process.stderr.write = (chunk, encoding, callback) => {
+    output += chunk;
+    if (typeof encoding === "function") encoding();
+    if (typeof callback === "function") callback();
+    return true;
+  };
+  try {
+    fn();
+  } finally {
+    process.stderr.write = write;
+  }
+  return output;
+}
+
+test("prefixed flushes exact unterminated tails once per stream", () => {
+  const raw = capturePrefixed(() => {
+    const output = prefixed("fmt");
+    output("out", "stdout");
+    output("-line\n\nblank\n   ", "stdout");
+    output("err", "stderr");
+    output("-tail", "stderr");
+    output.end("stdout");
+    output.end("stdout");
+    output.end("stderr");
+    output.end("stderr");
+  });
+  assert.equal(
+    raw,
+    "[fmt] out-line\n[fmt] \n[fmt] blank\n[fmt]    \n[fmt] err-tail\n",
+  );
+});
+
+test("prefixed keeps complete, blank, empty, and per-stream chunks exact", () => {
+  const raw = capturePrefixed(() => {
+    const output = prefixed("fmt");
+    output("a\n", "stdout");
+    output("\n", "stderr");
+    output(" ", "stderr");
+    output("b", "stdout");
+    output.end("stderr");
+    output.end("stdout");
+    output.end("stdout");
+  });
+  assert.equal(raw, "[fmt] a\n[fmt] \n[fmt]  \n[fmt] b\n");
+});
+
+test("own handles spawn errors and non-piped stdio closure", async () => {
+  const supervisor = new Supervisor();
+  const missing = supervisor.own("/definitely/missing/iris-command", []);
+  launched.push({
+    child: missing.child,
+    output: "",
+    exited: missing.exited,
+    closed: missing.closed,
+  });
+  const failed = await bounded(missing.exited, 5_000, "missing spawn exit");
+  assert.equal(failed.error.code, "ENOENT");
+  await bounded(missing.closed, 5_000, "missing spawn close");
+
+  const quiet = supervisor.own(process.execPath, ["-e", ""], {
+    stdio: "ignore",
+  });
+  launched.push({
+    child: quiet.child,
+    output: "",
+    exited: quiet.exited,
+    closed: quiet.closed,
+  });
+  assert.equal((await bounded(quiet.exited, 5_000, "quiet exit")).code, 0);
+  await bounded(quiet.gone, 5_000, "quiet group gone");
+  await bounded(quiet.closed, 5_000, "quiet close");
+});
+
+test("plain output callbacks receive only real data", async () => {
+  const supervisor = new Supervisor();
+  const calls = [];
+  let closed = false;
+  const output = (chunk, stream) => {
+    assert.equal(closed, false, "output after child close");
+    assert.ok(chunk?.length > 0, "real nonempty chunk");
+    assert.ok(stream === "stdout" || stream === "stderr", stream);
+    calls.push([stream, String(chunk)]);
+  };
+  const { server } = supervisor.start(
+    "plain",
+    process.execPath,
+    [TAIL, "child", "plain-events", temporary()],
+    /never-ready/,
+    { output, expected: () => true },
+  );
+  const tracked = {
+    child: server.child,
+    output: "",
+    exited: server.exited,
+    closed: new Promise((done) =>
+      server.child.once("close", () => {
+        closed = true;
+        done(true);
+      }),
+    ),
+  };
+  launched.push(tracked);
+  const chunks = { stdout: "", stderr: "" };
+  const deadline = Date.now() + 5_000;
+  while (chunks.stdout !== "onetwo\nthree" || chunks.stderr !== "err") {
+    chunks.stdout = "";
+    chunks.stderr = "";
+    for (const [stream, chunk] of calls) chunks[stream] += chunk;
+    if (Date.now() > deadline)
+      throw new Error(`plain data not seen: ${JSON.stringify(chunks)}`);
+    await sleep(20);
+  }
+  supervisor.signalGroup(server, "SIGTERM");
+  assert.equal((await exit(tracked, 5_000)).code, 0);
+  assert.equal(closed, true);
+  assert.deepEqual(chunks, { stdout: "onetwo\nthree", stderr: "err" });
+});
 
 /** A listener that holds a port for the length of a test. */
 function hold(port) {
@@ -303,7 +444,7 @@ test("a signal during the build stops it and starts no server", async () => {
     const signalled = Date.now();
     process.kill(run.child.pid, signal);
     const { code } = await exit(run);
-    assert.ok(Date.now() - signalled < 5_000, run.output);
+    assert.ok(run.exitedAt - signalled < 5_000, run.output);
     assert.equal(code, expected, run.output);
     assert.match(
       final(run),
@@ -408,6 +549,63 @@ function gated(timeout = 60_000, stubborn = "") {
   };
 }
 
+test("start flushes one stream's tail while child stays alive", async () => {
+  const dir = temporary();
+  const run = launch(TAIL, ["start", "stdout-end-alive", dir]);
+  await until(run, /^\[tail\] tail-without-newline$/m);
+  assert.equal(run.done, undefined, run.output);
+  await until(run, /^dev: ready: tail fixture$/m);
+  process.kill(run.child.pid, "SIGINT");
+  const { code } = await exit(run);
+  assert.equal(code, 0, run.output);
+  assert.match(final(run), /^dev: exit 0: received SIGINT$/);
+});
+
+test("dev build step flushes one stream's tail while child stays alive", async () => {
+  const dir = temporary();
+  const bin = join(dir, "bin");
+  execFileSync("mkdir", [bin]);
+  writeFileSync(
+    join(bin, "cargo"),
+    '#!/bin/sh\nprintf "build-tail"\nexec 1>&-\ntrap "exit 0" TERM\nwhile :; do sleep 0.05; done\n',
+  );
+  chmodSync(join(bin, "cargo"), 0o755);
+  const run = command(["--database", join(dir, "dev.db")], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  await until(run, /^\[build\] build-tail$/m);
+  assert.equal(run.done, undefined, run.output);
+  assert.doesNotMatch(run.output, /dev: started issuer|dev: exit/);
+  process.kill(run.child.pid, "SIGINT");
+  assert.equal((await exit(run)).code, 0, run.output);
+});
+
+test("a failing cargo diagnostic without newline precedes the final dev exit", async () => {
+  const dir = temporary();
+  const bin = join(dir, "bin");
+  execFileSync("mkdir", [bin]);
+  writeFileSync(
+    join(bin, "cargo"),
+    '#!/bin/sh\nprintf "fatal cargo diag" >&2\nexit 1\n',
+  );
+  chmodSync(join(bin, "cargo"), 0o755);
+  const database = join(dir, "dev.db");
+  const run = command(["--database", database], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  const { code } = await exit(run);
+  assert.equal(code, 1, run.output);
+  assert.doesNotMatch(
+    run.output,
+    /dev: started (issuer|api|web|reset)|dev: ready/,
+  );
+  assert.equal(existsSync(database), false);
+  const diagnostic = run.output.indexOf("[build] fatal cargo diag\n");
+  const report = run.output.indexOf("dev: exit 1: build exited (1)\n");
+  assert.ok(diagnostic >= 0 && diagnostic < report, run.output);
+  assert.equal(final(run), "dev: exit 1: build exited (1)");
+});
+
 test("gated servers start one at a time and readiness waits for the last", async () => {
   const { run, open } = gated();
   await until(run, /^\[a\] a spawned$/m);
@@ -445,7 +643,7 @@ test("a signal while readiness is pending stops without starting the rest", asyn
   const signalled = Date.now();
   process.kill(run.child.pid, "SIGINT");
   const { code } = await exit(run);
-  assert.ok(Date.now() - signalled < 5_000, run.output);
+  assert.ok(run.exitedAt - signalled < 5_000, run.output);
   assert.equal(code, 0, run.output);
   assert.match(final(run), /^dev: exit 0: received SIGINT$/);
   open("b");
@@ -545,7 +743,7 @@ test("the API's exit 1 during a deliberate stop is reported, not a failure", asy
   process.kill(run.child.pid, "SIGINT");
   const { code } = await exit(run);
   socket.destroy();
-  assert.ok(Date.now() - signalled < 5_500, run.output);
+  assert.ok(run.exitedAt - signalled < 5_500, run.output);
   assert.equal(code, 0, run.output);
   assert.match(run.output, /\[api\] .*drain deadline expired/);
   assert.match(run.output, /dev: api exited \(1\) during the stop/);
@@ -560,7 +758,7 @@ test("a child that ignores SIGTERM is killed after 5 s and the stop exits 1", as
   const signalled = Date.now();
   process.kill(run.child.pid, "SIGINT");
   const { code } = await exit(run);
-  const elapsed = Date.now() - signalled;
+  const elapsed = run.exitedAt - signalled;
   assert.ok(elapsed >= 4_900 && elapsed < 8_000, `${elapsed} ms`);
   assert.equal(code, 1, run.output);
   assert.match(
@@ -594,7 +792,7 @@ test("repeated signals neither end nor shorten the stop", async () => {
     await sleep(2_000);
     assert.equal(run.done, undefined, `ended early:\n${run.output}`);
     const { code } = await exit(run);
-    assert.ok(Date.now() - signalled >= 4_900, run.output);
+    assert.ok(run.exitedAt - signalled >= 4_900, run.output);
     assert.equal(code, 1, run.output);
     assert.match(
       run.output,
@@ -683,6 +881,121 @@ test("a reset binds the seeded identities to the command's issuer", async () => 
   assert.equal((await session(cookie)).user_id, "11");
 });
 
+test("group gone with pipe open delays final line until external writer closes", async () => {
+  const dir = temporary();
+  const run = launch(TAIL, ["start", "escaped-pipe", dir]);
+  let escaped;
+  try {
+    await until(run, /^dev: ready: tail fixture$/m);
+    let deadline = Date.now() + 5_000;
+    while (!existsSync(join(dir, "escaped-pid"))) {
+      if (Date.now() > deadline)
+        throw new Error(`no escaped pid:\n${run.output}`);
+      await sleep(20);
+    }
+    escaped = Number(
+      execFileSync("cat", [join(dir, "escaped-pid")], { encoding: "utf8" }),
+    );
+    deadline = Date.now() + 5_000;
+    while (!existsSync(join(dir, "gone-seen"))) {
+      if (Date.now() > deadline)
+        throw new Error(`no gone gate:\n${run.output}`);
+      await sleep(20);
+    }
+    deadline = Date.now() + 5_000;
+    while (!existsSync(join(dir, "cleanup-entry"))) {
+      if (Date.now() > deadline)
+        throw new Error(`no cleanup entry:\n${run.output}`);
+      await sleep(20);
+    }
+    await sleep(5_200);
+    assert.doesNotMatch(run.output, /dev: exit/, run.output);
+    assert.doesNotMatch(run.output, /^\[tail\] prefix-/m, run.output);
+    writeFileSync(join(dir, "release.go"), "");
+    const { code } = await exit(run, 5_000);
+    assert.equal(code, 1, run.output);
+    assert.equal(
+      (run.output.match(/^\[tail\] prefix-suffix$/gm) ?? []).length,
+      1,
+    );
+    assert.equal(
+      (run.output.match(/^dev: exit 1: tail exited \(0\)$/gm) ?? []).length,
+      1,
+    );
+    assert.equal(final(run), "dev: exit 1: tail exited (0)");
+  } finally {
+    if (escaped === undefined) {
+      const deadline = Date.now() + 1_000;
+      while (!existsSync(join(dir, "escaped-pid")) && Date.now() <= deadline)
+        await sleep(20);
+      if (existsSync(join(dir, "escaped-pid")))
+        escaped = Number(
+          execFileSync("cat", [join(dir, "escaped-pid")], {
+            encoding: "utf8",
+          }),
+        );
+    }
+    if (escaped === undefined)
+      throw new Error("escaped writer pid was not published");
+    try {
+      process.kill(-escaped, "SIGKILL");
+    } catch {}
+    const deadline = Date.now() + 2_000;
+    while (!gone(escaped) && Date.now() <= deadline) await sleep(20);
+    assert.ok(gone(escaped), "escaped writer survived teardown");
+  }
+});
+
+test("leader exit does not flush a same-stream tail before helper suffix", async () => {
+  for (const [mode, killed] of [
+    ["leader-polite", false],
+    ["leader-stubborn", true],
+  ]) {
+    const dir = temporary();
+    const run = launch(TAIL, ["start", mode, dir]);
+    await until(run, /^dev: ready: tail fixture$/m);
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(join(dir, "helper-started"))) {
+      if (Date.now() > deadline)
+        throw new Error(`helper did not start:\n${run.output}`);
+      await sleep(20);
+    }
+    while (!existsSync(join(dir, "prefix-seen"))) {
+      if (Date.now() > deadline)
+        throw new Error(`prefix did not reach formatter:\n${run.output}`);
+      await sleep(20);
+    }
+    assert.doesNotMatch(run.output, /^\[tail\] prefix-/m);
+    process.kill(
+      Number((await until(run, /dev: started tail \(pid (\d+)\)/))[1]),
+      "SIGKILL",
+    );
+    await until(run, /^dev: stopping: tail exited \(SIGKILL\)$/m);
+    assert.doesNotMatch(run.output, /^\[tail\] prefix-/m);
+    writeFileSync(join(dir, "suffix.go"), "");
+    const { code } = await exit(run, killed ? 10_000 : 5_000);
+    assert.equal(code, 1, run.output);
+    assert.match(run.output, /^\[tail\] prefix-suffix$/m);
+    assert.equal(
+      (run.output.match(/^\[tail\] prefix-suffix$/gm) ?? []).length,
+      1,
+    );
+    if (killed)
+      assert.match(
+        run.output,
+        /dev: tail did not exit within 5 s of SIGTERM; sent SIGKILL/,
+      );
+    assert.match(
+      final(run),
+      new RegExp(
+        `^dev: exit 1: tail exited \\(SIGKILL\\)${
+          killed ? "; tail needed SIGKILL" : ""
+        }$`,
+      ),
+    );
+  }
+});
+
 test("a leader's exit leaves no member of its group behind", async () => {
   const { run, open } = gated();
   const a = await pid(run, "a");
@@ -707,7 +1020,7 @@ test("a member that ignores SIGTERM after its leader exits is killed", async () 
   const signalled = Date.now();
   process.kill(run.child.pid, "SIGINT");
   const { code } = await exit(run);
-  assert.ok(Date.now() - signalled >= 4_900, run.output);
+  assert.ok(run.exitedAt - signalled >= 4_900, run.output);
   assert.equal(code, 1, run.output);
   assert.match(
     run.output,

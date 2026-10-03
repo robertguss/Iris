@@ -1,17 +1,13 @@
 # Iris development guidance
 
-## Driver
+## Delivery and tracking
 
-```text
-Linear: team ROB, project Iris
-Worker: pi
-```
-
-Iris is built with the `driver` skill: a driver, an oracle and a worker agent in
-one Herdr tab.
+Iris is built with the `crew` skill (configured in `CLAUDE.md`): an Opus driver,
+a Sonnet builder and a Fable oracle in one Herdr tab.
 
 Delivery is one dedicated branch per issue (`rob-<number>-<slug>`), a PR, and a
-merge after the oracle's sign-off and the driver's own rerun, on the final tree,
+merge after review sign-off (the oracle's, or the driver's own where Jev routes
+the review to the driver) and the driver's own rerun, on the final tree,
 of the brief's verify commands. CI (`Verify`) is disabled by the owner as of
 2026-10-03, and re-enabling it is a CI change that needs the owner's approval.
 Done means merged. The approval gates under "Scope and safety" still apply.

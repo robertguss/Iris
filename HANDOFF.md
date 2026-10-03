@@ -1,10 +1,10 @@
 # Handoff
 
-Written October 3, 2026, by the outgoing driver (Claude) at the end of its
-session. The owner has decided that Iris switches from the `driver` skill to the
-new `crew` skill (an Opus driver, a Sonnet builder and a Fable oracle), and that
-invitations stage 2 is not built in this session. This replaces the earlier
-October 3 handoff, which git history keeps at `763d61e:HANDOFF.md`.
+Written October 3, 2026, by the outgoing crew driver (Claude Opus) at the end of
+its chunk. Jev had called for a fresh driver (context past its limit, and the
+next step unrelated), and the owner then stopped for the night. A new session
+starts tomorrow with `/crew`. This replaces the previous handoff, which git
+history keeps at `8803201:HANDOFF.md`.
 
 ## 1. State
 
@@ -13,19 +13,16 @@ Observed October 3, 2026, by the outgoing driver.
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
   `robertguss/Iris`).
 - When this was written, the checkout was on branch
-  `driver-handoff-2026-10-03b`, created from `main` at `763d61e`, with this
-  `HANDOFF.md` uncommitted. `origin/main` was at `763d61e`, the merge of PR #18
-  (ROB-1236).
-- Reviewed through `763d61e`.
-- Pushed through `763d61e`. Still pending at the time of writing: this handoff's
-  commit, the push of its branch, its PR (with the PR text reviewed before
-  posting), and its merge. Check `gh pr list --state all --limit 3` for the
-  outcome rather than assuming it.
+  `driver-handoff-2026-10-03c`, created from `main` at `8803201`, with this
+  `HANDOFF.md` uncommitted. `origin/main` was at `8803201`, the merge of PR #22
+  (ROB-1246).
+- Reviewed through `8803201`. Pushed through `8803201`.
+- Still pending at the time of writing: this handoff's commit, its branch push,
+  its PR and its merge. Check `gh pr list --state all --limit 3` rather than
+  assuming.
 - CI is disabled: `gh workflow list --all` shows `Verify disabled_manually`
-  (ROB-1229). No push or PR runs any check. The last CI run on `main` is
-  37124637619 at `a6e9586`, and the later merges (PRs #17 and #18) have no run.
-- Apart from this handoff, the working tree was clean, and no pull request was
-  open.
+  (ROB-1229). No push or PR runs a check.
+- No PR was open, and apart from this handoff the working tree was clean.
 
 Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 `git ls-remote origin`, `gh workflow list --all`) before relying on any of this.
@@ -34,290 +31,252 @@ Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
 
 Linear team `ROB`, project `Iris`. Snapshot October 3, 2026:
 
-- Nothing is in `Ready`, `Planning`, `Building`, `In Review` or `Needs Input`.
-- No split issue has sub-issues left.
-- `Backlog`:
-  - **ROB-1123**, CSP-safe runtime validators. It is parked until the owner
-    chooses a restrictive CSP.
-  - **ROB-1227**, intermittent agent-interface MCP focused-check failures in CI.
-    With CI disabled it blocks nothing. The driver's comment recommends
-    cancelling it, or parking it until CI returns, and the owner has not
-    decided.
-
-### Proposed next work: invitations stage 2 (not in Linear yet)
-
-Stage 2 is the second of S19's "Bounded later implementation candidates":
-private delivery and lifecycle. The owner deferred it on October 3 and has not
-written or released it, so a new driver proposes it to the owner and does not
-start it. This is everything known about it.
-
-**Where stage 1 left off (ROB-1236, PR #18):**
-
-- Migration `apps/reference/migrations/0002_invitations.sql` created:
-  - `invitations`: `id`, `project_id`, `recipient_id`, `issuer_id`, `role`
-    (always `editor`), `token_hash` (unique lowercase hex SHA-256),
-    `created_at`, `expires_at` (`created_at + 3600`), and `accepted_at`, which
-    is null until acceptance.
-  - `invitation_outbox`: `id`, `invitation_id` (unique), `recipient_email`
-    (nullable snapshot), `token` (nullable plaintext credential), `message_id`
-    (required, unique, `<32 hex@reference.iris.test>`), and `created_at`.
-  - The outbox has no claim, lease, attempt or status column. Stage 2 adds them
-    in a new append-only migration (0003); 0002 is never edited.
-- `apps/reference/src/domains/invitations.rs` holds `issue` and `accept`, each
-  in one `BEGIN IMMEDIATE` transaction, with a generic `ActionError<R>` local to
-  that module, plus the `finalize` and `unconfirmed` helpers.
-  `domains/memberships.rs` was deliberately left unchanged. Tests are in
-  `domains/invitations/tests.rs`.
-- Fresh initialization and reset seed `alice@example.test` and
-  `bob@example.test` (`storage::seed_development`). `app::seed`, the shared test
-  fixture, has no contacts. Existing databases are never backfilled.
-- `apps/reference/scripts/probes.mjs:92` pins the reference test count, now 132.
-  Every stage that adds or removes reference tests must update it.
-
-**S19 requirements for stage 2** (`docs/design-spec.md` S19, "Outbox, local
-capture and credential lifetime" and "Worker claims, fencing and lifecycle";
-read them directly):
-
-- **Claims.** Claim in a short write transaction, then send SMTP outside any
-  database transaction.
-  - Budget: five claims, not five transmissions. A claim interrupted before the
-    send still counts.
-  - Leases last 30 s.
-  - Backoff after claims 1 to 4: 5, 10, 20 and 40 s. An exhausted job becomes
-    terminal, and so does a malformed payload or a permanent SMTP failure.
-  - An expired or accepted invitation prevents future claims, but not a send
-    already active.
-- **Completion and errors.** Completion is fenced by the claimed attempt and a
-  still-live lease.
-  - A returned `false` means only "no transition by this call". It is not
-    evidence of another worker or of an SMTP failure.
-  - A database error leaves acknowledgment unknown. Never reinterpret it as
-    `false`.
-  - Database errors get bounded diagnostics and wait for the next normal tick,
-    with no unbounded retry.
-- **Clearing.** Clear the payload (the credential and the address snapshot) on
-  terminal completion, or in an eligibility sweep for expired, accepted or
-  exhausted jobs once no live lease prevents it. A successful, fenced terminal
-  completion clears its own payload, but a sweep must never clear the payload of
-  another send that is still active. Clearing columns is not secure erasure.
-- **Lifecycle.** Use the existing tracked connections (`lifecycle::Connections`)
-  and task supervision, as the S18 session-cleanup task does in `lifecycle.rs`.
-  - After an observed shutdown, start no new claim. If a claim admitted before
-    the stop observes shutdown before SMTP begins, it must not begin SMTP, and
-    the claim is not refunded.
-  - Keep S18's bounds: `lifecycle::DRAIN` (3 s), `lifecycle::CLOSE` (1 s), and
-    the supervisor's outer 5 s kill. Neither a send timeout nor a lease extends
-    shutdown.
-  - An unexpected worker exit or panic stops the process through existing
-    supervision, with no automatic restart.
-  - If draining or connection closure is not established, the process terminates
-    with the ownership lock held until it exits.
-- **Mail.** Deliver only to a dedicated, loopback-bound local `.test` mail
-  capture, with no relay or real SMTP configuration.
-  - Pin and verify the capture's version, configuration and retention in this
-    stage. S19 retains the frozen experiment's 24-hour age limit as a
-    requirement, and only proposes a 500-message cap.
-  - The frozen experiment (`experiments/api-slice/delivery.md`) used lettre's
-    SMTP transport and Mailpit 1.31.2, installed by
-    `experiments/api-slice/checks/install-mailpit.sh`. That is precedent, not
-    evidence. Never reuse a shared historical inbox as proof of isolation.
-  - Adding a mail dependency and a capture service needs the plan to justify it.
-- **Continuity.** Retries reuse the same credential, contact snapshot and
-  Message-ID, and never extend expiry. An issuer's later loss of authority
-  neither revokes the invitation nor suppresses its delivery. An interrupted
-  send stays uncertain, and restart or lease recovery can duplicate an SMTP
-  acceptance; neither supplies a receipt.
-- **Diagnostics.** Bounded IDs, attempt numbers, stages and result categories
-  only. Never log a token, hash, Message-ID, address, message body or raw SMTP
-  error.
-- **Tests.** Cover S19's failure-window table. Distinguish a stale `false` from
-  a completion database error, and a claim from a send. Verify duplicates and
-  interruptions without claiming delivery.
-
-**Risks to raise in planning:**
-
-- It is timing-sensitive: leases, backoff and the shutdown windows. Use an
-  injectable clock, like the `now` parameter in `domains::invitations`.
-- It brings a new runtime dependency (an SMTP client) and an external capture
-  process. Tests that start capture must use fixed or owned ports without
-  overlapping other fixed-port suites (4001, 3003, 5175), and must follow the
-  storage-exclusive guard for child spawns.
-- It changes lifecycle code that S18 verified carefully.
-
-Consider splitting it: the schema, claims and fencing first, then SMTP with
-capture, then shutdown integration.
-
-**Stage 3, after stage 2:** both public operations and the complete client in
-one green candidate: HTTP declarations, the OpenAPI export, generated
-TypeScript, decoder, type and recovery tests, presentation, views and browser
-coverage. See S19 for the wire contract and browser credential handling.
+- **ROB-1244** "Invitations stage 2: private delivery and lifecycle" is
+  `Building`. It is split into three sub-issues, each blocking the next:
+  - ROB-1245 "1/3 Outbox claims, fencing and clearing": `Done` (PR #21).
+  - ROB-1246 "2/3 Local mail capture and SMTP send": `Done` (PR #22).
+  - **ROB-1247 "3/3 Supervised delivery task and shutdown": `Ready`, unblocked,
+    not started.** This is the next step. No brief exists yet. When it is done,
+    move ROB-1244 to `Done`.
+- Nothing is in `Planning`, `In Review` or `Needs Input`.
+- `Backlog`: **ROB-1123**, CSP-safe runtime validators, parked until the owner
+  chooses a restrictive CSP.
+- `Canceled` this chunk: **ROB-1227**, the CI focused-check flake. CI is off, so
+  it blocks nothing. A `[driver]` comment says to reopen it if CI returns.
+- Stage 3 (public routes, OpenAPI, generated TypeScript and the client, in one
+  green candidate; S19 "Bounded later implementation candidates" item 3) is not
+  in Linear yet. Propose it to the owner after ROB-1244 is done.
 
 ## 3. Read these first
 
-- `AGENTS.md`, which still describes the `driver` skill and a Pi worker (see
-  section 6); its "Scope and safety" gates still apply.
-- `docs/design-spec.md` S19, all of it.
-- `docs/decisions.md`, its last three entries: "CI disabled — October 3, 2026"
-  (ROB-1229), "Invitation persistence and domain rules — October 3, 2026"
-  (ROB-1236), and the ROB-1119 output-tails entry before them.
-- The Linear completion comments on ROB-1119, ROB-1120, ROB-1229 and ROB-1236.
-  Each records its brief, every oracle finding with its disposition, and its
-  verification.
-- `apps/reference/src/domains/invitations.rs` and `lifecycle.rs`.
+- `AGENTS.md` (the crew workflow, delivery and "Scope and safety").
+- `docs/design-spec.md` S19, all of it, including the step 1 and step 2 status
+  paragraphs.
+- `docs/decisions.md`, its last two entries: "Invitation delivery claims and
+  fencing" (ROB-1245) and "Invitation mail capture and SMTP send" (ROB-1246).
+- The completion comments on ROB-1245 and ROB-1246. Each records every review
+  finding with its disposition, and the verification. ROB-1246's ends with the
+  conditions ROB-1247 must keep.
+- ROB-1247's description in Linear, and ROB-1244's.
+- Code: `apps/reference/src/domains/invitations/delivery.rs` (claim, complete,
+  sweep), `apps/reference/src/mail.rs` (`Mailer`, `SEND_TIMEOUT`, `Sent`,
+  `Category`), `apps/reference/scripts/mailpit.sh`,
+  `apps/reference/src/lifecycle.rs` (Task, periodic, serve, Connections), and
+  `apps/reference/src/bin/reference-dev.rs`.
 
 ## 4. Context
 
-- **Workflow history.** October 2: an Amp workflow merged PRs #2 to #13. October
-  2–3: the `driver` loop, with a Codex oracle and a Pi worker, merged ROB-1119
-  (#14), ROB-1120 (#15), the previous handoff (#16), ROB-1229 (#17) and ROB-1236
-  (#18). Partway through ROB-1229 the owner told the driver to do all the work
-  itself; Pi built ROB-1229's first version, and the driver built ROB-1236. Now
-  the switch to `crew`.
-- **Why CI is off.** The owner asked on October 3 to disable CI entirely.
-  ROB-1229 replaced the merge gate in `AGENTS.md`: a merge now follows the
-  oracle's sign-off and the driver's own rerun, on the final tree, of the
-  brief's verify commands. All verification is local on macOS. Linux coverage
-  and the frozen experiments' automatic runs are gone.
-- **Why stage 1 is private.** S19 forbids a public partial feature. The routes
-  and client arrive together in stage 3.
+**ROB-1247 must keep these conditions.** They come from the reviews and are
+recorded on ROB-1246 and in the decision record.
+
+- Build the task on `lifecycle::Task::new`, which hands the task its `Shutdown`.
+  `lifecycle::periodic`'s unit never sees shutdown, and a started unit runs to
+  its end (lifecycle.rs:180-197), so it cannot stop a send between claim and
+  SMTP. The alternative is an explicit change to `periodic`.
+- Each tick: sweep, then claim, then send, then complete. After an observed
+  stop, start no sweep or claim. Check shutdown immediately before the send; a
+  claim that sees shutdown there does not send and is not refunded.
+- `mail::SEND_TIMEOUT` (2 s) is the only bound on a send once connected:
+  lettre's async `.timeout` covers only the TCP connect. The worst case inside
+  the 3 s drain is one admitted send plus one `complete` on `app::connect`'s 100
+  ms busy timeout. Do not lengthen either.
+- Use `lifecycle::Connections` (tracked), and dispose of a connection after any
+  `Err` from claim, complete or sweep (each function's doc comment says so).
+- A database error from `complete` leaves acknowledgment unknown: never treat it
+  as `false`. Report bounded diagnostics only (ids, attempt, stage, the
+  `Category` label). Never log a token, hash, address, Message-ID, body or raw
+  error.
+- A panic or early return of the task stops the process through existing
+  supervision, with no restart. S18's `DRAIN` 3 s, `CLOSE` 1 s and the outer 5 s
+  kill stay unchanged.
+- Development wiring: `reference-dev` needs the mailer's origin
+  (`IRIS_PUBLIC_ORIGIN`) and the SMTP address. `dev.mjs` would start the capture
+  with
+  `bash apps/reference/scripts/mailpit.sh run 4025 4026 apps/reference/.dev/mailpit/mailpit.db`.
+  Adding 4025 and 4026 to `dev.mjs` and its fixed-port suite is a planning
+  decision for ROB-1247's brief.
+- A composition refusal completes as `Permanent`, so the stored outcome is
+  `permanent`, not `malformed`. Step 1's `malformed` comes only from claim.
+
+**Why the split.** The previous handoff suggested schema and claims first, then
+SMTP with capture, then shutdown integration. The oracle approved that split in
+ROB-1245's plan review and amended step 3 to build on `Task::new`.
 
 ## 5. This chunk
 
-| Issue     | Commit    | PR and merge         | Built by        | Notes                                            |
-| --------- | --------- | -------------------- | --------------- | ------------------------------------------------ |
-| ROB-1119  | `fccd32e` | #14, merge `bdf5ba7` | Pi              | Output tails; CI was green on its second attempt |
-| ROB-1120  | `0034860` | #15, merge `e4ba261` | Pi              | Documentation reconciliation; CI green           |
-| (handoff) | `21fb0c2` | #16, merge `a6e9586` | driver          | The previous handoff                             |
-| ROB-1229  | `9cdf817` | #17, merge `5481928` | Pi, then driver | Documentation only; no CI (disabled)             |
-| ROB-1236  | `80b1c50` | #18, merge `763d61e` | driver          | Stage 1; no CI (disabled)                        |
+| Issue          | Commit    | PR and merge         | Built by | Reviewed by                           |
+| -------------- | --------- | -------------------- | -------- | ------------------------------------- |
+| ROB-1245       | `ac09ced` | #21, merge `7a7f763` | builder  | oracle (plan 2 rounds, diff 2 rounds) |
+| ROB-1246       | `66ea94e` | #22, merge `8803201` | builder  | oracle (plan 2 rounds, diff 2 rounds) |
+| (this handoff) | pending   | pending              | driver   | oracle (handoff review)               |
 
-What the oracle checked independently, and what is only driver-reported:
+Jev sent every plan and diff to the oracle (concurrency and data flags), and
+ROB-1244 carries the `oracle` label. The oracle also reviewed both PR texts
+before posting.
 
-- **ROB-1229.** The oracle reran Prettier and `git diff --check` and confirmed
-  the workflow state. The 249-link check is driver-reported.
-- **ROB-1236.**
-  - The oracle checked these itself:
-    - all 19 invitation tests (rerun independently)
-    - `cargo fmt`, Prettier and `git diff --check`
-    - the mutation script and its logs
-    - the `Cargo.lock` change
-  - Driver-reported only, with logs the oracle inspected:
-    - the workspace suite (248 passed)
-    - clippy
-    - the dev-identity tests
-    - reference web verify
-    - the probes (31 caught, 25 controls)
-    - the mutation runs
-- **ROB-1119 and ROB-1120.** Unchanged from the previous handoff, and recorded
-  in their Linear comments.
+What was checked independently, and what is only reported:
+
+- **ROB-1245.**
+  - The driver reran the whole verify set on the final tree, on Homebrew rustc
+    1.99.0; it was not rerun on 1.98.1.
+  - The oracle ran 23 mutants itself in its own copy: 22 caught, and one (claim
+    without `outcome IS NULL`) hangs.
+  - Builder-reported only: mutants m3, m4 and m5.
+- **ROB-1246.**
+  - The driver reran the whole verify set on rustc 1.98.1, including the 5
+    real-capture tests, plainly and with hostile `MP_*` exports. An earlier
+    driver run on Homebrew 1.99.0 was also green.
+  - The oracle reproduced the Mailpit behaviors (environment, retention, relay
+    and chaos) with the pinned binary, and confirmed both checksums and the
+    one-line `Cargo.lock` change.
+  - Builder-reported only: mutants m1–m8, run before the fix round and not rerun
+    after it.
+- In both steps the builder wrote tests alongside the code, so they were seen
+  failing only through mutants. The decision entries say so.
 
 ## 6. Decisions and authorizations in force
 
-- **Owner, October 3:**
-  - Iris switches to the `crew` skill, with an Opus driver, a Sonnet builder and
-    a Fable oracle.
-  - Stage 2 is not built in this session.
-  - The chunk ends with end-of-chunk steps 1–3 only (handoff, handoff review,
-    commit). The existing oracle pane is left running, and the outgoing driver
-    starts no new driver.
-  - `AGENTS.md`'s `## Driver` section (the `driver` skill, `Worker: pi`) does
-    not yet reflect the switch, and updating it was not part of this chunk.
-- **Owner, October 3:** CI is disabled. Re-enabling it
-  (`gh workflow enable Verify`) is a CI change that needs the owner's approval.
-- **Owner, October 3:** "you are in control of linear." The driver creates,
-  releases and closes issues. Starting new product work, such as stage 2, still
-  waits for the owner's go-ahead.
-- **Owner, October 2, for that backlog run:** each issue is delivered on a
-  dedicated branch, through a PR, and merged after the oracle's sign-off and the
-  current merge gate. `AGENTS.md` still requires authorization for issue-branch
-  pushes, so a new session confirms delivery authorization with the owner rather
-  than assuming it carries over.
-- **Workflow, from earlier chunks and still in force:**
-  - oracle review before every commit
-  - PR text reviewed before posting
-  - ask the owner one question per message
+- **Owner, October 3, this chunk:** asked three questions (release stage 2;
+  confirm issue-branch push, PR and merge for this session; cancel or keep
+  ROB-1227), the owner answered "you decide for me". Under that delegation the
+  driver decided:
+  - Build stage 2 (ROB-1244, filed and released by the driver).
+  - Deliver each issue on its own branch (`rob-<number>-<slug>`): push, PR, then
+    merge after oracle sign-off and the driver's own rerun of the verify set on
+    the final tree. PR text is reviewed by the oracle before posting.
+  - Cancel ROB-1227.
 
-  This session's lapses are recorded in its earlier handoff
-  (`763d61e:HANDOFF.md` section 6). After them, PR text was reviewed before
-  posting for every PR.
+  The owner had not commented on these when this was written. The delegation
+  covers all of ROB-1244, including ROB-1247. The delivery confirmation was
+  asked for this session, though, and `AGENTS.md` requires authorization before
+  an issue-branch push. So the new driver confirms delivery once with the owner
+  before ROB-1247's first push. Nothing here authorizes stage 3, re-enabling CI
+  or a release.
 
+- **Workflow, from earlier chunks and still in force:** oracle (or, on Jev's
+  call, driver) review before every commit; PR text reviewed before posting; ask
+  the owner one question per message.
+- **Owner, October 3 (earlier):** Iris uses the `crew` skill. "You are in
+  control of linear": the driver creates, releases and closes issues. New
+  product work beyond what the owner released or delegated still waits for the
+  owner.
+- **Owner, October 3:** CI is disabled. Re-enabling it is a CI change that needs
+  the owner's approval.
 - **Still excluded:** edits to the frozen Turso guide and to the PR #1
-  description. Each needs separate owner approval.
+  description, each needing separate owner approval. Merged issue branches on
+  `origin` (`rob-1119-*`, `rob-1120-*`, `rob-1229-*`, `rob-1236-*`,
+  `rob-1245-delivery-claims`, `rob-1246-mail-capture` and the handoff branches)
+  are deleted only with the owner's agreement. The older local branches
+  `docs/s17-reference-app`, `lifecycle-design` and `s17-checkpoint-a` predate
+  these chunks: leave them alone.
 
 ## 7. Operational state
 
-- **Agents.** The oracle (Codex) is still running in this tab's right pane, as
-  the owner asked. No worker pane is open: Pi was closed after ROB-1229. No
-  other process belongs to this session.
-- **Ports.** 4001, 3003 and 5175 were free after the last suites.
-- **Evidence.** In this session's scratch directory
-  (`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/361b7984-181f-491b-b2e2-0162b0f2be55/scratchpad/`):
-  `evidence-1119/`, `evidence-1236/`, `driver-1119/*.log`, the briefs and the
-  reports. A private Cargo target, `target-1236/` (several GB), also remains
-  there. All of it is temporary and nothing depends on it. The durable record is
-  the Linear comments and `docs/decisions.md`. The disposable mutation copies
-  were deleted.
-- **Branches.**
-  - Merged issue branches remain on `origin` and locally:
-    `rob-1119-output-tails`, `rob-1120-doc-reconciliation`,
-    `rob-1229-local-verification-gate`, `rob-1236-invitation-domain`, and the
-    earlier handoff branch `driver-handoff-2026-10-03`. Delete them only with
-    the owner's agreement.
-  - This handoff's branch, `driver-handoff-2026-10-03b`, was pending delivery
-    when this was written (section 1).
-  - The older local branches `docs/s17-reference-app`, `lifecycle-design` and
-    `s17-checkpoint-a` predate this chunk. Leave them alone.
-- **Cleanup obligations:** none required. The scratch target can be deleted at
-  any time.
+- **Agents.** The owner stopped for the night, so no replacement driver was
+  started. The oracle and builder panes were restarted fresh and left idle. The
+  next session runs `/crew`: setup reuses or recreates the panes, then reads
+  this file.
+- **Processes.** No Mailpit or test process belongs to this chunk. The last
+  check (`lsof -nP -iTCP -sTCP:LISTEN | grep mailpit`) found none. Ports 4001,
+  3003, 5175, 4025 and 4026 were free.
+- **Installed binary.** `apps/reference/.dev/bin/mailpit` (v1.31.2, gitignored)
+  is installed in this checkout. `mailpit.sh install` is idempotent.
+- **Evidence.** Everything is temporary; the durable record is the Linear
+  comments and `docs/decisions.md`. It all lives in this session's scratch
+  directory,
+  `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/cb16d28d-17c1-46c4-91f6-bea6af8decf3/scratchpad/`:
+  - the briefs, builder reports and oracle replies
+  - the `verify-1245*/` and `verify-1246*/` logs
+  - the downloaded `mailpit/` tarballs
+  - private Cargo targets (`target-driver*`, several GB)
+
+  The builder's and oracle's own scratch copies may also remain in their session
+  directories. Delete any of it freely.
+
+- **Cleanup obligations:** none.
 
 ## 8. Conventions and gotchas
 
-- **Linear access.** Claude sessions here have no Linear MCP. The driver used
-  Linear's GraphQL API with `LINEAR_API_KEY`, and mutations accept identifiers
-  such as `ROB-1236`. The key is shared across projects, and its limit of 2,500
-  requests an hour was exhausted once. Batch reads, and retry writes later.
-- **Rust on this Mac.** Homebrew's `rustc` 1.99.0 shadows the
-  `rust-toolchain.toml` pin 1.98.1. Record the actual version in evidence.
-- **Local verification set** (it replaced CI; pick the commands each change
+- **Linear access.** Claude sessions here have no Linear MCP. Use Linear's
+  GraphQL API with `LINEAR_API_KEY` (identifiers such as `ROB-1247` work as
+  ids). The key is shared and rate-limited, so batch reads. State ids for team
+  ROB: Ready `d4e9d1ee-b9c6-42f8-85bc-6a85178e4f97`, Planning
+  `d9b6cf52-534d-4bdc-82ae-ad03910b2e7f`, Building
+  `22d49b3e-620d-4f38-8df2-028fcaa5f3c8`, In Review
+  `cdb24e79-a6e3-4979-8ffd-4f669efab6a2`, Needs Input
+  `ed024e35-4332-4f16-80b5-fe149add5e10`, Done
+  `8646d9fb-67ea-405e-9490-6812c90eac3a`. The `oracle` label exists (created
+  this chunk).
+- **Crew scripts.**
+  - Run `jev.py` directly (it is a `uv run --script`), never as
+    `python3 jev.py`, which fails on the missing `typesafe_sdk` module.
+  - `jev.py fresh` crashes with `StopIteration` for a pane that has never been
+    prompted (no transcript). Treat such a pane as fresh.
+  - `crewlog.py usage --issue` needs the issue that `crewlog.py step` was logged
+    under.
+- **Herdr.** `herdr agent read` returns only the visible screen. Ask the oracle
+  and builder to write replies and reports to a file and reply with the path,
+  then poll for the file and a non-`working` status. An agent can end its turn
+  with background work still running (the builder's mutation runs did), so wait
+  for the file, not the status alone.
+- **Scratch briefs.** A PostToolUse formatter reflows Markdown written to the
+  scratch directory and joins adjacent plain lines. Put brief headers and lists
+  in separate paragraphs or list items.
+- **Rust toolchains.** Homebrew `rustc` 1.99.0 shadows the 1.98.1 pin. Put
+  `~/.cargo/bin` first on `PATH` to run on 1.98.1, and record the version used.
+- **Local verification set** (it replaced CI; pick the commands a change
   touches):
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
-  - `cargo test --workspace --locked`, with a private absolute
-    `CARGO_TARGET_DIR`
+  - `cargo test --workspace --locked` (private absolute `CARGO_TARGET_DIR`)
   - `cargo test --locked -p iris-api-spike --features dev-identity`
-  - `npm --prefix apps/reference/web run verify` (run
-    `npm --prefix apps/reference/web ci` first)
+  - **new:** `bash apps/reference/scripts/mailpit.sh install`, then
+    `cargo test --locked -p iris-reference --lib mail -- --ignored` (5
+    real-capture tests, about 123 s, holding `storage::exclusive()`), then check
+    `lsof -nP -iTCP -sTCP:LISTEN | grep mailpit` shows nothing
+  - `npm --prefix apps/reference/web run verify` (after `npm ci`)
   - `node apps/reference/scripts/probes.mjs`
   - `env -u NO_COLOR FORCE_COLOR=1 node --test apps/reference/scripts/test/dev.test.mjs`
-    (about 145 s; needs ports 4001, 3003 and 5175 free)
-  - `node apps/reference/scripts/browser.mjs --artifacts <dir>` (never overlap
-    it with the command suite)
-- **The probes' pinned count.** `probes.mjs:92` runs the `iris` and
-  `iris-reference` tests and asserts the exact `iris-reference` library count,
-  now 132 (`iris` separately has 34). Update it whenever reference tests change.
-- **Storage tests.** Any test that opens `Storage` holds `storage::shared()`,
-  and any test that spawns a child holds `exclusive()`. Run-time migrator
-  fixtures must include every real migration; synthetic ones use high numbers
-  such as 9999.
-- **Test messages.** Tests must not print credentials, hashes or addresses on
-  failure: use `assert!` with fixed messages, not `assert_eq!`, for those
-  values.
+    (about 145 s; ports 4001, 3003, 5175)
+  - `node apps/reference/scripts/browser.mjs --artifacts <dir>`
+- **The probes' pinned count.** `probes.mjs:92` asserts the `iris-reference`
+  library count, now **154** (5 more are ignored). Update it whenever reference
+  tests change.
+- **Ports.** The fixed ones are 4001, 3003 and 5175 (dev suite), plus 4025 and
+  4026 (the development mail capture, documented but not yet started by any
+  script). Capture tests reserve their own ports by binding `127.0.0.1:0`. Never
+  use 1025 or 8025, and never touch a shared Mailpit inbox.
+- **Mailpit 1.31.2 facts** (measured this chunk):
+  - Inherited `MP_*` variables override missing flags, so the launcher's
+    `env -i` is load-bearing.
+  - Pruning runs about once a minute: the 500 cap and the 24 h age both take
+    effect within about 60 s.
+  - `/api/v1/webui` reports `ChaosEnabled` and `MessageRelay.Enabled`.
+  - `mailpit version` checks GitHub for updates unless given
+    `--no-release-check`.
+- **lettre 0.11.23 (async).** `.timeout()` bounds only the connect; reads and
+  writes have no timeout. Bodies over 76-character lines get quoted-printable
+  unless pre-encoded, which is why `mail.rs` sends a checked 7-bit body.
+- **Storage tests.** Tests that open `Storage` hold `storage::shared()`; those
+  that spawn a child hold `exclusive()`. Run-time migrator fixtures must include
+  every real migration (now 0001–0003); synthetic ones use 9999.
+- **Test messages.** Never `assert_eq!` on a credential, hash, address,
+  Message-ID or a row holding them. Use `assert!` with a fixed message.
 - **A real COMMIT failure in SQLite tests** comes from a
   `DEFERRABLE INITIALLY DEFERRED` foreign key fired by a trigger
-  (`http/memberships/tests.rs:706`, `domains/invitations/tests.rs`). A real
-  BEGIN busy comes from another connection holding `BEGIN IMMEDIATE`.
-- **Prettier 3.9.9**, `--print-width 80 --prose-wrap always`. It joins adjacent
-  plain lines, so machine-read blocks must be fenced. Its re-wrapping breaks
-  exact-string edits, so match whitespace-tolerantly.
-- **Herdr.** `herdr agent read` cannot scroll a working agent's pane. Have
-  agents write long reports to a file and reply with the path. Waits can outlast
-  a 10-minute tool timeout, so repeat `herdr agent wait`.
-- **Mutation evidence.** Use disposable copies with private targets and green
-  controls before and after. A mutant must exercise the exact regression it
-  names; the oracle rejected a weaker stand-in once.
+  (`http/memberships/tests.rs:706`, `domains/invitations/tests.rs`,
+  `domains/invitations/delivery/tests.rs`'s
+  `database_errors_are_errors_not_false_none_or_zero`). A real BEGIN busy comes
+  from another connection holding `BEGIN IMMEDIATE`. ROB-1247 needs both to test
+  a `complete` database error as distinct from `false`.
+- **Mutation runs.** A mutant must exercise the exact regression it names; the
+  oracle rejected a weaker stand-in once. Use disposable copies with private
+  targets and green controls before and after. Don't overlap two agents'
+  mutation runs on the same test filter: the oracle once killed hung binaries by
+  name pattern.
+- **Prettier 3.9.9**, `--print-width 80 --prose-wrap always`.
 
 ## 9. Skills
 
-- Required: `crew` for every role from now on. The `driver` and `oracle` skills
-  governed this session's loop.
+- Required: `crew` for every role (driver, oracle, builder).
 - Optional: `herdr` for pane operations.

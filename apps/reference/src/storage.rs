@@ -618,6 +618,13 @@ async fn seed_development(conn: &mut SqliteConnection, issuer: &str) -> Result<(
     sqlx::query("INSERT INTO memberships (project_id, user_id, role) VALUES (41, 29, 'editor')")
         .execute(&mut *conn)
         .await?;
+    // Local `.test` contacts for invitation delivery (S19). An existing
+    // database is never backfilled; without a contact, issuance is refused.
+    sqlx::query(
+        "INSERT INTO user_contacts (user_id, email) VALUES (11, 'alice@example.test'), (29, 'bob@example.test')",
+    )
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }
 

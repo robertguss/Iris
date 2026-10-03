@@ -89,7 +89,7 @@ const assertion = /assertion `left == right` failed/;
 const behavior = (label, name, diagnostic = assertion) =>
   expect(label, "cargo", lib(name), [failed(name), diagnostic]);
 const healthy = (when) => {
-  expect(`${when}: reference Rust`, "cargo", ["test", "--quiet", "--locked", "-p", "iris", "-p", "iris-reference"], /111 passed; 0 failed/, true);
+  expect(`${when}: reference Rust`, "cargo", ["test", "--quiet", "--locked", "-p", "iris", "-p", "iris-reference"], /132 passed; 0 failed/, true);
   expect(`${when}: reference web`, process.execPath, [`${web}/scripts/verify.mjs`], /PASS: reference client types/, true);
 };
 

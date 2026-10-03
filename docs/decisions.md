@@ -2583,6 +2583,73 @@ occurred twice just before this decision; that is context, not the stated reason
 for disabling CI. Historical CI results recorded in earlier entries remain valid
 as history and are not relabelled as current verification.
 
+## Invitation persistence and domain rules — October 3, 2026
+
+ROB-1236 implements S19's first bounded stage as private application code: no
+route, OpenAPI operation, worker, mail capture or client uses it yet. The driver
+built it after the owner asked the driver to do all the work itself; the oracle
+reviewed the plan and the diff.
+
+**Schema.** Append-only migration `0002_invitations.sql` adds `invitations`
+(project, recipient, issuer, `editor` role, credential hash, creation, expiry,
+acceptance) and `invitation_outbox` (one row per invitation, the plaintext
+credential, the recipient address snapshot and a stable Message-ID). The
+outbox's credential and address columns are nullable so delivery can clear them,
+while its Message-ID is required; delivery's claim and lease columns belong to a
+later migration. The credential is 32 random bytes as lowercase hex, stored on
+the invitation only as lowercase hex SHA-256 and found through its unique index.
+
+**Contacts.** Fresh initialization and explicit reset seed `alice@example.test`
+and `bob@example.test`. The shared test fixture is unchanged, and existing
+databases are migrated but never backfilled; issuance for a recipient without a
+usable contact returns `invitations.recipient_unavailable`. A usable contact has
+one `@`, a non-empty local part, no whitespace and a domain ending in `.test`
+with a non-empty label before it, ignoring case. That is a deliberately narrow
+local policy, not a deliverability guarantee; the outbox keeps the stored
+address byte for byte.
+
+**Operations.** `issue` and `accept` each own one `BEGIN IMMEDIATE` transaction
+and apply S19's checks in its order. Their rejection types and generic
+`ActionError` stay in the invitations module; `memberships` is unchanged and
+nothing moved into `crates/iris`. A begin or commit failure is `Failed` with an
+unconfirmed cleanup, and a body failure keeps its rollback outcome. An entropy
+failure becomes a body execution failure; that path is covered by source
+inspection only.
+
+**Evidence** (macOS, Rust 1.99.0 from Homebrew, Node 24.20.0; private target; CI
+is disabled):
+
+- Failing first: against stub operations, 20 of the 23 new or adjusted focused
+  tests failed. The rejection-code test and the two adjusted migration fixtures
+  passed.
+- `cargo test --workspace --locked`: 248 passed, including 132 in the reference
+  library (111 before, 21 new). Clippy with `-D warnings` and `cargo fmt` are
+  clean, the dev-identity API tests pass, and reference web verification passes
+  with the contract unchanged.
+- `node apps/reference/scripts/probes.mjs`: 31 caught, 25 controls. Its healthy
+  check pins the reference test count, which moved from 111 to 132.
+- Mutations in a disposable copy, controls green before and after, each caught
+  by one named test:
+  - accept checks expiry before acceptance: caught by
+    `accepted_wins_over_expired_with_no_second_effect`
+  - expiry uses `>`: caught by `expiry_equality_is_expired`
+  - the pending check ignores acceptance: caught by
+    `an_accepted_invitation_does_not_block_reinvitation_after_removal`
+  - the contact check precedes the pending check: caught by
+    `issue_checks_run_in_order_and_write_nothing_when_refused`
+  - acceptance overwrites an existing role: caught by
+    `acceptance_keeps_an_existing_role`
+  - the enqueue moves after COMMIT on the same connection, with its error still
+    propagated: caught by `a_failed_enqueue_rolls_back_the_invitation`
+
+  Separately, a swallowed enqueue error, which lets the invitation commit
+  without its outbox row, is caught by the same test.
+
+Three existing storage tests changed with the schema. An existing unrelated file
+now gets migrations 1 and 2 and still no contacts. Both run-time migrator
+fixtures include the real 0002, and their synthetic migration is
+renumbered 9999.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

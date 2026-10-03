@@ -1849,6 +1849,7 @@ dependencies = [
  "http-body-util",
  "iris",
  "jsonschema",
+ "lettre",
  "openidconnect",
  "reqwest",
  "serde",

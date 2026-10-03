@@ -2729,6 +2729,123 @@ Node 24.20.0; private target; CI is disabled):
   - `claim` accepts any non-null credential, including an empty one (D): caught
     by `malformed_payloads_become_terminal_without_being_claimed`
 
+## Invitation mail capture and SMTP send — October 3, 2026 (ROB-1244 step 2)
+
+ROB-1246 implements the second of three steps of S19's delivery stage: the
+message, the send and the pinned local capture. No supervised task, route,
+OpenAPI operation or client uses them; step 3 (ROB-1247) wires the task and
+starts the capture from `dev.mjs`.
+
+**Dependency.**
+`lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1"] }`,
+the frozen experiment's precedent (`experiments/api-slice/server/Cargo.toml`),
+already in `Cargo.lock`. No TLS, authentication, pool or relay feature. The
+lockfile change is one added `"lettre",` line in iris-reference's dependency
+list.
+
+**Capture pin.** Mailpit v1.31.2 (v1.31.4 is newer; the precedent is kept on
+purpose). `scripts/mailpit.sh install` downloads `mailpit-<platform>.tar.gz`
+from the release, verifies SHA-256 before extraction and installs to
+`apps/reference/.dev/bin/mailpit`. Pinned sums: `darwin-arm64` `d0180f1f…18d3c6`
+(computed by the driver October 3, 2026) and `linux-amd64` `397a14ca…0d4306ad`
+(the frozen installer's). Other platforms are refused. It skips the download
+when the binary reports v1.31.2: a second run made no `curl` call (shown with a
+`curl` stub that records any call), and a wrong download installs nothing (shown
+with a stub serving junk).
+
+**Launcher.** `mailpit.sh run <smtp-port> <ui-port> <database>` refuses a
+missing or wrong binary, naming the install command, then `exec`s Mailpit under
+`env -i PATH=/usr/bin:/bin HOME="$HOME"` with exactly
+`--smtp 127.0.0.1:<smtp-port> --listen 127.0.0.1:<ui-port> --database <database> --max 500 --max-age 24h --disable-version-check --smtp-disable-rdns`.
+Clearing the environment matters: with `MP_POP3_*`, `MP_ENABLE_CHAOS` or
+`MP_SMTP_RELAY_CONFIG` inherited, 1.31.2 adds a POP3 listener, serves chaos and
+reports `MessageRelay.Enabled: true`. Development ports: SMTP `127.0.0.1:4025`,
+UI `127.0.0.1:4026`, database `apps/reference/.dev/mailpit/mailpit.db`. Tests
+never use them, nor 1025 or 8025.
+
+**Send.** `Mailer::new(origin, smtp)` refuses a non-loopback SMTP address and a
+non-canonical origin (HTTPS, or HTTP on `127.0.0.1` or `localhost`; the rule now
+lives in `identity::canonical_origin`, which `Auth::discover` also uses with
+unchanged behavior). The message is From
+`Iris reference <invitations@reference.iris.test>`, carries the claim's stored
+Message-ID unchanged, and is a text/plain UTF-8 body sent as 7bit: lettre
+quoted-printables any line over 76 characters, which would split the link, so
+the ASCII body is passed pre-encoded (a non-ASCII body or a line over 900 bytes
+is refused as malformed). A recipient failing `usable_contact`, a token with any
+byte outside printable ASCII, or a Message-ID with whitespace or control
+characters is refused before any connection.
+
+**Timeout.** `SEND_TIMEOUT` is 2 s, the outer `tokio::time::timeout` around the
+whole send including connect. lettre's `.timeout(SEND_TIMEOUT)` is also set, but
+in its async transport it bounds only the TCP connect: reads and writes have no
+lettre timeout. The outer timeout is therefore the sole bound on everything
+after connecting, and without it a silent server holds the send indefinitely
+(mutant m2), so `is_timeout()` can only come from a connect timeout. After a
+stop, step 3 starts no sweep or claim and checks for shutdown immediately before
+the send, so the worst case in the 3 s drain is one admitted send (at most 2 s)
+plus one `complete` on a connection with `app::connect`'s 100 ms busy timeout. A
+test asserts `SEND_TIMEOUT + 500 ms < lifecycle::DRAIN`. Step 3 must keep both
+conditions.
+
+**Classification.**
+
+| Result                                                     | Completion  | Category   |
+| ---------------------------------------------------------- | ----------- | ---------- |
+| lettre success                                             | `Sent`      | accepted   |
+| 5xx (`is_permanent`)                                       | `Permanent` | rejected   |
+| 4xx (`is_transient`)                                       | `Retryable` | transient  |
+| outer timeout, or lettre `is_timeout`                      | `Retryable` | timeout    |
+| anything else: refused connection, reset, unparsable reply | `Retryable` | connection |
+| composition refused (unusable recipient and so on)         | `Permanent` | malformed  |
+
+lettre has no public connection predicate, so connection is the fallthrough. A
+composition refusal is `Permanent`, so step 1 stores `permanent`, not
+`malformed` (that outcome remains for rows `claim` itself finds malformed).
+Nothing in `mail.rs` stores or prints a credential, address, Message-ID, body or
+raw SMTP text; `Mailer`'s `Debug` prints only the origin and SMTP address.
+
+**Evidence** (macOS; the verify set on Rust 1.98.1 via `rustup` with a private
+target, the mutant runs on Homebrew's 1.99.0, which shadows the pin unless
+`~/.cargo/bin` leads the path; CI is disabled):
+
+- Tests were written alongside the implementation, so they were not seen failing
+  first; their power is shown by the mutants below.
+- Seven default tests use an in-process scripted SMTP responder: message
+  composition, reply classification (250, 451 at RCPT, 550 at RCPT, 554 after
+  DATA, 421 greeting, garbage), the bounded send (refused port, silent server,
+  and a server that answers each command correctly after 0.5 s so only the total
+  exceeds 2 s), the unusable recipient with no connection, the construction
+  rules, the drain bound and non-printing. Five real-capture tests start Mailpit
+  only through `mailpit.sh run` and are `#[ignore]`d: exact capture, a resend
+  captured twice with one Message-ID, isolation under a hostile environment
+  (`MP_ENABLE_CHAOS`, `MP_SMTP_RELAY_ALL`, POP3 auth file and bind address, and
+  a relay config; exactly the two loopback listeners, `ChaosEnabled` false,
+  `MessageRelay.Enabled` false), the 500 cap (505 sent, settles at 500) and the
+  24 h limit (rows moved back 25 h and 23 h in the capture's own
+  `mailbox.Created`; the 25 h row is pruned, the 23 h and a fresh one stay). The
+  cap and the age limit each took about 60 s in practice, so pruning runs about
+  once a minute; the bound is 90 s.
+- The ignored tests are part of the local verification set:
+  `bash apps/reference/scripts/mailpit.sh install` then
+  `cargo test --locked -p iris-reference --lib mail -- --ignored`. They also
+  passed with `MP_ENABLE_CHAOS=true MP_SMTP_RELAY_ALL=true` exported.
+- Workspace: 270 passed, 0 failed, 5 ignored; iris-reference library 154 passed
+  and 5 ignored (147 before). `probes.mjs` now asserts 154.
+- Eight mutants in a disposable copy with its own target, green controls before
+  and after (7 default and 5 ignored passing each time):
+  - m1, `is_permanent` as Retryable: `send_classifies_smtp_replies`
+  - m2, no outer timeout: `send_bounds_the_whole_send` (the 10 s guard in its
+    timing helper)
+  - m3, any SMTP address accepted: the construction-rules test
+  - m4, no `usable_contact` check:
+    `an_unusable_recipient_is_permanent_without_connecting`
+  - m5, lettre generates the Message-ID: `a_claim_composes_the_s19_message`
+  - m6, `--enable-chaos` added:
+    `the_capture_is_isolated_despite_a_hostile_environment`
+  - m7, `env -i` dropped: the same isolation test
+  - m8, `--max-age 24h` dropped:
+    `the_capture_prunes_messages_older_than_24_hours`
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

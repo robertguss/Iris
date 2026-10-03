@@ -3596,6 +3596,16 @@ and any route or client are not implemented; steps 2 and 3 of ROB-1244 remain.
 Evidence is in the
 [dated decision](decisions.md#invitation-delivery-claims-and-fencing--october-3-2026-rob-1244-step-1).
 
+**Stage 2, step 2 implemented — October 3, 2026 (ROB-1246).** `src/mail.rs`
+composes the message from a claim and sends it over plain SMTP to a loopback
+capture, bounded to 2 seconds, classifying each send as sent, retryable or
+permanent with a fixed category. `scripts/mailpit.sh` installs and launches the
+pinned Mailpit v1.31.2, whose isolation, 500-message cap and 24-hour age limit
+are measured (the ignored tests in `mail/tests.rs`). The supervised task and any
+route or client are not implemented; step 3 of ROB-1244 remains. Evidence is in
+the
+[dated decision](decisions.md#invitation-mail-capture-and-smtp-send--october-3-2026-rob-1244-step-2).
+
 ### Invitation product and authority decisions
 
 Invitations target existing accounts by user ID, grant only `editor`, and expire

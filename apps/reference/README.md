@@ -55,6 +55,53 @@ rules, now exists in `src/domains/invitations.rs` with migration
 contacts for Alice and Bob. It is still not runnable from the console or the
 API: no route, worker, mail capture or view uses it yet.
 
+### Local mail capture and SMTP send — October 3, 2026 (ROB-1246)
+
+`src/mail.rs` composes an invitation message from a claim and sends it over
+plain SMTP to a loopback capture, with a 2-second bound on the whole send. The
+pinned capture is [Mailpit](https://github.com/axllent/mailpit) v1.31.2, and
+`scripts/mailpit.sh` is the one place its configuration lives. Nothing starts a
+worker or the capture yet: `reference-dev` still does neither (ROB-1247), so
+these commands are manual.
+
+```sh
+bash apps/reference/scripts/mailpit.sh install
+mkdir -p apps/reference/.dev/mailpit
+bash apps/reference/scripts/mailpit.sh run 4025 4026 apps/reference/.dev/mailpit/mailpit.db
+```
+
+`install` downloads the release for `darwin-arm64` or `linux-amd64`, checks its
+SHA-256 before extracting, and puts the binary in the gitignored
+`apps/reference/.dev/bin/`. It skips the download when that binary already
+reports v1.31.2. Any other platform is refused. The inbox is at
+`http://127.0.0.1:4026/` and SMTP is `127.0.0.1:4025`. These two ports join the
+fixed-port list; tests never use them, nor 1025 or 8025.
+
+- **Isolation.** `run` listens only on the two loopback addresses it is given,
+  starts Mailpit under `env -i`, which drops every inherited `MP_*` variable
+  (those can add a POP3 listener, chaos or a relay), and passes no relay,
+  forward, authentication, TLS, POP3, chaos or send-API flag. The database is
+  its own file. The test `the_capture_is_isolated_despite_a_hostile_environment`
+  sets such variables and checks the listeners, chaos and relay status.
+- **Retention.** At most 500 messages and 24 hours, both measured against
+  v1.31.2. Pruning runs about once a minute, so a count or an old message can
+  take up to roughly 60 seconds to go. Tests
+  `the_capture_keeps_at_most_500_messages` and
+  `the_capture_prunes_messages_older_than_24_hours`.
+- Resetting the application database does **not** clear the inbox. Old
+  invitation links stay visible there and are invalid. Delete the capture's
+  database file to clear it.
+- A resend is captured again with the same Message-ID: duplicates are visible,
+  never merged.
+
+The capture tests are `#[ignore]`d because they need the binary. They are part
+of the local verification set, with the install command before them:
+
+```sh
+bash apps/reference/scripts/mailpit.sh install
+cargo test --locked -p iris-reference --lib mail -- --ignored
+```
+
 [S19](../../docs/design-spec.md#s19--reference-invitations-and-delivery) owns
 the future contract, decision/failure-window tables and bounded later stages;
 the

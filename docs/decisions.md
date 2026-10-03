@@ -1456,6 +1456,19 @@ unchanged. Fresh independent testing and an actual successful Actions run,
 including both later browser steps and the full job, remain for Lead; this
 correction does not claim Actions acceptance.
 
+**October 2, 2026 delivery note (ROB-1120):** Later delivery evidence recorded
+candidate CI
+[run 36962543467](https://github.com/robertguss/Iris/actions/runs/36962543467),
+attempt 1, at
+[`d3bd31c7dd4a84abbe1c87d244f5cb8511fa30aa`](https://github.com/robertguss/Iris/commit/d3bd31c7dd4a84abbe1c87d244f5cb8511fa30aa),
+as successful; PR [#5](https://github.com/robertguss/Iris/pull/5) merged at
+2026-10-02T04:12:11Z as
+[`89864373c59b434599346bc65a5689a99776008d`](https://github.com/robertguss/Iris/commit/89864373c59b434599346bc65a5689a99776008d);
+and post-merge CI
+[run 36963506985](https://github.com/robertguss/Iris/actions/runs/36963506985)
+succeeded. This note records later GitHub delivery evidence and does not change
+what the earlier local checks claimed.
+
 ## Reference invitation design — October 2, 2026
 
 ROB-1113 accepts the future reference invitation, outbox and worker contract in

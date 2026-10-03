@@ -360,21 +360,21 @@ boundaries; a tool allowlist is not a sandbox.
 
 ## S10 — Implementation evidence and scope
 
-| Capability                                                              | Status and evidence                                                                                                                                                                                       |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                                               |
-| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                                                   |
-| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                                           |
-| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                                            |
-| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                                                      |
-| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                                                         |
-| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                                                       |
-| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                                                    |
-| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)                                      |
-| Reference application lifecycle                                         | Decided in S18; storage, initialization, the journal-mode check, reset, the migration refusal, shutdown and the session cleanup task implemented; the development command authorized, not yet implemented |
-| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                                               |
-| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                                             |
-| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                                                         |
+| Capability                                                              | Status and evidence                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite/Turso comparison and feedback measurements                       | Implemented experiment; [findings](embedded-db-findings.md)                                                                                                                                                                                                                                                                                                    |
+| Axum APIs, two OpenAPI exporters, generated TS and React                | Implemented experiment; [API guide](../experiments/api-slice/README.md)                                                                                                                                                                                                                                                                                        |
+| Local OIDC/session authentication                                       | Implemented protocol experiment, not real-provider identity assurance; [auth guide](../experiments/api-slice/authentication.md)                                                                                                                                                                                                                                |
+| Atomic invitation/outbox and local mail recovery                        | Implemented experiment; [delivery guide](../experiments/api-slice/delivery.md)                                                                                                                                                                                                                                                                                 |
+| CLI/MCP verification interface                                          | Implemented pilot; [guide](../experiments/agent-interface/README.md)                                                                                                                                                                                                                                                                                           |
+| Membership role/removal workflow                                        | Implemented experiment, now on main; [API guide](../experiments/api-slice/README.md); verification reported below                                                                                                                                                                                                                                              |
+| Domain layout and redesigned result model                               | Proposed; no framework API released                                                                                                                                                                                                                                                                                                                            |
+| Rejection metadata, precise per-code schemas and shared contract export | Isolated S16 experiment implemented; [verification matrix](../experiments/api-slice/s16.md); no existing API migration                                                                                                                                                                                                                                         |
+| Reference application, multi-operation contracts and first reads        | S17 checkpoints A and B implemented, each with its client and browser workflow, and the mutations' declared current-state read; [guide](../apps/reference/README.md)                                                                                                                                                                                           |
+| Reference application lifecycle                                         | Decided in S18; storage, initialization, the journal-mode check, reset, the migration refusal, shutdown, session cleanup task and development command implemented; [S18 development command evidence](#development-command-evidence). Invitations and the delivery worker are designed in [S19](#s19--reference-invitations-and-delivery) but not implemented. |
+| Execution context, causal correlation and bounded evidence collection   | Proposed in S13; no context API, trace persistence or collector implemented                                                                                                                                                                                                                                                                                    |
+| Runtime evidence, durable receipts, idempotency, performance inspector  | Design ideas, not implemented                                                                                                                                                                                                                                                                                                                                  |
+| Controlled AI repair/productivity comparison                            | Deferred by owner                                                                                                                                                                                                                                                                                                                                              |
 
 The
 [independent membership thread](https://ampcode.com/threads/T-01a0d5ff-d9a8-71dc-80a6-0bdb678bf916)
@@ -403,8 +403,9 @@ observations motivate shared definitions, not productivity claims.
 - Runtime evidence collection, correlation, bounded retention and disclosure.
 - Configuration, startup, migrations, jobs and service lifecycle conventions.
   S18 decides a first slice for the reference application; storage, reset, the
-  migration refusal, shutdown and session cleanup are implemented, the
-  development command authorized and pending.
+  migration refusal, shutdown, session cleanup and the development command are
+  implemented. Invitations and the delivery worker are designed in
+  [S19](#s19--reference-invitations-and-delivery) but not implemented.
 - Packaging, generators and compile-loop improvements justified by experience.
 
 Do not interpret this agenda as approval to implement all items. Generic action
@@ -2009,8 +2010,8 @@ packaging and naming remain open (S11).
   journal mode, worker supervision, and one development command for the issuer,
   API and Vite. The delivery worker is not ported.
   [S18](#s18--reference-application-lifecycle) now decides that pass; storage,
-  reset, the migration refusal, shutdown and session cleanup are implemented,
-  the development command authorized and pending.
+  reset, the migration refusal, shutdown, session cleanup and the development
+  command are implemented. The delivery worker is still not ported.
 
 ### Operation sequence
 
@@ -3315,6 +3316,19 @@ supervisor, runtime, color configuration, pin or deadline changed. The dated
 [decision record](decisions.md#colored-readiness-correction--october-2-2026)
 distinguishes the colored reproduction and correction checks from the earlier
 local results; fresh Actions acceptance is still pending.
+
+**October 2, 2026 delivery note (ROB-1120):** Later delivery evidence recorded
+candidate CI
+[run 36962543467](https://github.com/robertguss/Iris/actions/runs/36962543467),
+attempt 1, at
+[`d3bd31c7dd4a84abbe1c87d244f5cb8511fa30aa`](https://github.com/robertguss/Iris/commit/d3bd31c7dd4a84abbe1c87d244f5cb8511fa30aa),
+as successful; PR [#5](https://github.com/robertguss/Iris/pull/5) merged at
+2026-10-02T04:12:11Z as
+[`89864373c59b434599346bc65a5689a99776008d`](https://github.com/robertguss/Iris/commit/89864373c59b434599346bc65a5689a99776008d);
+and post-merge CI
+[run 36963506985](https://github.com/robertguss/Iris/actions/runs/36963506985)
+succeeded. This note records later GitHub delivery evidence and does not change
+what the earlier local checks claimed.
 
 The fourth implementation step, on September 30, 2026, covers recommendation 6.
 [`dev.mjs`](../apps/reference/scripts/dev.mjs) starts the issuer, the API and

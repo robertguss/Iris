@@ -1,30 +1,35 @@
 # Iris development guidance
 
-## Amp reviewed development
+## Driver
 
 ```text
-Linear: team ROB, project Iris (P-ROB-26)
-Delivery: push-branch
-Builder: grok47
-Tester: inherit
-Done: merged
+Linear: team ROB, project Iris
+Worker: pi
 ```
+
+Iris is built with the `driver` skill: a driver, an oracle and a worker agent in
+one Herdr tab.
+
+Delivery is one dedicated branch per issue (`rob-<number>-<slug>`), a PR, and a
+merge after the oracle's sign-off and green exact-candidate CI. Done means
+merged. The approval gates under "Scope and safety" still apply.
 
 [Iris in Linear](https://linear.app/robert-guss/project/iris-8b30c90a23d4) owns
 the work queue, status, dependencies, scope approvals, and next-task selection.
-Use the `amp-workflow` skill for selected development issues. Read the issue and
-comments before planning; importing a backlog item does not authorize
-implementation. Do not maintain a second backlog in this repository.
+Read the issue and comments before planning; importing a backlog item does not
+authorize implementation. Do not maintain a second backlog in this repository.
 
 Use the existing Ready, Planning, Building, In Review, Needs Input, and Done
-statuses. Done means confirmed merged, not merely verified or pushed. Obtain
-authorization for the dedicated issue branch before pushing; the historical
-main-only push instruction is not authorization for issue-branch pushes.
+statuses. Obtain authorization for the dedicated issue branch before pushing;
+the historical main-only push instruction is not authorization for issue-branch
+pushes.
 
 Keep technical contracts in `docs/design-spec.md`, rationale and dated evidence
 in `docs/decisions.md`, and runnable instructions beside the application. Update
 those when behavior changes; Linear replaces work tracking, not technical docs.
-`HANDOFF.md` is a historical snapshot, not the current queue or environment.
+The driver replaces `HANDOFF.md` at chunk boundaries. Until the first
+replacement, its September 30 historical-snapshot banner remains authoritative.
+Linear holds the queue.
 
 ## Scope and safety
 

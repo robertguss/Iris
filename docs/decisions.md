@@ -2550,6 +2550,39 @@ log-based; the port check is not a reservation; UTF-8 decoding still happens per
 chunk rather than via `StringDecoder`. Invalid scratch attempts that failed by
 timeout or bad fixture wiring were not counted as evidence.
 
+## CI disabled — October 3, 2026
+
+ROB-1229 records the owner's instruction to disable CI. The `Verify` GitHub
+Actions workflow is disabled manually; `.github/workflows/verify.yml` is kept as
+historical configuration and as the command inventory. Re-enable it only with
+the owner's approval for a CI change, using:
+
+```sh
+gh workflow enable Verify
+```
+
+The merge gate is no longer an automatic green exact-candidate CI run. Delivery
+requires the oracle's sign-off and the driver's own rerun, on the final tree, of
+the brief's verify commands. The driver records those local results for review.
+
+This loses automatic Ubuntu/Linux coverage, automatic Node 26.10.0 pin coverage,
+and the automatic execution of every former `Verify` step: Check out repository;
+Install Rust toolchain; Cache Cargo dependencies; Install Node.js; Install
+pinned npm; Check Rust formatting; Test workspace defaults; Test API development
+identity; Lint Rust; Verify reference client; Test reference development
+command; Probe reference application omissions; Install web dependencies; Verify
+web application and contracts; Test S16 probe isolation regression; Verify agent
+interface and real MCP scenarios; Test local OIDC fixture; Install local mail
+capture and verify SMTP recovery; Install browser runner; Verify reference
+browser workflow; and Verify credential-free browser flow. Verification is now
+local on macOS, and only what each brief names.
+
+Frozen experiments are no longer kept green automatically. They run only when
+someone runs their commands. ROB-1227's intermittent agent-interface MCP failure
+occurred twice just before this decision; that is context, not the stated reason
+for disabling CI. Historical CI results recorded in earlier entries remain valid
+as history and are not relabelled as current verification.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

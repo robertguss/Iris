@@ -1982,7 +1982,7 @@ passed every step on the first attempt, including all three browser workflows
 | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `apps/reference/`, S04 layout: `app.rs`, `identity.rs`, `domains/`, `http/`, `migrations/`, `tests/`, `web/` | Commands, rejection types and descriptors, transactions and cleanup classification, SQL and visibility predicates, wire DTOs and projections, operation declarations, session/OIDC code, seeds and bootstrap, React client | Code presented as a framework API                                                    |
 | `crates/iris/` (`publish = false`; name provisional)                                                         | Only behavior that two application operations demonstrably share. Likely candidates: envelope rendering, the per-operation response bridge, the shared refusal/failure profile, the request-ID boundary                    | Transactions, cleanup classification, authorization, SQL, domain types, session/OIDC |
-| `experiments/`                                                                                               | Frozen historical evidence, kept green in CI until the reference application carries equivalent evidence; each retirement is recorded in the decision record                                                               | New features, or migration to the new envelope                                       |
+| `experiments/`                                                                                               | Frozen historical evidence. Before CI was disabled on 2026-10-03 (ROB-1229), CI kept it green until the reference application carried equivalent evidence; each retirement is recorded in the decision record              | New features, or migration to the new envelope                                       |
 
 **Extraction rule:** move code into `crates/iris` only when a second operation
 needs the same behavior, and name both operations when doing so. Two operations
@@ -2210,6 +2210,9 @@ Expectations are written independently of descriptor-generated fixtures (S12).
 | Probes                 | Extend the omitted-edit probes with a changed GET parameter bound and an omitted visibility predicate that an independent test, not the compiler, catches                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Current-state read     | Assembly fails on each unsupported declaration: the descriptor's shape; an unresolved or non-Iris target; a non-GET target or one with recovery; a missing or extra binding; a required parameter outside the path; a body field that is undeclared, optional or of a different schema. A hand-written recovery contract for both mutations; the client refuses any recovery shape it does not support; exact unconfirmed wording. Committed mutations whose responses are withheld, read back showing a matching role, an absent member and a 403 after self-removal, each resolving nothing and resending nothing |
 
+October 3, 2026 (ROB-1229): CI is now disabled, so the prerequisite above is
+historical; its commands run only when invoked locally.
+
 ### Reference omission parity
 
 The reference [runner](../apps/reference/scripts/probes.mjs) carries the
@@ -2255,9 +2258,10 @@ evidence.
 | Pristine verifier before/after                         | Full `iris` + `iris-reference` tests and real reference web verification pass before the first mutation and after byte restoration, using the same private target. PASS follows successful cleanup.                                                                 |
 
 Reference-only duplicate-ID, shared metadata/component, GET-bound, authorization
-and current-state-read probes remain. CI runs reference probes after client
-verification and development-command tests so installed web dependencies are
-available; all other steps remain serial and unchanged.
+and current-state-read probes remain. Before CI was disabled on 2026-10-03
+(ROB-1229), CI ran reference probes after client verification and
+development-command tests so installed web dependencies were available; all
+other steps remained serial and unchanged.
 
 ### Partial S16 CI retirement
 
@@ -2348,12 +2352,13 @@ narrows refused versus rejected, and 409 permits only last_owner, including
 negative `@ts-expect-error` checks. Both run under `tsc`; these are uncounted
 compile-time obligations.
 
-**Both drift edges remain automatic for reference.** Rust
+**Both drift edges remain automatic when reference commands run.** Rust
 `tests/contract.rs::exported_document_is_current` compares assembled server
 export bytes to `apps/reference/openapi.json`. Then `web/scripts/verify.mjs`
 compares that snapshot's generated TypeScript to `web/src/generated.ts` before
 running captured responses, narrowing, runtime checks and build. Neither edge
-alone replaces frozen export-to-snapshot-to-types verification.
+alone replaces frozen export-to-snapshot-to-types verification. CI no longer
+schedules these commands because CI was disabled on 2026-10-03 (ROB-1229).
 
 **Sixteen omissions and seven controls.** The preceding
 [ROB-1114 matrix](#reference-omission-parity) maps each of the 16 frozen
@@ -2372,7 +2377,8 @@ CSRF declaration. The seven frozen controls map separately:
 | Wrong-path compile                | Wrong path still compiles before independent inventory rejects it.                                |
 | Pristine after                    | Byte restoration, full healthy Rust and web verification, then successful cleanup.                |
 
-**Mechanics are separate.** CI explicitly retains
+**Mechanics are separate.** Before CI was disabled on 2026-10-03 (ROB-1229), CI
+explicitly retained
 `node --test experiments/api-slice/web/scripts/test/s16-probes.test.mjs` at the
 former compound `probe:s16` position, after dependency installation. Its one
 regression uses a rejecting Cargo shim with real Node/nested verifier to prove
@@ -2382,12 +2388,13 @@ proves runner isolation, not real omission or contract parity.
 
 Automatic frozen server-export/snapshot/generated-TS synchronization, frozen
 TypeScript narrowing/client execution and the 16 frozen omission mutations stop
-through these direct entrypoints. Frozen Rust still runs through workspace
-defaults and API dev-identity tests; normal web `verify`, explicit mechanics and
-all other CI remain. Frozen source, artifacts, dependencies and manual package
-scripts remain unchanged. Manual commands are retained historical tools, not a
-promise of permanent greenness without those automatic checks. Evidence and
-limitations are in the
+through these direct entrypoints. Before CI was disabled on 2026-10-03
+(ROB-1229), frozen Rust still ran through workspace defaults and API
+dev-identity tests; normal web `verify`, explicit mechanics and all other CI
+remained. Frozen source, artifacts, dependencies and manual package scripts
+remain unchanged. Manual commands are retained historical tools, not a promise
+of permanent greenness without those automatic checks. Evidence and limitations
+are in the
 [dated decision](decisions.md#partial-s16-ci-retirement--october-2-2026).
 
 ### Explicit exclusions
@@ -2414,6 +2421,9 @@ alternatives stay recorded for their rationale.
 | Unknown query parameters           | Reject, as bodies do; duplicates too                                               | Ignore                                                                                |
 | Step order                         | Reads before invitations                                                           | Invitations before reads                                                              |
 | Frozen experiments in CI           | Keep until the reference application covers their evidence; record each retirement | Path-filtered or scheduled runs; removal from CI once the reference application lands |
+
+October 3, 2026 (ROB-1229): CI is now disabled, so frozen experiments are no
+longer kept green automatically; the decision above is retained as history.
 
 ### Review of this proposal
 
@@ -3288,7 +3298,8 @@ development-command suite in the foreground immediately after
 `Verify reference client`, before the later browser workflows in the same serial
 job. Normal failure propagation applies; no conditions, skips, retries,
 deadlines or version pins changed. The September 30 evidence and S18's original
-CI exclusion below are historical.
+CI exclusion below are historical. October 3, 2026 (ROB-1229): CI is now
+disabled.
 
 The relative-database test now checks contents rather than inode identity: Alice
 reads Bob's seeded editor role, changes it to viewer with an acknowledged
@@ -3438,7 +3449,9 @@ Limits:
 
 - The tests use the command's fixed ports and run only locally: S18 excludes a
   CI change. They refuse to start while any of the ports is taken and must not
-  run beside the browser workflow.
+  run beside the browser workflow. October 3, 2026 (ROB-1229): ROB-1112
+  superseded this by adding the tests to CI, and CI is now disabled, making the
+  local-only statement true again for current verification.
 - The tests never touch a developer's data: they pass `--database`, or run the
   default path in a throwaway checkout with a `cargo` that builds nothing. The
   default path in this checkout was run once by hand.
@@ -3874,7 +3887,8 @@ contracts; upstream branches may change. Recheck them before copying an API.
   a checkpoint A console over unchanged session bootstrap, a development binary,
   and one browser workflow against the local issuer, which CI now runs. Recorded
   the client evidence and validation cost in S17; checkpoint A is complete. No
-  frozen experiment was retired; no wire change.
+  frozen experiment was retired; no wire change. October 3, 2026 (ROB-1229): CI
+  is now disabled.
 - **2026-09-26, checkpoint A server side:** Implemented `apps/reference` with
   session identity, the ported `change_role`, `remove_member`, one checked
   multi-operation assembly and a private provisional `crates/iris` holding what
@@ -3885,7 +3899,8 @@ contracts; upstream branches may change. Recheck them before copying an API.
 - **2026-09-26, S16 checks in CI:** With the owner's authorization, the CI
   workflow runs `verify:s16` in its web verification step and `probe:s16` as its
   own step. Both passed locally under Node 26.8.1; no GitHub Actions run has
-  executed them yet. No application, dependency or wire change.
+  executed them yet. No application, dependency or wire change. October 3, 2026
+  (ROB-1229): CI is now disabled.
 - **2026-09-26, S17 owner decisions:** The owner settled S17's seven open
   choices as recommended: uniform 403 existence hiding for reads, member lists
   visible to any member with display names, HEAD served as GET, shared rejection

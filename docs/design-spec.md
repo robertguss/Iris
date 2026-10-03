@@ -3587,6 +3587,15 @@ classification. There is still no route, OpenAPI operation, delivery worker,
 mail capture or client; stages 2 and 3 remain. Evidence is in the
 [dated decision](decisions.md#invitation-persistence-and-domain-rules--october-3-2026).
 
+**Stage 2, step 1 implemented — October 3, 2026 (ROB-1245).** Migration 0003
+adds the outbox's claim count, earliest next claim, lease end and terminal
+outcome, and `domains::invitations::delivery::{claim, complete, sweep}`
+implement the claims, fencing and clearing rules below as private, database-only
+functions with an injected clock. The delivery worker, SMTP send, local capture
+and any route or client are not implemented; steps 2 and 3 of ROB-1244 remain.
+Evidence is in the
+[dated decision](decisions.md#invitation-delivery-claims-and-fencing--october-3-2026-rob-1244-step-1).
+
 ### Invitation product and authority decisions
 
 Invitations target existing accounts by user ID, grant only `editor`, and expire

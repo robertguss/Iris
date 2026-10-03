@@ -343,7 +343,7 @@ async fn an_existing_file_is_migrated_but_never_seeded() {
         .fetch_all(&mut conn)
         .await
         .unwrap();
-    assert_eq!(versions, [1, 2]);
+    assert_eq!(versions, [1, 2, 3]);
     let x: i64 = sqlx::query_scalar("SELECT x FROM unrelated")
         .fetch_one(&mut conn)
         .await
@@ -1017,6 +1017,7 @@ async fn moving_a_database_with_its_recovery_files_keeps_committed_changes() {
 
 const INITIAL: &str = include_str!("../../migrations/0001_initial.sql");
 const INVITATIONS: &str = include_str!("../../migrations/0002_invitations.sql");
+const DELIVERY: &str = include_str!("../../migrations/0003_invitation_delivery.sql");
 
 /// A migrator resolved at run time from the given files.
 async fn migrator(files: &[(&str, &str)]) -> sqlx::migrate::Migrator {
@@ -1037,6 +1038,7 @@ async fn a_modified_applied_migration_stops_startup_and_keeps_the_data() {
     let modified = migrator(&[
         ("0001_initial.sql", &format!("{INITIAL}\n-- edited\n")),
         ("0002_invitations.sql", INVITATIONS),
+        ("0003_invitation_delivery.sql", DELIVERY),
     ])
     .await;
 
@@ -1075,6 +1077,7 @@ async fn an_added_migration_applies_to_an_existing_database() {
     let added = migrator(&[
         ("0001_initial.sql", INITIAL),
         ("0002_invitations.sql", INVITATIONS),
+        ("0003_invitation_delivery.sql", DELIVERY),
         ("9999_added.sql", "CREATE TABLE added (x INTEGER);"),
     ])
     .await;
@@ -1088,7 +1091,7 @@ async fn an_added_migration_applies_to_an_existing_database() {
             .await
             .unwrap();
     conn.close().await.unwrap();
-    assert_eq!(versions, [1, 2, 9999]);
+    assert_eq!(versions, [1, 2, 3, 9999]);
     assert_eq!(bob_role(&path).await, "viewer");
     assert_eq!(count(&path, "memberships").await, 2);
 
@@ -1187,7 +1190,7 @@ async fn an_old_database_gains_invitations_without_contacts() {
             .fetch_all(&mut conn)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 2]);
+    assert_eq!(versions, [1, 2, 3]);
     assert_eq!(count(&path, "users").await, 2);
     assert_eq!(count(&path, "invitations").await, 0);
     assert!(contacts(&path).await.is_empty(), "contacts were seeded");

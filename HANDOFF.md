@@ -1,589 +1,215 @@
 # Handoff
 
-> Historical snapshot from September 30, 2026. Current work tracking, approvals,
-> and next-task selection live in the
-> [Iris Linear project](https://linear.app/robert-guss/project/iris-8b30c90a23d4).
-> Do not update this file as a rolling queue. The dated environment and pending
-> work below are historical; unsuperseded safety and authorization constraints
-> still apply. See `AGENTS.md` for the current development workflow.
+Written October 3, 2026, by the outgoing driver, at the end of a chunk that
+emptied the Ready queue: no Iris issue remains in Ready or in active work, and
+ROB-1123 stays parked in Backlog. It replaces the September 30 snapshot. That
+snapshot, with ROB-1120's CI corrections, is in git history at
+`e4ba261:HANDOFF.md`.
 
 ## 1. State
 
-Observed September 30, 2026, by the outgoing driver.
+Observed October 3, 2026, by the outgoing driver.
 
 - Repository: `/Users/robertguss/Projects/startups/Iris` (GitHub
-  `robertguss/Iris`), branch `main` tracking `origin/main`.
-- Reviewed through `89e1c7a` (S18 step 5, the development command). This handoff
-  is committed after it.
-- Pushed through `89e1c7a` to `main`, by fast-forward with an explicit SHA and
-  refspec, under the owner's standing rule (section 8); this handoff is pushed
-  the same way.
-- CI: Retrospective, recorded October 2026 under ROB-1120: Actions
-  [run 36799909360](https://github.com/robertguss/Iris/actions/runs/36799909360),
-  attempt 1, at
-  [`89e1c7a472ac68d3fe6a6657676ed499851a86b3`](https://github.com/robertguss/Iris/commit/89e1c7a472ac68d3fe6a6657676ed499851a86b3),
-  event `push`, concluded `cancelled`. Its `created_at` value
-  (2026-10-01T01:11:34Z) is not a completion time. The original scratch logs are
-  unavailable; the cancellation proves neither that the tests failed nor that
-  they did not run.
-- The previous handoff's commit `9e4fde5`: run 36762611726 succeeded.
-- PR #1 is merged (`8594777`). No pull request is open.
-- The working tree was clean apart from this handoff before its commit.
+  `robertguss/Iris`). When this was written, the checkout was on branch
+  `driver-handoff-2026-10-03`, created from `main` at `e4ba261`, with this
+  `HANDOFF.md` uncommitted.
+- Reviewed through `e4ba261`, the merge of PR #15 (ROB-1120). `origin/main` was
+  at `e4ba261`.
+- Pushed through `e4ba261`. Still pending at the time of writing: this handoff's
+  commit, the push of its branch, its PR (with the PR text reviewed before
+  posting), its CI, and its merge. Check `gh pr list --state all --limit 3` for
+  the outcome rather than assuming it.
+- CI: the post-merge `Verify` run for `bdf5ba7` (PR #14) succeeded (run
+  37119292679). The run for `e4ba261` (37122553127) failed in the unrelated
+  agent-interface MCP step (section 7, ROB-1227). The exact-candidate run for PR
+  #15 (37121865287) succeeded.
+- Apart from this handoff, the working tree was clean, and no pull request was
+  open.
 
 Re-check HEAD, the working tree and the remote (`git status`, `git log -5`,
-`git ls-remote origin`) before relying on any of this.
+`git ls-remote origin`, `gh run list --branch main --limit 3`) before relying on
+any of this.
 
-## 2. Read these first
+## 2. Queue
 
-- `docs/design-spec.md` S18 "Reference application lifecycle": its status line,
-  "Development command evidence" (the step just finished), and "Explicit
-  exclusions". S18's authorized implementation is now complete.
-- `docs/decisions.md`: the five "Reference application lifecycle" entries
-  (September 27 and 30), the last being the development command.
-- `apps/reference/scripts/dev.mjs`, `apps/reference/scripts/supervise.mjs` and
-  `apps/reference/scripts/test/` (`dev.test.mjs` and the gated fixtures).
-- `apps/reference/README.md` "Run it": the one-command start, its stop and exit
-  rules, reset through the command, the tests, and the manual start.
-- For choosing the next chunk: section 6 below, S14's focused validation items 2
-  and 3, and S17's follow-up row on invitations.
+Linear team `ROB`, project `Iris`. Snapshot October 3, 2026:
 
-## 3. Context
+- Nothing is in `Ready`, `Planning`, `Building`, `In Review` or `Needs Input`.
+- No split issue has sub-issues left.
+- `Backlog`: ROB-1123 (CSP-safe runtime validators). It is parked on purpose:
+  the reference app has no restrictive CSP, and the owner picks a CSP policy
+  before it can be released. The `[driver]` comment of October 2 records this.
+- `Backlog`: ROB-1227 (intermittent agent-interface MCP focused-check failures
+  in CI). The driver filed it on October 3 after a second failure (section 8).
+  The owner decides whether to release it.
 
-- **Why a stop exits 0 whatever the children's codes:** the API's exit 1 after
-  an expired drain or unestablished closure is its documented forced exit (S18
-  step 4), not a supervisor failure. The command prints each child's exit and
-  reserves exit 1 for a child's unexpected exit, a readiness timeout, a failed
-  build, a group that needed SIGKILL, and a reset a signal interrupted. The
-  first cause of a stop is kept; later signals are only reported.
-- **Why the handlers persist and are installed before the build:** the browser
-  runner's `process.once` handlers let a second Ctrl-C kill the supervisor in
-  the middle of cleanup, leaving detached children (the oracle reproduced it
-  under Node 24.20.0 and 26.8.1). The browser runner keeps its own one-shot
-  handlers on purpose, so its behavior did not change.
-- **Why groups stay owned until empty:** the diff review showed a member that
-  outlived its leader, or ignored SIGTERM after the leader exited, was left
-  running while the stop reported clean. Ownership now ends when
-  `process.kill(-pgid, 0)` says the group is gone.
-- **Why readiness is tested with gated stand-ins:** a healthy run cannot show
-  that each readiness is awaited. `gated-supervisor.mjs` runs the command's own
-  supervision (`Supervisor`, `runSupervised`) over stand-ins that report
-  readiness only when a gate file appears, so dev.mjs gains no test-only
-  override.
-- **Why `--database` exists on the command:** so the tests never touch a
-  developer's data. It is an argument, never an environment variable, like the
-  binary's. An empty value is a usage error: it once fell back to the default
-  path, so `--database "" --reset` reset the default database.
-- **Why ports stay fixed:** the seeded identities are bound to the issuer URL
-  4001, 5175 is the console's origin and redirect URI, and S18 makes the command
-  override inherited addresses. The owner asked whether a different port would
-  do; the answer was that it needs a design change (a plan review and an S18
-  amendment), and the owner chose to free the port instead.
-- **What the owner said this session:** a takeover instruction to continue with
-  the next chunk; a request for a status update; "cant you just run on a
-  different port?"; and "kill it and run the remaining checks", after which the
-  driver killed another session's Vite on 5175 (twice; see section 10).
+The next substantive work is **not in Linear yet**. Building invitations follows
+the three stages in `docs/design-spec.md` S19, "Bounded later implementation
+candidates":
 
-## 4. Agreed chunk and acceptance
+1. Private persistence and domain rules.
+2. The private delivery worker and its lifecycle.
+3. Both public operations with the complete client, in one green candidate.
 
-- **Objective:** S18 step 5, the development command (recommendation 6;
-  acceptance row "Command"), as one reviewed commit; then this handoff.
-- **Scope added in review:** plan review added persistent signal handlers
-  installed before the build, the shared `startInOrder`/`runSupervised` with the
-  gated fixtures, the build line, the cargo-shim test, and an ordered (d2) test
-  asserting the final cause. Diff review added the empty-path refusal, group
-  ownership until empty, the default directory for a reset, and absolute target
-  resolution in the throwaway-checkout tests. The driver added, and the oracle
-  accepted, an interrupted reset exiting 1 and the `dev: exit <code>: <cause>`
-  final line.
-- **Exclusions:** an npm script; port or address overrides; a CI change (so the
-  command's tests are local only); watch-mode contract regeneration; a faster
-  exit on a second signal; Windows; anything in Rust, the contract, the client,
-  migrations or `experiments/`.
-- **Stopping condition:** after step 5 and this handoff. The boundary did not
-  move.
-- **Disposition:** `accepted`. Step 5 is `89e1c7a`.
+The owner has to write and release those issues. A fresh driver with an empty
+queue reports that to the owner and stops.
 
-## 5. Verification and review
+## 3. Read these first
 
-Environment: macOS (APFS), Rust 1.98.1, Node 24.20.0 and 26.8.1. Evidence in
-`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/bd846a09-ef2b-4ffb-b99c-a06dcee93d0d/scratchpad/evidence/`
-(temporary; below, `evidence/`). "Final tree" is `89e1c7a`; "pre-final" is the
-tree just before its last two-line change (a relative `CARGO_TARGET_DIR`
-resolved against the checkout in `dev.mjs` and the test fixture), which the
-oracle judged needed no reruns.
+- `AGENTS.md`: the driver configuration (Linear, worker, delivery) and "Scope
+  and safety". All the approval gates still apply.
+- Linear completion comments on ROB-1119 and ROB-1120. Each records its brief,
+  every oracle finding with its disposition, and the verify results.
+- `docs/design-spec.md`: S18 "Development command evidence", including the
+  ROB-1119 limits, and S19 for the invitation design and its later
+  implementation candidates.
+- `docs/decisions.md`: the latest entries, "Development-child output tails —
+  October 2, 2026" (ROB-1119) and the ROB-1120 delivery note in the ROB-1112
+  section.
+- `apps/reference/README.md` "Run it", and the dated pointer above the
+  verification matrix.
 
-| Claim                | Command and result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Tree                                          | Evidence                                                                                  | Checked by                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Failing first        | `node --test apps/reference/scripts/test/dev.test.mjs` against stubs: 18 of 18 failed (the four diff-review tests came later)                                                                                                                                                                                                                                                                                                                                                                                                         | stubs                                         | `evidence/00-failing-first.txt`                                                           | Driver-reported                                                                               |
-| Command suite        | 22 passed under Node 24.20.0 and 26.8.1, and under `CARGO_TARGET_DIR=target`                                                                                                                                                                                                                                                                                                                                                                                                                                                          | final                                         | `evidence/01-dev-test.txt`, `01b-dev-test-node26.txt`, `01c-dev-test-relative-target.txt` | Driver; the oracle ran all 22 on both Node versions itself at the first re-review (pre-final) |
-| Stability            | Ten consecutive runs, 22 passed each                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | pre-final                                     | `evidence/03-repeat.txt`                                                                  | Driver; oracle inspected the log                                                              |
-| Default path by hand | In this checkout: no `.dev` before; start created `apps/reference/.dev/reference.db`, ready, a session read through Vite 200, SIGINT exit 0; `--reset` exit 0; ignored by git. The directory was removed afterwards                                                                                                                                                                                                                                                                                                                   | pre-final                                     | `evidence/09-default-path.txt`                                                            | Driver; oracle inspected the log                                                              |
-| Browser runner       | `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs`: PASS after the move onto `supervise.mjs`                                                                                                                                                                                                                                                                                                                                                                                                                         | pre-final (runner and module unchanged since) | `evidence/08-browser.txt`, `browser-artifacts-final/`                                     | Driver; oracle inspected the logs                                                             |
-| Mutations            | `mutate-dev.py --browser`: 38 of 39 caught, controls 22/22 before and after; survivor: `Supervisor.start`'s stop check before a spawn, unreachable from current callers; the browser workflow passed under all 23 shared-module mutants                                                                                                                                                                                                                                                                                               | pre-final                                     | `evidence/04-mutations.txt`, `00-port-guard.txt`                                          | Driver-reported; oracle inspected the log                                                     |
-| Rust, lint, client   | `cargo test --workspace --locked` 198 passed; clippy `-D warnings`; `cargo fmt --all --check`; `npm --prefix apps/reference/web run verify`; `node apps/reference/scripts/probes.mjs`: all pass. No Rust or client file changed afterwards                                                                                                                                                                                                                                                                                            | before the diff review                        | `evidence/02-cargo-test.txt`, `02b-clippy-fmt.txt`, `05-web-verify.txt`, `07-probes.txt`  | Driver-reported                                                                               |
-| Markdown             | Prettier 3.9.9 clean on the edited files; `links.py`: 188 local links, 0 broken                                                                                                                                                                                                                                                                                                                                                                                                                                                       | final                                         | —                                                                                         | Driver-reported                                                                               |
-| Linux                | Retrospective, recorded October 2026 under ROB-1120: Actions [run 36799909360](https://github.com/robertguss/Iris/actions/runs/36799909360), attempt 1, at [`89e1c7a472ac68d3fe6a6657676ed499851a86b3`](https://github.com/robertguss/Iris/commit/89e1c7a472ac68d3fe6a6657676ed499851a86b3), event `push`, concluded `cancelled`. Its `created_at` value (2026-10-01T01:11:34Z) is not a completion time; the original scratch logs are unavailable; the cancellation proves neither that the tests failed nor that they did not run. | final                                         | [Actions run 36799909360](https://github.com/robertguss/Iris/actions/runs/36799909360)    | Retrospective lookup under ROB-1120                                                           |
+## 4. Context
 
-Earlier, superseded runs are kept for the record in `evidence/pre-diff-review/`,
-`evidence/disrupted-run/` (port 5175 taken mid-run by another session) and
-`evidence/pre-rereview2/`, and the first mutation run in
-`evidence/04a-mutations-first-run.txt`.
+- **Why the workflow changed:** on October 2 an Amp-based lead and its builders
+  merged PRs #2 to #13 (ROB-1110 to ROB-1118, ROB-1121, ROB-1135 and ROB-1176).
+  The same day, the owner switched Iris to the driver/oracle/worker loop: a
+  Claude driver, a Codex oracle and a Pi worker. ROB-1120 rewrote `AGENTS.md` to
+  match. The Amp lead's Linear comments, prefixed `[lead]`, remain the history
+  of those issues.
+- **ROB-1119's takeover:** the Amp lead had published an oracle-approved plan as
+  the empty commit `7840188` on `rob-1119-output-tails`. It then handed the
+  branch to an Amp Builder, which never pushed. The owner told the driver to
+  take it over. The plan was restated in driver format and reviewed again by
+  this oracle.
+- **What the chunk changed:**
+  - A development child's final unterminated output line is now printed once,
+    before the final `dev: exit …` line.
+  - Owned entries are kept until the group is gone and stdio has closed.
+  - Every other ROB-1119 edge limit is retained and documented.
+  - The documentation was reconciled with the merged baseline (ROB-1120).
 
-Oracle verdicts:
+## 5. This chunk
 
-1. Plan: changes requested: two P2 (the extracted one-shot handlers contradict
-   the repeated-signal policy; readiness and startup cancellation insufficiently
-   tested) and two P3 (make "no build" observable; keep failing-first stubs
-   uncommitted). All accepted.
-2. Plan re-review: changes requested: two P2 (signal handling must begin before
-   the build; (d2) raced signal observation against child-exit observation).
-   Both accepted.
-3. Plan second re-review: sign-off, with a nonblocking note that (d2) must
-   assert the final cause, adopted.
-4. Diff: changes requested: one P1 (an empty explicit path reset the default
-   database) and two P2 (cleanup lost surviving process-group members; a default
-   reset failed before the first start). All fixed with tests and mutations.
-5. Diff re-review: changes requested: one P2 (a relative `CARGO_TARGET_DIR`
-   misresolved in the throwaway checkout). Fixed.
-6. Diff second re-review: sign-off, with one P3 (label the stability, browser
-   and mutation evidence as preceding the last change), fixed before the commit.
+| Issue    | Commit    | PR and merge         | Exact-candidate CI                                                      |
+| -------- | --------- | -------------------- | ----------------------------------------------------------------------- |
+| ROB-1119 | `fccd32e` | #14, merge `bdf5ba7` | 37068803231: attempt 1 failed in an unrelated step; attempt 2 all green |
+| ROB-1120 | `0034860` | #15, merge `e4ba261` | 37121865287: green on attempt 1                                         |
 
-None disputed, so none went to the owner.
+What the oracle checked independently, and what is only driver- or
+worker-reported:
 
-## 6. Remaining work
+- **ROB-1119.** The oracle checked these itself:
+  - lifecycle probes showing that `close` fires for ENOENT and for `ignore` and
+    `inherit` stdio
+  - reproductions of the test-cleanup failures it reported, and of their fixes
+  - both direct-spawn controls
+  - that the production files were unchanged across the review rounds
 
-1. **Choose the next chunk** (section 9). S18's authorized implementation is
-   complete.
-2. **The command's tests in CI:** they run only locally because S18 excludes a
-   CI change. Running them in CI needs the owner; they need ports 4001, 3003 and
-   5175 free and must not overlap the browser workflow step.
-3. **Ubuntu timing gate for step 4's tests:** the binary's expiry test (2.9 s to
-   4.5 s after the signal) and the library transaction child (600 ms plus 600
-   ms) have now passed on Ubuntu in runs 36758026534 and 36762611726. Run
-   36799909360 was later recorded as cancelled under ROB-1120 and contributes no
-   Ubuntu pass (section 1). If one flakes, diagnose from the signal's
-   observation, the deadline and the child's exit timing before changing a
-   bound; don't weaken the outer 5 s bound preemptively.
-4. **Invitation issuance and acceptance design** (S17's follow-up row), which
-   must also settle worker restart policy and send uncertainty per S18
-   recommendation 8.
-5. **Caller loss beyond the browser:** response loss on both sides of a commit
-   and cancellation during a commit (S14's focused validation items 2 and 3) are
-   still untested.
-6. **Retiring frozen experiments:** S16 stays in CI until its remaining omission
-   probes are carried by the reference application.
-7. **The agent-interface CI flake:** if it recurs, diagnose
-   `concurrent_last_owner_and_authority` in
-   `experiments/embedded-db/sqlite/tests/members.rs`. Frozen; a fix needs the
-   owner.
-8. **Documentation hygiene, carried forward:**
-   `experiments/embedded-db/README.md:64-66` describes Turso's migration as
-   one-version (the migrator applies two since `2b1e820`); frozen, needs the
-   owner. PR #1's merged description is stale; optional, needs the owner.
-9. **Precompiled validators:** needed if a content security policy without
-   `unsafe-eval` is adopted.
-10. **Detecting a database created against another issuer:** documented in the
-    README only.
-11. **README verification matrix:** the development server, development
-    database, lifecycle, development command and workspace rows date from
-    September 30; the rest from September 26–27.
-12. **Small known limits of the command** (S18's limits): a child's final output
-    line without a trailing newline is not printed; the stop check before a
-    spawn has no test that reaches it; a group refusing a probe (EPERM) is
-    treated as gone.
+  The driver reran the full `dev.test.mjs` suite (31/31) and `browser.mjs`
+  (PASS) on the final implementation. The red run and mutants (a) to (f) are
+  worker-reported; the oracle inspected their logs.
 
-## 7. Next chunk
+- **ROB-1120.** The oracle independently ran:
+  - Prettier
+  - the placeholder and stale-phrase checks
+  - the link check (231 links, 0 broken)
+  - the `gh` lookups of every run and PR fact
 
-`proposed`, pending the owner's choice (section 9). Candidates, in the driver's
-order of preference:
+## 6. Decisions and authorizations in force
 
-- **S14 caller-loss validation** (section 6 item 5): response loss on either
-  side of a commit and cancellation during a commit, as tests against the
-  reference application. Acceptance: S14's focused validation items 2 and 3,
-  tests first with the failing run kept, mutation checks.
-- **Invitations design** (item 4): a design proposal, no implementation, under
-  the design review brief.
-- **The command's tests in CI** (item 2): a small CI change, if the owner
-  authorizes it.
+- **Workflow, from earlier chunks and still in force:** the owner asked for
+  oracle review before every commit. PR text is reviewed before posting. Ask the
+  owner one question per message.
+  - This chunk kept the first rule but lapsed on the other two:
+    - PR #14's and PR #15's bodies were posted without an oracle review of the
+      text. Both PRs are merged, and their bodies stand as posted.
+    - The owner was asked four questions in one prompt at the start.
+- **Owner, October 2, 2026, for this backlog run:**
+  - Use the driver loop.
+  - Take over ROB-1119 from the stalled Amp Builder.
+  - Deliver each issue on a dedicated branch, through a PR, and merge after the
+    oracle's sign-off and green exact-candidate CI. Done means merged.
+  - Release ROB-1120, including the `AGENTS.md` driver section.
+  - Leave ROB-1123 in Backlog.
 
-First action: ask the owner the question in section 9, then write that chunk's
-plan and send it for plan review.
+  `AGENTS.md` still requires authorization before pushing an issue branch and
+  keeps the PR and merge gates. A new session confirms delivery authorization
+  with the owner instead of assuming that this run's still holds.
 
-## 8. Decisions and authorizations in force
+- **Owner, October 3, 2026:** one rerun of the failed job in run 37068803231.
+  This was a one-off and is not standing approval for CI reruns.
+- **Still excluded:** edits to the frozen Turso guide and to the PR #1
+  description. Each needs its own owner approval.
 
-- **The seven S17 owner decisions** in S17's "Owner decisions".
-- **The ten S18 decisions** in S18's "Lifecycle owner decisions" (choice 1 by
-  the owner; 2–10 by the oracle at the owner's request).
-- **Authorized and now done:** implementing S18 in reviewed steps (storage and
-  initialization, reset and migrations, shutdown and session cleanup, the
-  development command). Nothing further is authorized for implementation.
-- **Pushes:** "Push to main, always": push each signed-off step and handoff
-  straight to `main`, without asking, by explicit SHA and refspec. CI reruns
-  still need the owner.
-- **Killing another session's process:** the owner authorized killing the
-  unrelated Vite on 5175 for this session's remaining checks only. It does not
-  extend to later sessions; ask again.
-- **Not authorized:** a new pull request; a CI change; deleting
-  `s17-checkpoint-a`, `lifecycle-design` or `docs/s17-reference-app`;
-  invitations; retiring frozen experiments; editing `experiments/`; editing PR
-  #1.
-- **Decided in earlier chunks:** the decision record's dated entries.
-- **Workflow:** the owner asked for oracle review before every commit. PR text
-  is reviewed before posting. Ask the owner one question per message.
+## 7. Operational state
 
-## 9. Open questions for the user
+- **Worker:** `pi` with no arguments, as recorded in `AGENTS.md`. No worker is
+  running. The oracle is Codex in the right pane.
+- **Jobs and processes:** no local process was left running, and ports 4001,
+  3003 and 5175 were free after the last suites. The post-merge `Verify` run
+  37122553127 for `e4ba261` **failed** in the agent-interface MCP step
+  (ROB-1227), not in anything ROB-1120 changed. The outgoing driver reported it
+  to the owner and did not rerun it, since a rerun needs the owner's approval.
+  At this update, `main`'s latest push run is red. A later successful run would
+  not establish that ROB-1227 is resolved. This handoff's first PR run
+  (37123140729, at `0311dac`) passed.
+- **Evidence:** this session's scratch directory
+  (`/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/361b7984-181f-491b-b2e2-0162b0f2be55/scratchpad/`)
+  keeps only logs and reports: `evidence-1119/`, `driver-1119/*.log`,
+  `report-1119.md` and `report-1120.md`. The driver's private Cargo target and
+  browser artifacts were deleted. The scratch directory is temporary and nothing
+  depends on it; the durable record is the Linear comments and
+  `docs/decisions.md`.
+- **Branches:**
+  - Merged issue branches stay on `origin` (`rob-1110-…` to `rob-1121-…`,
+    `rob-1176-…`, `rob-1135-…`, `rob-1119-output-tails`,
+    `rob-1120-doc-reconciliation`).
+  - Local branches `rob-1119-output-tails` and `rob-1120-doc-reconciliation` are
+    merged. Delete them only with the owner's agreement.
+  - This handoff's branch, `driver-handoff-2026-10-03`, was pending delivery
+    when this was written (section 1).
+  - The older local branches `docs/s17-reference-app`, `lifecycle-design` and
+    `s17-checkpoint-a` predate this chunk. Leave them alone.
+- **Cleanup obligations:** none.
 
-- Which chunk next: S14 caller-loss validation, the invitations design, or the
-  command's tests in CI (section 7)? Blocks the next chunk's plan.
+## 8. Conventions and gotchas
 
-## 10. Operational state
+- **Linear access:** this machine's Claude sessions have no Linear MCP. The
+  driver uses Linear's GraphQL API with `LINEAR_API_KEY` from the environment.
+  Mutations accept issue identifiers such as `ROB-1120` as IDs. The key is
+  shared with other projects' sessions, and its limit of 2,500 requests an hour
+  was once exhausted mid-chunk. Batch reads, and retry writes later instead of
+  in a loop.
+- **The agent-interface MCP test**
+  (`experiments/agent-interface/runner.test.mjs:70`) failed twice in CI, after
+  11–14 s: run 37068803231, attempt 1, on a JS-only diff, which passed on rerun;
+  and run 37122553127 on a documentation-only merge. It passed locally (5/5,
+  about 50 s). The cause is not diagnosed, and ROB-1227 tracks it. Reruns need
+  the owner's approval.
+- **Rust on this Mac:** Homebrew's `rustc` 1.99.0 shadows the
+  `rust-toolchain.toml` pin 1.98.1. CI uses the pins. Record the actual version
+  in evidence.
+- **The command suite:**
+  `env -u NO_COLOR FORCE_COLOR=1 node --test apps/reference/scripts/test/dev.test.mjs`
+  takes about 145 s, needs ports 4001, 3003 and 5175 free, and must not overlap
+  `browser.mjs`. Run `npm --prefix apps/reference/web ci` first, and use a
+  private absolute `CARGO_TARGET_DIR`.
+- **Prettier 3.9.9** with `--print-width 80 --prose-wrap always` joins adjacent
+  plain lines. Machine-read blocks, such as the driver configuration in
+  `AGENTS.md`, must be fenced.
+- **Reading agents in Herdr:** `herdr agent read` cannot scroll a pane while its
+  agent is working, and long worker reports scroll out of reach. Ask the worker
+  to write its report to a file and reply with the path. Oracle reviews and
+  builds can outlast a 10-minute tool timeout, so wait in repeated
+  `herdr agent wait` calls.
+- **Mutation evidence:** run mutants in disposable copies with green controls
+  before and after. A brief that asks for them should also ask for a failing run
+  on the base, with the new tests copied in.
 
-- **Running processes:** none of this project's. The CI poll ends when run
-  36799909360 completes.
-- **Port 5175:** another Claude session (the `wts-books-onix-rust-parser`
-  project, a prototype Vite under its scratchpad `proto-wt/web`) repeatedly
-  starts a Vite on 5175; the driver killed its process group twice with the
-  owner's permission. It may be running again. The command, its tests and the
-  browser workflow refuse to start while it holds the port; that is correct
-  behavior, not a bug. Don't kill it without asking the owner again.
-- **Remote:** `main` at this handoff's commit; `s17-checkpoint-a` at `8594777`;
-  PR #1 merged. Don't edit or delete without the owner.
-- **Local branches:** `main` tracking `origin/main`; `lifecycle-design` at
-  `69c382b` (no upstream, behind `main`); `s17-checkpoint-a` at `8d2cfc7`, one
-  ahead of its upstream; `docs/s17-reference-app` at `5ad417d` (older; leave
-  it).
-- **Local installs:** `experiments/agent-interface/node_modules` and
-  `apps/reference/web/node_modules` (gitignored). No `apps/reference/.dev/`
-  (removed after the hand run).
-- **Retained evidence (temporary, possibly already deleted):**
-  - this session's
-    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/bd846a09-ef2b-4ffb-b99c-a06dcee93d0d/scratchpad/`:
-    `evidence/` (section 5), prompts `01-plan.txt` to `06-rereview2.txt`,
-    `mutate-dev.py` (step 5's runner), `final-checks.sh` (the port-guarded run
-    of every check), `default-path.mjs`, `regress.sh`, `impl/` (drafts, no
-    longer needed), `browser-artifacts*/`, and `mutants-dev/` (a source copy and
-    its Cargo target, safe to delete);
-  - the oracle's `/private/tmp/iris-s18-step5-*` directories, if any (its
-    reports and probes);
-  - older sessions' scratchpads under
-    `/private/tmp/claude-501/-Users-robertguss-Projects-startups-Iris/`
-    (`00df25ad-…` holds `links.py` and step 4's `mutate.py`; `b04871ba-…` step
-    3's evidence).
-- **Known risk, carried forward:** `probe:s16` builds into the checkout's shared
-  `target/` and can leave a mutated artifact that a later run treats as current.
-  Frozen; recorded rather than fixed.
+## 9. Skills
 
-## 11. Conventions and gotchas
-
-- **Shell aliases:** in interactive shells `tr` is a trash command, `npm` a
-  package guard and `ls` another tool. Use `command tr`, `command npm` and
-  `/bin/ls`. A pipeline with a bare `tr '\n' ';'` tried to trash files named
-  `\n` and `;` in an earlier session; it failed harmlessly only because none
-  existed.
-- **zsh:** no word-splitting of `$VAR` into a command; no `PIPESTATUS`; a bare
-  `=====` word triggers `=` expansion (use quotes).
-- **Formatting:**
-  - A user-level hook formats Markdown written through the driver's Write and
-    Edit tools, including scratch prompt files. Exact-string patches applied to
-    such a file afterwards can silently miss. Append to it or rewrite it.
-  - Scripted edits bypass the hook, so run
-    `bunx prettier@3.9.9 --write --print-width 80 --prose-wrap always <files>`.
-    Pin the version. `bunx` prints "Saved lockfile"; it writes nothing into the
-    repository.
-  - TypeScript under `apps/reference/web/src` is Prettier-formatted, except
-    `generated.ts`, which is never formatted. `style.css` keeps its compact,
-    unformatted style.
-- **Link checking:** `links.py` (in the latest session's scratchpad, section 10;
-  rewrite it if that is gone) takes the root and then Markdown paths relative to
-  it, and applies GitHub-style slugs. A seeded control needs a full copy of the
-  tree (`git archive HEAD | tar -x -C <dir>`, then the edited file copied over
-  it); in a partial copy, links to files not copied are reported as broken.
-- **Frozen guides can be stale:** check the source before citing an experiment
-  guide's description of its own implementation (see the Turso migration in
-  section 6).
-- **Reading oracle replies:** `herdr agent read` output can splice the echoed
-  prompt's first line into the middle of the reply. Take the text after the last
-  `Verdict:` line, and re-read if a finding looks cut.
-- **Contract changes need two regenerations:** `export-openapi`, then
-  `npm --prefix apps/reference/web run generate`. `generate` runs the whole
-  `verify` after writing, so a stale client test fails it; that does not mean
-  generation failed. openapi-typescript drops `x-iris`, so recovery changes
-  leave `generated.ts` unchanged.
-- **Every new or changed operation touches the client in the same step:**
-  - `client.ts`: `DOMAIN_OPERATIONS`, `METHODS`, and `MUTATIONS` or `READS` (a
-    test checks they partition the operations);
-  - `client.test.ts`: `NAMES`, `PATHS`, `CAPTURED`, `BODY_CASES`, and the
-    recovery expectations;
-  - a presentation arm, since the switches are exhaustive.
-- **Recovery:**
-  - `api.recovery` takes only a mutation, and construction refuses recovery on a
-    read.
-  - A new declared read needs `check_catalog` to pass, hand-written Rust and
-    client expectations, and wording in `present.ts`'s `READ_AGAIN`, or the page
-    will not point to it.
-  - `check_catalog`'s linkage messages each name the source operation.
-    `should_panic(expected = …)` tests match a substring of the message; the
-    query/header/cookie regression case asserts the exact message.
-- **Typed operation unions lose statuses:** `Known<Op>` or `Result<Op>` over a
-  union of operations keeps only their shared statuses. Use explicit unions and
-  per-operation overloads.
-- **The directory stores only a page's `next` cursor**, not the cursor it was
-  requested with. A browser case about cursors needs a shown page whose `next`
-  is non-null.
-- **Two build paths:** the browser workflow's `vite build` does not type-check,
-  so browser mutations need only bundle. `verify` runs `tsc`.
-- **Nothing runs concurrently with in-place browser mutations:** they edit the
-  checkout's client files, share the `dist` build and the workflow's ports, and
-  restore from the text they read at the start. An edit made meanwhile is lost.
-- **Mutation runners:**
-  - Rust mutations run on a disposable copy of `git ls-files` output, with a
-    runner-owned `CARGO_TARGET_DIR`. Never use the checkout's `target/`.
-  - Client runtime cases need fixtures. From the repository root, run
-    `cargo test -p iris-reference --lib whole_request` with
-    `IRIS_REFERENCE_FIXTURES=<absolute dir>`, then
-    `node apps/reference/web/src/client.test.ts apps/reference/openapi.json <absolute dir>`.
-  - `node:assert` `assert.throws(fn, regex, label)` reports the label, so label
-    every case.
-- **`agent-browser`:**
-  - `network route` has only `--abort` and `--body`. Hold or withhold a response
-    by wrapping `window.fetch` through `eval`, as the workflow does.
-  - `network requests --json` gives `data.requests[].url`, absolute. The log
-    includes aborted requests, and `--filter /api/projects` also matches member
-    paths, so count from a baseline taken just before the action.
-  - `eval` prints JSON.
-  - 0.38.1 is in mise's Node 24 global bin, with Chrome 154 in
-    `~/.agent-browser/browsers/`. It is not on `PATH` under Node 26.8.1, so run
-    the workflow under Node 24, e.g.
-    `mise exec node@24.20.0 -- node apps/reference/scripts/browser.mjs`.
-- **Driver tooling:** tool calls time out at 600 s, and a foreground `sleep` is
-  blocked, so run long suites in the background with output in files.
-- **Browser workflow:** ports 4001, 3003 and 5175 must be free. The API logs to
-  `api.log`, `api-b.log` and `api-c.log`. `restartApi(entry, name)` returns the
-  replacement.
-- **Test fixtures and seeds:**
-  - The development server seeds Bob as an editor of project 41. Alice belongs
-    only to 41; Bob also owns 43 ("Field notes").
-  - The Rust tests and the workflow start the frozen issuer fixture
-    `experiments/api-slice/checks/oidc-provider.mjs`.
-  - Refer to test identities without gendered pronouns.
-- **The agent-interface test** needs
-  `npm --prefix experiments/agent-interface ci` before its first local run.
-- **Rust, carried forward:**
-  - A `///` comment on a `#[utoipa::path]` handler becomes the exported
-    `summary`, so use `//`.
-  - Test `validate` helpers accept anything for an undeclared status, so check
-    `responses[status]` directly.
-  - The shared test fixtures live in `http::memberships::{tests, list_tests}`.
-    `git show 091129a:HANDOFF.md` section 11 holds the other server-side
-    recipes.
-  - `verify` captures responses only from library tests whose names contain
-    `whole_request`.
-- **`crates/iris`:** add to it only what two operations demonstrably share,
-  naming both.
-- **History and pushes:** history on `main` is linear. Push only signed-off
-  steps and handoffs, which the owner's standing rule (section 8) covers. In
-  zsh, brace a variable before a colon in a refspec
-  (`"${SHA}:refs/heads/main"`): `$SHA:r` is a history modifier that strips an
-  extension and mangles the refspec. `s17-checkpoint-a` tracks
-  `origin/s17-checkpoint-a`; `lifecycle-design` has no upstream. Push only by
-  explicit SHA and refspec.
-- **Panes:** the driver works in the left pane and the oracle in the right. The
-  driver sends oracle prompts through a file.
-- **Scripted edits to wrapped Markdown:** Prettier's prose wrap moves line
-  breaks, so an exact-string replacement can miss. Match with a
-  whitespace-tolerant pattern (the words joined by `\s+`), assert exactly one
-  match, then rerun Prettier. Python's `re.sub` expands escapes such as `\n` in
-  the replacement string, so pass literal text as a function (`lambda _: text`).
-- **Heading anchors:** GitHub's slugs drop the em dash and keep both spaces as
-  hyphens: `## Experiment follow-up — September 24, 2026` is
-  `#experiment-follow-up--september-24-2026`.
-- **Prompt files:** writing the driver's prompt files as `.txt` avoids the
-  Markdown formatting hook.
-- **PR text:** write the title and body to files, post with
-  `gh pr edit 1 --title "$(cat <file>)" --body-file <file>`, then read the body
-  back with `gh pr view 1 --json body --jq .body` and diff it. Pin repository
-  links in a PR body to a commit SHA so they do not drift.
-- **After a push:** in an earlier session, `refs/pull/1/head` in `git ls-remote`
-  still showed the old head just after the push, while
-  `gh pr view 1 --json headRefOid` already showed the new one; check the PR's
-  head through `gh`. Verify also runs on pushes to `main`. The pull-request runs
-  observed here were `pull_request` events on GitHub's synthetic merge commit,
-  whose tree equals the head's while `main` is an ancestor. Watch a run in the
-  background with `gh run watch <id> --exit-status`, then record each step with
-  `gh run view <id> --json headSha,attempt,conclusion,jobs`.
-- **Merging by fast-forward:** pushing the PR's head SHA to `refs/heads/main`
-  made GitHub mark PR #1 merged within seconds, with the head as its merge
-  commit. While a pull-request run was in progress, `gh pr view` reported
-  `mergeStateStatus` `UNSTABLE`. Here it reflected pending checks, but GitHub
-  uses it for any mergeable head whose commit status is not passing, failed
-  checks included; read the checks themselves. `git rev-parse --short` takes one
-  revision; with several it fails with "Needed a single revision".
-- **Oracle reviews that take long:** `herdr agent prompt --wait` can time out
-  (it did once at 580 s on the design review) while the oracle keeps working;
-  `herdr agent read` then refuses while the oracle is `working`. Run
-  `herdr agent wait <oracle> --timeout 580000`, then read. For long reports, ask
-  the oracle to write the report to a file and reply with its path.
-- **Preserving a review verbatim:** add only a status note after the H1, as
-  `docs/reviews/opus55-all-01.md` and `astra-s18-all-01.md` do, and check the
-  body with `diff` against the original after Prettier.
-- **Heading collisions:** S17 already has "Review of this proposal"; S18's is
-  "Review of the lifecycle proposal" so the anchors stay unique.
-- **Scripted section replacement:** S18 was drafted as unformatted text in a
-  scratch file and spliced between `## S18` and
-  `## References and design provenance`, then formatted. After the step 2 commit
-  that scratch source no longer matters; edit the committed section directly.
-- **Storage tests re-execute the test binary:** `kill_at` in
-  `apps/reference/src/storage/tests.rs` runs the library's own test binary with
-  `--exact storage::tests::interrupted_child`, blocks it at a `cfg(test)`
-  barrier and kills it. libtest prints `test <name> ... ` without a newline, so
-  the child's marker shares that line; match it with `ends_with`. The barrier
-  names (`after-migrate`, `after-seed`, `after-link`, and `after-remove` inside
-  a reset) and the injected failure exist only in the library's test build.
-- **`reference-dev` prints errors by message:** `main` reports
-  `reference-dev: <message>` and exits 1. Returning `Box<dyn Error>` from `main`
-  prints the `Debug` form (e.g. `InUse(...)`), which tests matching the message
-  miss. Its data line is printed before `listening on`, so readers that stop at
-  the address line still see it.
-- **Storage file names:** a database `<name>` owns `<name>.iris-lock` (never
-  deleted, not even by a reset) and, while initializing, `<name>.iris-init/`
-  holding `owner` and `reference.db`. Names ending in those suffixes, in any
-  case, are refused as databases. `apps/reference/.dev/` is gitignored and is
-  the development command's default data directory.
-- **Mutation runner for storage:** `mutate-step3.py` in the latest session's
-  scratchpad (section 10) copies `git ls-files -co --exclude-standard` to a
-  scratch directory, uses its own `CARGO_TARGET_DIR`, applies one exact-string
-  mutation at a time to `storage.rs` or `reference-dev.rs` and runs
-  `cargo test -p iris-reference --lib storage` or `--test dev_binary`. A full
-  run of 43 takes about 15 minutes. Exact strings break when the source changes;
-  re-check each count.
-- **Unset variables in shell calls:** shell state does not persist between tool
-  calls, so a `$S` set in one call is empty in the next; `cat $S` then reads
-  stdin and hangs until the tool times out. Set it in every call.
-- **zsh globs:** an unmatched or huge glob such as `target/debug/deps/x-*` fails
-  the whole command ("no matches found", "argument list too long"). Find test
-  binaries with `cargo test --no-run --message-format=json` and the artifact's
-  `executable` field.
-- **Ownership locks and child processes:** the lock is on the open file, so a
-  child spawned by any thread shares every held lock until it execs. A library
-  test that spawns a process must take `crate::storage::exclusive()` around the
-  spawn (storage tests that spawn take it for their whole length; the others
-  take `shared()`). Integration tests under `tests/` are separate processes that
-  hold no ownership locks, so spawn freely there. A new spawn in a library test
-  without the guard shows up as intermittent `InUse` in unrelated tests.
-- **Holding the guard across awaits** is intended: the guarded test future stays
-  on its test thread, and the runtime flavor is chosen per test.
-  `storage/tests.rs` and `lifecycle/tests.rs` allow `clippy::await_holding_lock`
-  for that reason.
-- **Mutation runner and stale artifacts:** `mutate.py` copies the checkout with
-  its modification times, so Cargo can reuse a binary built from the previous
-  run's last mutant when only test files changed. The runner touches the mutated
-  sources before its control run; its control caught this once. Keep the control
-  and the touch.
-- **Run-time migrators in tests:** `sqlx::migrate::Migrator::new(<dir>)` over a
-  temporary directory holding copies of `0001_initial.sql` gives the same
-  checksum as the embedded `MIGRATOR`; `Storage::open_with` and `reset_with`
-  take one. SQLx returns `VersionMismatch` before applying any later migration
-  and writes nothing to the file.
-- **A WAL-mode database loses its `-wal` and `-shm` when its last connection
-  closes cleanly,** including a refused `Storage::open`. A test that needs
-  crash-left WAL files must not open the database before using them.
-- **Refusal messages are matched by tests:** `reserved`, `separate database`,
-  `SQLite database`, `--reset`, `hard link`, `unrecognized`, `symbolic link`.
-  The reset command in a message is shell-quoted; `dev_binary.rs` runs it as
-  printed with the binary's directory on `PATH`.
-- **`grep -c` with no match exits 1,** which makes a background command report
-  failure even when the run it summarizes succeeded; read the output.
-- **CI step metadata lags:** just after run 36721898213 completed,
-  `gh run view --json jobs` still showed later steps as pending with the run and
-  job already `success`; it caught up within minutes. `gh run watch` also exited
-  non-zero early, before the job had started. Poll `status` until `completed`,
-  then read the steps again, or read the log.
-- **Lifecycle tests re-execute the test binary too:** `lifecycle::tests::child`
-  is a no-op unless `IRIS_LIFECYCLE_CHILD` is set; the parent tests run it with
-  `--exact lifecycle::tests::child --nocapture --test-threads=1`, parse
-  `cookie=` and `listening=` from its stdout (it prints an empty line first to
-  end libtest's own line), and send real signals with `kill`. With
-  `IRIS_LIFECYCLE_BARRIER` set, a forced termination prints
-  `barrier before-exit` and waits for a line on stdin, so the parent can check
-  the lock while everything is still held. These tests hold
-  `storage::exclusive()` for their whole length, and every child is killed and
-  reaped if a test fails. The transaction parent uses a two-worker multi-thread
-  runtime, because its request task must progress while the test thread blocks
-  on the child; the two parents without concurrent request work use the default
-  current-thread runtime.
-- **Test-only mutation gate:** `domains::memberships::gate::before_commit(path)`
-  holds every mutation of that database between its write and its commit. It
-  matches the canonical path against `pragma_database_list`, so register the
-  path as SQLite will report it (canonicalized).
-- **Shutdown semantics a test or a supervisor must respect:**
-  `lifecycle::finish` never returns; it calls `process::exit` on every path.
-  Exit 0 needs a signal-requested stop that drained, had no failure and whose
-  closure was acknowledged. Anything else is exit 1, and a forced exit holds the
-  ownership lock until the process is gone. A failed tracked open anywhere in
-  the process's life makes its stop a forced one. The browser runner and the
-  development command both ignore the API's exit code when they stop it
-  deliberately.
-- **Domain connections go through `http::open`,** which returns a `Tracked`
-  connection. Reads take `impl read::OwnedConnection` (a plain
-  `SqliteConnection` or a `Tracked`, never a `&mut`). A production process
-  constructs one `Connections` and shares clones of it through every `AppState`
-  and into `Process` for `finish`; a second tracker would let `finish` see zero
-  while handlers still hold tickets on the other.
-  `connections: Default::default()` is right only where that one tracker is
-  created, or for an isolated test fixture with its own.
-- **Tokio timers round up:** an interval's first tick is not necessarily ready
-  on the first poll. To reach a `select!` with a tick and the stop both ready,
-  poll the task once by hand, let the tick come due unpolled, then publish the
-  stop (`a_stop_is_seen_by_a_late_subscriber_and_wins_over_a_ready_tick`).
-- **Mutants that hang:** a mutation that removes a deadline can hang a test with
-  no bound of its own. `mutate.py` gives each suite 600 s, kills the mutant
-  binaries on timeout and counts a hang as caught; keep mutant deadlines finite
-  (for example 30 s rather than an hour) so bounded tests fail by themselves.
-- **Heredocs and Python strings:** in an unquoted shell heredoc, `\\` becomes
-  `\`, so a Python `\\n` meant as an escaped backslash-n reaches Python as `\n`
-  and becomes a real newline; `$` and backticks are expanded too. Quote the
-  heredoc delimiter (`<<'EOF'`), and dry-run a mutation list against the source
-  before a long run.
-- **The development command's tests own fixed ports:** they refuse to start
-  while 4001, 3003 or 5175 is taken, and must never run alongside the browser
-  workflow, the mutation runner or an oracle's own run of them. Before a long
-  run, check `lsof -ti tcp:<port> -sTCP:LISTEN`; `final-checks.sh` (section 10)
-  checks before every phase.
-- **Supervisor output is asserted by tests:** every supervisor line starts
-  `dev: `; children's lines are prefixed `[issuer]`, `[api]`, `[web]`,
-  `[build]`, `[reset]`; the last line is
-  `dev: exit <code>: <first cause>[; <names> needed SIGKILL]`;
-  `dev: started <name> (pid N)` gives each child's process group, which the
-  tests parse to kill everything after each test.
-- **Node resolves a symbolic link before deciding the main module:** the issuer
-  fixture serves only when run as the main module
-  (`import.meta.url === pathToFileURL(argv[1])`), so a fixture reached through a
-  linked directory exits 0 without listening. The throwaway checkout in
-  `dev.test.mjs` copies it.
-- **macOS `killpg` on a finished group can fail with EPERM** rather than ESRCH.
-  Catch both (`mutate-dev.py`'s `kill_group`, `supervise.mjs`'s `alive`).
-- **`agent-browser` leaves its session daemon outside the command's process
-  group:** the group is empty once the command exits, so the browser runner's
-  per-command groups drop out of ownership as before.
-- **Vite's dev server prints `➜  Local:   http://127.0.0.1:5175/`** without
-  colour when piped; readiness matches `Local:\s+http://127.0.0.1:5175/`.
-- **Mutation runner for the command:** `mutate-dev.py` copies
-  `git ls-files -co --exclude-standard` and links
-  `apps/reference/web/ node_modules`, builds into its own `CARGO_TARGET_DIR`,
-  stops a mutant at its first failing test (`✖` line) and then kills every
-  process of the copy, the cargo shims (`iris-dev-test-`), the issuer and
-  anything on the three ports. Check that each mutant is valid code: one early
-  mutant left a trailing comma in `void ( …, )` and was "caught" as a syntax
-  error. A full run of 39 with the browser workflow takes about 30 minutes.
-- **`apps/reference/scripts/probes.mjs` is not Prettier-formatted;** leave it as
-  is when formatting the other scripts (default Prettier, 80 columns).
-- **Waiting in tool calls:** a foreground `sleep` is blocked; wait with
-  `node -e 'setTimeout(()=>{},ms)'` or a polling `node -e` loop on a file, and
-  keep each call under the 600 s tool limit.
-- **`gh run watch` can die on a network timeout** while the run continues; poll
-  `gh run view <id> --json status` instead.
-
-## 12. Skills
-
-- **Required:** `driver` for the driver, `oracle` for the oracle.
-- **Optional:** `herdr` for pane and agent control.
+- Required: `driver` for the driver, and `oracle` for the oracle.
+- Optional: `worker` (loaded by each worker from its prompt), and `herdr` for
+  pane operations.

@@ -4,19 +4,19 @@ use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, Connection};
 use std::path::{Path, PathBuf};
 
-const NOW: i64 = 1_000_000;
-const BOB: Actor = Actor(29);
-const ALICE: Actor = Actor(11);
+pub(super) const NOW: i64 = 1_000_000;
+pub(super) const BOB: Actor = Actor(29);
+pub(super) const ALICE: Actor = Actor(11);
 /// Bob owns project 43 and Alice is not a member: S19's happy case.
-const PROJECT: i64 = 43;
+pub(super) const PROJECT: i64 = 43;
 
-async fn database() -> (tempfile::TempDir, PathBuf, SqliteConnection) {
+pub(super) async fn database() -> (tempfile::TempDir, PathBuf, SqliteConnection) {
     let (dir, path) = crate::read::tests::database().await;
     let conn = connect(&path).await.unwrap();
     (dir, path, conn)
 }
 
-async fn contact(conn: &mut SqliteConnection, user_id: i64, email: &str) {
+pub(super) async fn contact(conn: &mut SqliteConnection, user_id: i64, email: &str) {
     sqlx::query("INSERT OR REPLACE INTO user_contacts (user_id, email) VALUES (?, ?)")
         .bind(user_id)
         .bind(email)
@@ -25,7 +25,7 @@ async fn contact(conn: &mut SqliteConnection, user_id: i64, email: &str) {
         .unwrap();
 }
 
-async fn exec(conn: &mut SqliteConnection, sql: &str) {
+pub(super) async fn exec(conn: &mut SqliteConnection, sql: &str) {
     // Statements are literals in this file.
     sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
         .execute(&mut *conn)
@@ -50,7 +50,7 @@ async fn role(conn: &mut SqliteConnection, project_id: i64, user_id: i64) -> Opt
         .unwrap()
 }
 
-async fn invite(
+pub(super) async fn invite(
     conn: &mut SqliteConnection,
     actor: &Actor,
     project_id: i64,
@@ -69,7 +69,7 @@ async fn invite(
     .await
 }
 
-async fn accept_as(
+pub(super) async fn accept_as(
     conn: &mut SqliteConnection,
     actor: &Actor,
     token: &str,
@@ -94,7 +94,7 @@ async fn latest_token(conn: &mut SqliteConnection) -> String {
         .unwrap()
 }
 
-fn sha256_hex(token: &str) -> String {
+pub(super) fn sha256_hex(token: &str) -> String {
     Sha256::digest(token.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -102,7 +102,7 @@ fn sha256_hex(token: &str) -> String {
 }
 
 /// Alice has a usable contact and Bob has issued her an invitation to 43.
-async fn issued(conn: &mut SqliteConnection) -> String {
+pub(super) async fn issued(conn: &mut SqliteConnection) -> String {
     contact(conn, 11, "alice@example.test").await;
     invite(conn, &BOB, PROJECT, 11, NOW).await.unwrap();
     latest_token(conn).await
@@ -478,7 +478,7 @@ async fn an_invitation_survives_its_issuer_losing_ownership() {
     );
 }
 
-fn busy_at_begin<R>() -> ActionError<R> {
+pub(super) fn busy_at_begin<R>() -> ActionError<R> {
     ActionError::Failed {
         primary: StopReason::Execution {
             stage: Stage::Begin,
@@ -490,7 +490,7 @@ fn busy_at_begin<R>() -> ActionError<R> {
     }
 }
 
-fn failed_at_commit<R>() -> ActionError<R> {
+pub(super) fn failed_at_commit<R>() -> ActionError<R> {
     ActionError::Failed {
         primary: StopReason::Execution {
             stage: Stage::Commit,
@@ -502,7 +502,7 @@ fn failed_at_commit<R>() -> ActionError<R> {
     }
 }
 
-async fn racing(path: &Path) -> (SqliteConnection, SqliteConnection) {
+pub(super) async fn racing(path: &Path) -> (SqliteConnection, SqliteConnection) {
     let mut first = connect(path).await.unwrap();
     let mut second = connect(path).await.unwrap();
     for conn in [&mut first, &mut second] {

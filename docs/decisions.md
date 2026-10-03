@@ -2650,6 +2650,85 @@ now gets migrations 1 and 2 and still no contacts. Both run-time migrator
 fixtures include the real 0002, and their synthetic migration is
 renumbered 9999.
 
+## Invitation delivery claims and fencing — October 3, 2026 (ROB-1244 step 1)
+
+ROB-1245 implements the first of three steps of S19's delivery stage as private,
+database-only code with an injected clock: no SMTP, capture, task, route,
+OpenAPI operation, client or dependency. Steps 2 (local capture and send) and 3
+(the supervised task) remain.
+
+**Schema.** Append-only migration `0003_invitation_delivery.sql` adds four
+columns to `invitation_outbox` with `ALTER TABLE ... ADD COLUMN` only: `claims`
+(NOT NULL DEFAULT 0, CHECK 0 to 5), `next_claim_at` (NOT NULL DEFAULT 0),
+`lease_until` (nullable) and `outcome` (nullable, one of sent, exhausted,
+malformed, permanent, expired, accepted). The outcome's CHECK requires a
+non-NULL outcome to have NULL token, recipient address and lease, so clearing
+the payload on a terminal outcome is a database invariant. SQLite accepted the
+CHECKs on added columns, including the one that reads other columns, so no table
+rebuild was needed. Stage-1 rows migrate with zero claims, no lease and no
+outcome and are immediately eligible.
+
+**Rules.** Each of `claim`, `complete` and `sweep` is one `BEGIN IMMEDIATE`
+transaction with stage 1's failure classification and finalization.
+
+- `claim` takes the oldest eligible row: no outcome, fewer than 5 claims,
+  `next_claim_at <= now`, no lease or lease end `<= now`, and an invitation that
+  is unaccepted with `now < expires_at`. It increments `claims` (the new count
+  is the attempt) and sets the lease to `now + 30`. A malformed eligible row
+  (null or empty credential, or an address failing `usable_contact`) is marked
+  `malformed`, cleared and skipped. A claim consumes budget whether or not it is
+  completed.
+- `complete` is fenced by outbox id, `claims == attempt`, `lease_until > now`
+  and no outcome. Sent and permanent are terminal; retryable after claims 1 to 4
+  releases the lease and waits 5, 10, 20 or 40 s; retryable after claim 5 is
+  terminal exhausted. Every terminal transition clears the payload and lease in
+  the same update. `Ok(false)` means the fence matched nothing and no row
+  changed.
+- `sweep` finishes rows with no outcome and no live lease whose invitation is
+  accepted, expired (`now >= expires_at`) or whose claims equal 5, checked in
+  that order. It never touches a live lease, so acceptance or expiry during a
+  lease does not stop the send in flight.
+- Message-ID, `expires_at`, credential and address snapshot are never changed by
+  these functions. The claim type's `Debug` redacts them and no error carries a
+  payload.
+
+**Evidence** (macOS, Rust 1.99.0 from Homebrew, which shadows the 1.98.1 pin,
+Node 24.20.0; private target; CI is disabled):
+
+- Tests were written alongside the implementation, not before it, so they were
+  not seen failing first. Their power is shown only by the mutants below.
+- Fifteen new tests in `delivery/tests.rs` cover the rules above, including
+  database errors at begin and commit for each function, a concurrent race and a
+  stage-1 row migrated from a 0001 and 0002 database. Existing storage tests
+  changed with the schema: their run-time migrator fixtures include the real
+  0003 and the expected versions are `[1, 2, 3]` and `[1, 2, 3, 9999]`.
+- `cargo test --workspace --locked`: 263 passed, 0 failed, including 147 in the
+  reference library (132 before, 15 new). Clippy with `-D warnings` and
+  `cargo fmt` are clean, and the dev-identity API tests pass.
+- `node apps/reference/scripts/probes.mjs`: 31 caught, 25 controls. Its healthy
+  check pins the `iris-reference` library count, which moved from 132 to 147.
+- Mutations in a disposable copy with its own target, controls green before and
+  after (15 delivery tests), each caught by the named test:
+  - `complete` drops the lease-end condition (m1) or the attempt condition (m2):
+    both caught by `a_stale_completion_returns_false_and_changes_nothing` (one
+    assertion per half)
+  - `sweep` ignores live leases (m3): caught by
+    `expiry_or_acceptance_during_a_live_lease_does_not_stop_the_send` and
+    `five_claims_spend_the_budget_even_without_completion`
+  - a `complete` commit error becomes `Ok(false)` (m4): caught by
+    `database_errors_are_errors_not_false_none_or_zero`
+  - `claim` drops the claim budget condition (m5): caught by
+    `five_claims_spend_the_budget_even_without_completion`
+  - `sweep` drops its accepted, expired and budget condition (U), or finishes at
+    4 claims (T): both caught by
+    `five_claims_spend_the_budget_even_without_completion` and
+    `retryable_completions_back_off_5_10_20_40_seconds`
+  - `sweep` drops `outcome IS NULL` (C), orders expired before accepted (A), or
+    exhausted first (B): each caught by
+    `sweep_leaves_finished_rows_and_orders_its_reasons`
+  - `claim` accepts any non-null credential, including an empty one (D): caught
+    by `malformed_payloads_become_terminal_without_being_claimed`
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

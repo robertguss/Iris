@@ -3572,6 +3572,21 @@ provenance belong in the
 [application guide](../apps/reference/README.md#future-invitations-not-runnable-yet)
 owns the runnable boundary. Linear owns implementation scope and sequencing.
 
+**Stage 1 implemented — October 3, 2026 (ROB-1236).** The first bounded
+candidate below, private persistence and domain rules, is implemented and
+tested; the dated statement above describes the earlier state. Migration 0002
+adds `invitations` (credential hash only) and `invitation_outbox` (a required
+Message-ID, plus the plaintext credential and contact snapshot, which are
+nullable for later clearing). Fresh initialization and explicit reset now seed
+`.test` contacts for Alice and Bob. Existing databases are migrated but never
+backfilled. In one that lacks a usable contact for the recipient, issuance that
+passes the earlier checks returns `invitations.recipient_unavailable`.
+`domains::invitations::{issue, accept}` apply the decision table below in order,
+each in one `BEGIN IMMEDIATE` transaction with the existing failure
+classification. There is still no route, OpenAPI operation, delivery worker,
+mail capture or client; stages 2 and 3 remain. Evidence is in the
+[dated decision](decisions.md#invitation-persistence-and-domain-rules--october-3-2026).
+
 ### Invitation product and authority decisions
 
 Invitations target existing accounts by user ID, grant only `editor`, and expire

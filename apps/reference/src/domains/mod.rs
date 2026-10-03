@@ -1,5 +1,6 @@
 //! Domain operations and the S15 execution vocabulary that mutations and reads
 //! share. Application code, not an Iris API.
+pub mod invitations;
 pub mod memberships;
 pub mod projects;
 

@@ -343,7 +343,7 @@ async fn an_existing_file_is_migrated_but_never_seeded() {
         .fetch_all(&mut conn)
         .await
         .unwrap();
-    assert_eq!(versions, [1]);
+    assert_eq!(versions, [1, 2]);
     let x: i64 = sqlx::query_scalar("SELECT x FROM unrelated")
         .fetch_one(&mut conn)
         .await
@@ -352,6 +352,7 @@ async fn an_existing_file_is_migrated_but_never_seeded() {
     conn.close().await.unwrap();
     assert_eq!(count(&path, "users").await, 0);
     assert_eq!(count(&path, "memberships").await, 0);
+    assert_eq!(count(&path, "user_contacts").await, 0);
 }
 
 #[tokio::test]
@@ -1015,6 +1016,7 @@ async fn moving_a_database_with_its_recovery_files_keeps_committed_changes() {
 }
 
 const INITIAL: &str = include_str!("../../migrations/0001_initial.sql");
+const INVITATIONS: &str = include_str!("../../migrations/0002_invitations.sql");
 
 /// A migrator resolved at run time from the given files.
 async fn migrator(files: &[(&str, &str)]) -> sqlx::migrate::Migrator {
@@ -1032,7 +1034,11 @@ async fn a_modified_applied_migration_stops_startup_and_keeps_the_data() {
     let path = root.join("dev.db");
     drop(Storage::open(&path, ISSUER).await.unwrap());
     change(&path).await;
-    let modified = migrator(&[("0001_initial.sql", &format!("{INITIAL}\n-- edited\n"))]).await;
+    let modified = migrator(&[
+        ("0001_initial.sql", &format!("{INITIAL}\n-- edited\n")),
+        ("0002_invitations.sql", INVITATIONS),
+    ])
+    .await;
 
     let before = snapshot(&path);
     let message = match Storage::open_with(&path, ISSUER, &modified).await {
@@ -1068,7 +1074,8 @@ async fn an_added_migration_applies_to_an_existing_database() {
     change(&path).await;
     let added = migrator(&[
         ("0001_initial.sql", INITIAL),
-        ("0002_added.sql", "CREATE TABLE added (x INTEGER);"),
+        ("0002_invitations.sql", INVITATIONS),
+        ("9999_added.sql", "CREATE TABLE added (x INTEGER);"),
     ])
     .await;
 
@@ -1081,7 +1088,7 @@ async fn an_added_migration_applies_to_an_existing_database() {
             .await
             .unwrap();
     conn.close().await.unwrap();
-    assert_eq!(versions, [1, 2]);
+    assert_eq!(versions, [1, 2, 9999]);
     assert_eq!(bob_role(&path).await, "viewer");
     assert_eq!(count(&path, "memberships").await, 2);
 
@@ -1090,7 +1097,7 @@ async fn an_added_migration_applies_to_an_existing_database() {
         Err(error @ StorageError::Migrate(..)) => {
             let message = error.to_string();
             assert!(message.contains(&path.display().to_string()), "{message}");
-            assert!(message.contains("migration 2"), "{message}");
+            assert!(message.contains("migration 9999"), "{message}");
         }
         Err(other) => panic!("expected a migration error, got {other}"),
         Ok(_) => panic!("opened a database with an unknown applied migration"),
@@ -1113,4 +1120,93 @@ fn the_reset_command_quotes_its_path_as_one_shell_word() {
         reset_command(Path::new("/tmp/a b.db")),
         "reference-dev --local-oidc-demo --database '/tmp/a b.db' --reset"
     );
+}
+
+async fn contacts(path: &Path) -> Vec<(i64, String)> {
+    let mut conn = connect(path).await.unwrap();
+    let rows = sqlx::query_as("SELECT user_id, email FROM user_contacts ORDER BY user_id")
+        .fetch_all(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    rows
+}
+
+fn seeded_contacts() -> Vec<(i64, String)> {
+    vec![
+        (11, "alice@example.test".to_owned()),
+        (29, "bob@example.test".to_owned()),
+    ]
+}
+
+#[tokio::test]
+async fn fresh_initialization_and_reset_seed_local_test_contacts() {
+    let _processes = shared();
+    let (_dir, root) = canonical_dir();
+    let path = root.join("dev.db");
+    drop(Storage::open(&path, ISSUER).await.unwrap());
+    assert!(
+        contacts(&path).await == seeded_contacts(),
+        "the contacts are not exactly the seeded ones"
+    );
+
+    // An existing database is never reseeded: removed contacts stay removed.
+    let mut conn = connect(&path).await.unwrap();
+    sqlx::query("DELETE FROM user_contacts")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
+    drop(Storage::open(&path, ISSUER).await.unwrap());
+    assert!(contacts(&path).await.is_empty(), "contacts were seeded");
+
+    drop(Storage::reset(&path, ISSUER).await.unwrap());
+    assert!(
+        contacts(&path).await == seeded_contacts(),
+        "the contacts are not exactly the seeded ones"
+    );
+}
+
+/// A database from before invitations: the schema and seed of 0001 only.
+#[tokio::test]
+async fn an_old_database_gains_invitations_without_contacts() {
+    use crate::domains::invitations::{self, ActionError, IssueInvitation, IssueRejection};
+    let _processes = shared();
+    let (_dir, root) = canonical_dir();
+    let path = root.join("dev.db");
+    let old = migrator(&[("0001_initial.sql", INITIAL)]).await;
+    let mut conn = connect(&path).await.unwrap();
+    old.run(&mut conn).await.unwrap();
+    crate::app::seed(&mut conn, ISSUER).await.unwrap();
+    conn.close().await.unwrap();
+
+    let _storage = Storage::open(&path, ISSUER).await.unwrap();
+    let mut conn = connect(&path).await.unwrap();
+    let versions: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&mut conn)
+            .await
+            .unwrap();
+    assert_eq!(versions, [1, 2]);
+    assert_eq!(count(&path, "users").await, 2);
+    assert_eq!(count(&path, "invitations").await, 0);
+    assert!(contacts(&path).await.is_empty(), "contacts were seeded");
+    let refused = invitations::issue(
+        &mut conn,
+        &crate::identity::Actor(29),
+        IssueInvitation {
+            project_id: 43,
+            recipient_id: 11,
+        },
+        1_000,
+    )
+    .await;
+    assert!(
+        matches!(
+            refused,
+            Err(ActionError::Rejected(IssueRejection::RecipientUnavailable))
+        ),
+        "{refused:?}"
+    );
+    conn.close().await.unwrap();
 }

@@ -49,6 +49,12 @@ they do not start an invitation worker or mail capture, and there are no
 reference invitation routes or views yet. The frozen experiment's delivery
 commands and token-preview response are not reference-app instructions.
 
+October 3, 2026 (ROB-1236): S19's first stage, private persistence and domain
+rules, now exists in `src/domains/invitations.rs` with migration
+`0002_invitations.sql`, and fresh or reset development databases seed `.test`
+contacts for Alice and Bob. It is still not runnable from the console or the
+API: no route, worker, mail capture or view uses it yet.
+
 [S19](../../docs/design-spec.md#s19--reference-invitations-and-delivery) owns
 the future contract, decision/failure-window tables and bounded later stages;
 the

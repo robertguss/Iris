@@ -1,6 +1,6 @@
 // The reference console for development in one command: the local issuer on
 // 4001, the development server on 3003 with a persistent database, and Vite on
-// 5175 proxying /api to that server.
+// 5175 proxying /api to that server, plus private local capture on 4025/4026.
 //
 //   node apps/reference/scripts/dev.mjs [--database PATH] [--reset]
 //
@@ -8,13 +8,13 @@
 // relative PATH is resolved against the current directory, and the directory
 // that holds PATH must exist. It is an argument, never an environment
 // variable, like the server's own. The command sets every address it owns, overriding inherited
-// IRIS_API_TARGET, IRIS_LISTEN, IRIS_PUBLIC_ORIGIN and IRIS_OIDC_ISSUER, so the
+// IRIS_API_TARGET, IRIS_LISTEN, IRIS_PUBLIC_ORIGIN, IRIS_OIDC_ISSUER and IRIS_SMTP_ADDR, so the
 // console cannot reach another API or database. With --reset it runs the
 // server's own reset on the database and exits, starting nothing else.
 //
 // It refuses to start if any of its ports is taken, builds the server, starts
-// the three in order, each only once the one before reported its address, and
-// prints one `dev: ready` line when all three have. A child's exit stops the
+// the four in order, each only once the one before reported its address, and
+// prints one `dev: ready` line when all four have. A child's exit stops the
 // others and exits 1. SIGINT or SIGTERM stops everything: each process group
 // gets SIGTERM, then SIGKILL after 5 s. That stop exits 0 once every child has
 // exited, whatever their exit codes, which it prints: the server exits 1 when
@@ -39,7 +39,10 @@ const vite = join(web, "node_modules/.bin/vite");
 const ORIGIN = "http://127.0.0.1:5175";
 const ISSUER = "http://127.0.0.1:4001";
 const API = "127.0.0.1:3003";
-const PORTS = [4001, 3003, 5175];
+const PORTS = [4001, 3003, 5175, 4025, 4026];
+const SMTP = "127.0.0.1:4025";
+const CAPTURE = "http://127.0.0.1:4026";
+const MAILPIT = "apps/reference/scripts/mailpit.sh";
 const USAGE =
   "usage: node apps/reference/scripts/dev.mjs [--database PATH] [--reset]";
 
@@ -148,9 +151,19 @@ async function serve() {
     );
   prepare();
   await build();
+  await step("capture-install", "bash", [MAILPIT, "install"]);
+  const inbox = `${database}.mailpit`;
+  // Each chosen database owns its capture; its parent must already exist.
+  if (!existsSync(inbox)) mkdirSync(inbox);
   await runSupervised(
     supervisor,
     [
+      {
+        name: "capture",
+        command: "bash",
+        args: [MAILPIT, "run", "4025", "4026", join(inbox, "mailpit.db")],
+        readiness: /\[http\] accessible via http:\/\/127\.0\.0\.1:4026\//,
+      },
       {
         name: "issuer",
         command: process.execPath,
@@ -176,6 +189,7 @@ async function serve() {
             IRIS_PUBLIC_ORIGIN: ORIGIN,
             IRIS_OIDC_ISSUER: ISSUER,
             IRIS_LISTEN: API,
+            IRIS_SMTP_ADDR: SMTP,
           },
         },
       },
@@ -191,7 +205,7 @@ async function serve() {
       },
     ],
     {
-      ready: `console ${ORIGIN}, API http://${API}, issuer ${ISSUER}, data ${database}`,
+      ready: `console ${ORIGIN}, API http://${API}, issuer ${ISSUER}, data ${database}, capture ${CAPTURE}`,
     },
   );
 }

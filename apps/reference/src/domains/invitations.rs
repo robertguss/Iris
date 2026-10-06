@@ -1,5 +1,5 @@
 //! Invitations (S19 stage 1): issuing and accepting within one write
-//! transaction each. Private application code: no route, worker or client
+//! transaction each. Private application code: no route or client
 //! exposes these operations yet.
 use super::failure_kind;
 pub use super::{Cleanup, FailureKind, Stage};
@@ -281,6 +281,7 @@ pub async fn accept(
 }
 
 pub mod delivery;
+pub mod worker;
 
 #[cfg(test)]
 mod tests;

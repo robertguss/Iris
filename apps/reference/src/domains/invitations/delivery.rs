@@ -1,7 +1,7 @@
 //! Invitation delivery claims (S19 stage 2, step 1): claiming an outbox row
 //! under a lease, completing it under a fence, and sweeping rows that can no
-//! longer be delivered. Database-only private application code; no SMTP, task
-//! or route uses it yet. Time is the caller's Unix-seconds `now`.
+//! longer be delivered. The private supervised worker uses these functions;
+//! no route exposes them. Time is the caller's Unix-seconds `now`.
 use super::{ActionError, Stage, StopReason, execution, finalize, unconfirmed, usable_contact};
 use sqlx::{Connection, Row, SqliteConnection};
 use std::convert::Infallible;

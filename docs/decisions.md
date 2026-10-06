@@ -2846,6 +2846,73 @@ target, the mutant runs on Homebrew's 1.99.0, which shadows the pin unless
   - m8, `--max-age 24h` dropped:
     `the_capture_prunes_messages_older_than_24_hours`
 
+## Supervised invitation delivery — October 6, 2026 (ROB-1247)
+
+**Stage 2 implemented as private application code.** ROB-1247 completes the
+supervised task and development wiring after ROB-1245's claim/fencing and
+ROB-1246's mailer/capture. Stage 3 remains unimplemented: no routes, OpenAPI
+operation, generated client or invitation view changed.
+
+The task uses `lifecycle::Task::new("invitation-delivery", ...)`, an injected
+Unix-seconds clock, a one-second interval and Delay missed-tick behavior. Each
+tick opens one tracked connection, sweeps, claims, sends outside the database
+transaction and completes under the existing fence. The connection is disposed
+on success, no eligible row, observed stop and every error. Failed opens retain
+S18's unacknowledged ticket; no count reset fabricates closure. Database
+failures wait for the next normal tick. No task restart or immediate transaction
+retry was added.
+
+Shutdown wins over a ready tick, with checks before opening, after opening,
+after sweep and immediately before SMTP. A pre-send stop leaves the spent claim,
+lease and payload unchanged. An admitted send runs through the existing 2-second
+bound and fenced completion during the drain. S18's 3-second DRAIN, 1-second
+CLOSE and supervisor's 5-second escalation remain unchanged. Panics and early
+task return use the existing process-failure supervision.
+
+Production diagnostics contain fixed stage/result/category labels and, for
+completion, outbox ID and attempt. Completion `Err` is `unconfirmed`;
+`Ok(false)` is `no-transition`; `Ok(true)` is `acknowledged`. Neither an SMTP
+acceptance nor a stop proves a database commit. Recovery after a lease expires
+can capture the same issued credential and Message-ID again.
+
+`reference-dev` accepts only a loopback `IRIS_SMTP_ADDR`, defaulting to
+`127.0.0.1:4025`, and registers delivery alongside session cleanup. Reset
+returns before constructing the mailer or starting tasks. `dev.mjs` owns
+4025/4026 as well as its existing ports, installs the existing pinned Mailpit,
+starts it before the API and forces the owned SMTP address. The wrapper still
+clears inherited `MP_*` configuration, with no relay, a 500-message cap and a
+24-hour age limit. Each chosen database's capture is the sibling
+`<database filename>.mailpit/mailpit.db`; restarting the same database retains
+it, and reference reset does not clear it.
+
+The driver first retained a real failing supervised delivery test against an
+idle task: it timed out waiting for SMTP. The implemented task then passed. Six
+worker tests exercise public database rows, SMTP connections/messages and the
+actual lifecycle supervisor: an independent writer commits during paused SMTP;
+an observed stop opens no SMTP after a spent claim; a silent admitted send
+drains without a second claim; a real deferred-FK COMMIT failure after SMTP
+acceptance remains pending and reports unconfirmed; an expired lease reports no
+transition; sweep/claim failures dispose connections and recover on the next
+tick. A forced fixture panic joins the internal server/worker, checks tracked
+closure, listener refusal and a permanently silent SMTP session's disposal. The
+shared SMTP fixture now owns sessions through JoinSet rather than detaching
+them.
+
+The launcher tests seed a synthetic private outbox using Node's built-in SQLite,
+then run actual production registration against the owned capture. They observe
+the issued link and Message-ID, durable sent/payload clearing, hostile address
+and Mailpit configuration isolation, inbox persistence across reset/restart,
+every owned-port conflict, capture failure and four-child signal cleanup.
+Canary-bearing production output remains available for negative leak checks;
+failure messages never render that raw buffer.
+
+Verification evidence is retained outside the checkout at
+`~/.local/state/codex/iris-1247/20261006/`; independent review and exact mutant
+evidence are at `~/.local/state/codex/iris-1247-oracle/20261006/`. Current
+reference-library count is 160 passed with five opt-in real-capture checks. CI
+remains owner-disabled; no real mail, production service, release, frozen
+experiment change or stage-3 acceptance is claimed.
+
 ## Maintaining this record
 
 When a proposal is tested, record the exact commands, dependency versions,

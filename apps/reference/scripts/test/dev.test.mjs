@@ -1,6 +1,6 @@
 // Tests for the development command (`dev.mjs`) and the supervision it shares
 // with the browser runner (`supervise.mjs`). The command owns the fixed ports
-// 4001, 3003 and 5175, so these tests refuse to start while any is taken, run
+// 4001, 3003, 5175, 4025 and 4026, so these tests refuse to start while any is taken, run
 // one at a time, and must not run beside the browser workflow:
 //
 //   node --test apps/reference/scripts/test/dev.test.mjs
@@ -10,6 +10,8 @@
 // leaks nothing. Each test's data lives in its own temporary directory.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import {
   chmodSync,
   copyFileSync,
@@ -37,7 +39,7 @@ const TAIL = join(here, "output-tail-fixture.mjs");
 const ORIGIN = "http://127.0.0.1:5175";
 const API = "http://127.0.0.1:3003";
 const ISSUER = "http://127.0.0.1:4001";
-const PORTS = [4001, 3003, 5175];
+const PORTS = [4001, 3003, 5175, 4025, 4026];
 // Generous for a start with every build cached; the build itself is done once
 // before the tests.
 const START = 60_000;
@@ -117,7 +119,9 @@ async function until(command, pattern, ms = START) {
     const match = command.output.match(pattern);
     if (match) return match;
     if (Date.now() > deadline)
-      throw new Error(`no ${pattern} within ${ms} ms:\n${command.output}`);
+      throw new Error(
+        `no ${pattern} within ${ms} ms:\n${command.privateOutput ? "private fixture output withheld" : command.output}`,
+      );
     await sleep(20);
   }
 }
@@ -133,12 +137,12 @@ async function exit(command, ms = 20_000) {
   const result = await bounded(
     command.exited,
     ms,
-    `still running after ${ms} ms:\n${command.output}`,
+    `still running after ${ms} ms:\n${command.privateOutput ? "private fixture output withheld" : command.output}`,
   );
   await bounded(
     command.closed,
     ms,
-    `streams still open after ${ms} ms:\n${command.output}`,
+    `streams still open after ${ms} ms:\n${command.privateOutput ? "private fixture output withheld" : command.output}`,
   );
   return result;
 }
@@ -461,12 +465,30 @@ test("a signal during the build stops it and starts no server", async () => {
   }
 });
 
-test("inherited addresses reach neither the proxy nor the API", async () => {
+test("production delivery uses its own capture despite inherited addresses and Mailpit configuration", async () => {
   const target = await sentinel();
   const other = await sentinel();
   try {
     const dir = temporary();
     const database = join(dir, "dev.db");
+    const reset = command(["--database", database, "--reset"]);
+    assert.equal((await exit(reset, START)).code, 0);
+    assert.doesNotMatch(reset.output, /dev: started capture/);
+    const token = "delivery-canary-0123456789abcdef0123456789abcdef";
+    const messageID = "<delivery-canary@reference.iris.test>";
+    const email = "delivery-canary@example.test";
+    const now = Math.floor(Date.now() / 1000);
+    const db = new DatabaseSync(database);
+    try {
+      db.prepare(
+        "INSERT INTO invitations(id, project_id, recipient_id, issuer_id, role, token_hash, created_at, expires_at) VALUES(1001, 43, 11, 29, 'editor', ?, ?, ?)",
+      ).run(createHash("sha256").update(token).digest("hex"), now, now + 3600);
+      db.prepare(
+        "INSERT INTO invitation_outbox(invitation_id, recipient_email, token, message_id, created_at) VALUES(1001, ?, ?, ?, ?)",
+      ).run(email, token, messageID, now);
+    } finally {
+      db.close();
+    }
     const run = command(["--database", database], {
       env: {
         ...process.env,
@@ -474,8 +496,15 @@ test("inherited addresses reach neither the proxy nor the API", async () => {
         IRIS_OIDC_ISSUER: `http://127.0.0.1:${target.port}`,
         IRIS_LISTEN: `127.0.0.1:${other.port}`,
         IRIS_PUBLIC_ORIGIN: `http://127.0.0.1:${other.port}`,
+        IRIS_SMTP_ADDR: `127.0.0.1:${other.port}`,
+        MP_SMTP_BIND_ADDR: "0.0.0.0:4999",
+        MP_UI_BIND_ADDR: "0.0.0.0:4998",
+        MP_ENABLE_SPAMASSASSIN: "true",
+        MP_ENABLE_CHAOS: "true",
+        MP_SMTP_RELAY_HOST: "example.test",
       },
     });
+    run.privateOutput = true;
     await ready(run);
     const through = await fetch(`${ORIGIN}/api/auth/session`);
     assert.equal(through.status, 200);
@@ -485,19 +514,92 @@ test("inherited addresses reach neither the proxy nor the API", async () => {
     // The API's origin is the console's: a login from it is accepted.
     const cookie = await signIn();
     assert.equal((await session(cookie)).user_id, "11");
-    assert.match(
-      run.output,
-      new RegExp(`\\[api\\] .*persistent data at .*dev\\.db`),
+    assert.ok(
+      new RegExp(`\\[api\\] .*persistent data at .*dev\\.db`).test(run.output),
+      "server did not identify the chosen private database",
     );
     assert.deepEqual(target.seen, []);
     assert.deepEqual(other.seen, []);
+    await until(
+      run,
+      /invitation-delivery outbox=1 attempt=1 stage=complete category=accepted result=acknowledged/,
+    );
+    const capture = "http://127.0.0.1:4026";
+    const inbox = await (
+      await fetch(`${capture}/api/v1/messages?limit=1`)
+    ).json();
+    assert.equal(inbox.total, 1, "private worker did not reach owned capture");
+    const message = await (
+      await fetch(`${capture}/api/v1/message/${inbox.messages[0].ID}`)
+    ).json();
+    assert.ok(
+      message.MessageID === messageID.slice(1, -1),
+      "capture changed Message-ID",
+    );
+    const raw = await (
+      await fetch(`${capture}/api/v1/message/${inbox.messages[0].ID}/raw`)
+    ).text();
+    assert.ok(
+      raw.includes(`${ORIGIN}/#invitation=${token}`) && raw.includes(email),
+      "capture differs from issued payload",
+    );
+    const webui = await (await fetch(`${capture}/api/v1/webui`)).json();
+    assert.equal(webui.ChaosEnabled, false);
+    assert.equal(webui.MessageRelay.Enabled, false);
+    for (const secret of [token, email, messageID])
+      assert.ok(
+        !run.output.includes(secret),
+        "delivery diagnostics contain private payload",
+      );
+    process.kill(run.child.pid, "SIGTERM");
+    assert.equal((await exit(run)).code, 0);
+    const saved = new DatabaseSync(database);
+    try {
+      const row = saved
+        .prepare(
+          "SELECT outcome, claims, token IS NULL AS cleared_token, recipient_email IS NULL AS cleared_email, lease_until IS NULL AS cleared_lease FROM invitation_outbox",
+        )
+        .get();
+      assert.deepEqual(
+        { ...row },
+        {
+          outcome: "sent",
+          claims: 1,
+          cleared_token: 1,
+          cleared_email: 1,
+          cleared_lease: 1,
+        },
+      );
+    } finally {
+      saved.close();
+    }
+    // The same application's capture persists, while reset starts no capture.
+    const after = command(["--database", database, "--reset"]);
+    assert.equal((await exit(after, START)).code, 0);
+    assert.doesNotMatch(after.output, /dev: started capture/);
+    const resumed = command(["--database", database]);
+    await ready(resumed);
+    assert.equal(
+      (await (await fetch(`${capture}/api/v1/messages?limit=1`)).json()).total,
+      1,
+    );
   } finally {
     target.server.close();
     other.server.close();
   }
 });
 
-test("readiness is announced after all three, and a request goes through at once", async () => {
+test("an explicit missing database parent is refused without starting a server", async () => {
+  const run = command(["--database", join(temporary(), "missing", "dev.db")]);
+  assert.equal((await exit(run, START)).code, 1);
+  assert.doesNotMatch(
+    run.output,
+    /dev: started (capture \(pid|issuer|api|web)|dev: ready/,
+  );
+  await portsFree();
+});
+
+test("readiness is announced after all four, and a request goes through at once", async () => {
   const run = command(["--database", join(temporary(), "dev.db")]);
   await ready(run);
   const through = await fetch(`${ORIGIN}/api/auth/session`);
@@ -505,6 +607,8 @@ test("readiness is announced after all three, and a request goes through at once
   const readinessOutput = stripVTControlCharacters(run.output);
   const at = (pattern) => readinessOutput.search(pattern);
   const order = [
+    at(/dev: started capture \(pid/),
+    at(/\[capture\] .*\[http\] accessible via http:\/\/127\.0\.0\.1:4026\//),
     at(/dev: started issuer/),
     at(/\[issuer\] .*listening on 127\.0\.0\.1:4001/),
     at(/dev: started api/),
@@ -529,7 +633,9 @@ test("readiness is announced after all three, and a request goes through at once
 });
 
 test("a server that fails before its readiness stops the others", async () => {
-  const run = command(["--database", join(temporary(), "missing", "dev.db")]);
+  const database = join(temporary(), "dev.db");
+  writeFileSync(database, "invalid SQLite file");
+  const run = command(["--database", database]);
   const issuer = await pid(run, "issuer");
   const { code } = await exit(run);
   assert.equal(code, 1, run.output);
@@ -669,10 +775,11 @@ test("an unexpected exit while readiness is pending fails the command", async ()
 });
 
 test("any child's unexpected exit stops the others and exits 1", async () => {
-  for (const name of ["issuer", "api", "web"]) {
+  for (const name of ["capture", "issuer", "api", "web"]) {
     const run = command(["--database", join(temporary(), "dev.db")]);
     await ready(run);
     const groups = {
+      capture: await pid(run, "capture"),
       issuer: await pid(run, "issuer"),
       api: await pid(run, "api"),
       web: await pid(run, "web"),
@@ -710,12 +817,13 @@ test("a signal after an unexpected exit keeps the first failure", async () => {
   assert.ok(gone(issuer));
 });
 
-test("SIGINT and SIGTERM stop all three process groups and exit 0", async () => {
+test("SIGINT and SIGTERM stop all four process groups and exit 0", async () => {
   for (const signal of ["SIGINT", "SIGTERM"]) {
     const database = join(temporary(), "dev.db");
     const run = command(["--database", database]);
     await ready(run);
     const groups = [
+      await pid(run, "capture"),
       await pid(run, "issuer"),
       await pid(run, "api"),
       await pid(run, "web"),
@@ -1040,7 +1148,7 @@ function checkout() {
   const dir = temporary();
   const scripts = join(dir, "apps/reference/scripts");
   mkdirSync(scripts, { recursive: true });
-  for (const file of ["dev.mjs", "supervise.mjs"])
+  for (const file of ["dev.mjs", "supervise.mjs", "mailpit.sh"])
     copyFileSync(
       join(root, "apps/reference/scripts", file),
       join(scripts, file),
@@ -1054,6 +1162,12 @@ function checkout() {
   const fixture = "experiments/api-slice/checks/oidc-provider.mjs";
   mkdirSync(dirname(join(dir, fixture)), { recursive: true });
   copyFileSync(join(root, fixture), join(dir, fixture));
+  const captureBin = join(dir, "apps/reference/.dev/bin");
+  mkdirSync(captureBin, { recursive: true });
+  symlinkSync(
+    join(root, "apps/reference/.dev/bin/mailpit"),
+    join(captureBin, "mailpit"),
+  );
   const bin = join(dir, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "cargo"), "#!/bin/sh\nexit 0\n");
@@ -1081,7 +1195,7 @@ test("an empty database path is a usage error, never the default", async () => {
     assert.equal(code, 2, run.output);
     assert.match(run.output, /usage: /);
     assert.doesNotMatch(run.output, /data at|building|started/);
-    assert.equal(existsSync(data), false);
+    assert.equal(existsSync(join(data, "reference.db")), false);
   }
 });
 

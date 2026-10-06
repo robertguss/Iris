@@ -1,6 +1,6 @@
 //! Invitation mail (S19 stage 2, step 2): composing a claimed delivery and
-//! sending it over plain SMTP to a dedicated loopback `.test` capture. No task
-//! or route uses it yet. Nothing here stores or prints a credential, address,
+//! sending it over plain SMTP to a dedicated loopback `.test` capture, used by
+//! the private supervised worker. Nothing here stores or prints a credential, address,
 //! Message-ID, body or raw SMTP error: callers get a bounded category.
 use crate::domains::invitations::delivery::{Claim, Completion};
 use crate::domains::invitations::usable_contact;
@@ -187,4 +187,4 @@ fn rfc3339_utc(unix_seconds: i64) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

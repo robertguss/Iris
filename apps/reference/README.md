@@ -43,17 +43,19 @@ and
 
 ## Future invitations: not runnable yet
 
-ROB-1113 records an **accepted future design, not an implemented or verified
-feature**. The commands below still run only the existing reference application:
-they do not start an invitation worker or mail capture, and there are no
-reference invitation routes or views yet. The frozen experiment's delivery
-commands and token-preview response are not reference-app instructions.
+S19 stages 1 and 2 are implemented as private application code (ROB-1236,
+ROB-1244). The development server supervises invitation delivery, and the
+development command starts its own loopback capture. Stage 3 remains
+unimplemented: there are no reference invitation routes or views, so invitations
+cannot yet be issued or accepted through the console or API. The frozen
+experiment's commands and token-preview response are not reference instructions.
 
 October 3, 2026 (ROB-1236): S19's first stage, private persistence and domain
 rules, now exists in `src/domains/invitations.rs` with migration
 `0002_invitations.sql`, and fresh or reset development databases seed `.test`
 contacts for Alice and Bob. It is still not runnable from the console or the
-API: no route, worker, mail capture or view uses it yet.
+API. That stage had no route, worker, mail capture or view; stage 2 below now
+provides private delivery.
 
 ### Local mail capture and SMTP send — October 3, 2026 (ROB-1246)
 
@@ -61,21 +63,44 @@ API: no route, worker, mail capture or view uses it yet.
 plain SMTP to a loopback capture, with a 2-second bound on the whole send. The
 pinned capture is [Mailpit](https://github.com/axllent/mailpit) v1.31.2, and
 `scripts/mailpit.sh` is the one place its configuration lives. Nothing starts a
-worker or the capture yet: `reference-dev` still does neither (ROB-1247), so
-these commands are manual.
+worker or the capture at that stage. ROB-1247 now wires the worker into
+`reference-dev` and capture into `dev.mjs`; the commands below are the manual
+alternative, which must not run beside the development command.
 
 ```sh
 bash apps/reference/scripts/mailpit.sh install
-mkdir -p apps/reference/.dev/mailpit
-bash apps/reference/scripts/mailpit.sh run 4025 4026 apps/reference/.dev/mailpit/mailpit.db
+mkdir -p apps/reference/.dev/reference.db.mailpit
+bash apps/reference/scripts/mailpit.sh run 4025 4026 apps/reference/.dev/reference.db.mailpit/mailpit.db
 ```
+
+**Stage 2 implemented — October 6, 2026 (ROB-1247).** The supervised
+`invitation-delivery` task runs at once and then once per second. Each tick
+opens one tracked connection, sweeps, claims, sends outside any transaction, and
+completes under the existing fence. It disposes that connection on every path.
+An observed stop prevents another claim or SMTP send; a claimed but unsent row
+keeps its spent claim and lease. An admitted send finishes through its 2-second
+timeout and completion during the unchanged 3-second drain and 1-second closure
+deadline. Completion errors are logged as `unconfirmed`, separately from a fence
+matching nothing (`no-transition`). Diagnostics contain only stage, result,
+outbox ID, attempt and fixed SMTP category.
+
+`reference-dev` accepts `IRIS_SMTP_ADDR` (default `127.0.0.1:4025`) and refuses
+malformed or non-loopback addresses. It does not start capture by itself.
+`dev.mjs` forces its owned SMTP address and starts the pinned capture first.
+Each chosen application database uses a sibling
+`<database filename>.mailpit/mailpit.db`: different disposable application
+databases have different inboxes; restarting the same database retains its
+inbox. An application reset starts no worker or capture and does not erase the
+inbox. Delivery duplicates remain possible after uncertain SMTP acceptance or
+database completion; the issued credential and Message-ID stay the same.
 
 `install` downloads the release for `darwin-arm64` or `linux-amd64`, checks its
 SHA-256 before extracting, and puts the binary in the gitignored
 `apps/reference/.dev/bin/`. It skips the download when that binary already
 reports v1.31.2. Any other platform is refused. The inbox is at
 `http://127.0.0.1:4026/` and SMTP is `127.0.0.1:4025`. These two ports join the
-fixed-port list; tests never use them, nor 1025 or 8025.
+fixed-port list; development-command tests own them. The isolated mail tests use
+ephemeral ports and never a shared inbox, 1025 or 8025.
 
 - **Isolation.** `run` listens only on the two loopback addresses it is given,
   starts Mailpit under `env -i`, which drops every inherited `MP_*` variable
@@ -228,25 +253,26 @@ node apps/reference/scripts/dev.mjs
 ```
 
 It needs `npm --prefix apps/reference/web ci` once. It refuses to start while
-any of ports 4001, 3003 or 5175 is taken, builds the development server, then
-starts the local issuer on 4001, the server on 3003 and Vite on 5175, each only
-once the one before has reported its address, and prints `dev: ready: …` when
-all three have. Each child's output is shown under its name (`[issuer]`,
-`[api]`, `[web]`). A final line without a trailing newline is printed once when
-that stream closes, before the command's final `dev: exit …` line. Complete
-lines, blank lines, whitespace-only tails, stdout/stderr separation, chunk local
-decoding and readiness scanning otherwise keep the existing behavior. The data
-persists in `apps/reference/.dev/reference.db`, which is gitignored;
-`--database PATH` uses another file, resolved against the current directory, in
-a directory that must exist. The command sets every address it owns itself: an
-inherited `IRIS_API_TARGET`, `IRIS_LISTEN`, `IRIS_PUBLIC_ORIGIN` or
-`IRIS_OIDC_ISSUER` does not reach its children, so the console cannot reach
-another server or database.
+any of ports 4001, 3003, 5175, 4025 or 4026 is taken, builds the development
+server, then installs the pinned capture, starts it on 4025/4026, then starts
+the local issuer on 4001, the server on 3003 and Vite on 5175. Each starts only
+once the one before has reported its address, and `dev: ready: …` appears when
+all four have. Each child's output is shown under its name (`[capture]`,
+`[issuer]`, `[api]`, `[web]`). A final line without a trailing newline is
+printed once when that stream closes, before the command's final `dev: exit …`
+line. Complete lines, blank lines, whitespace-only tails, stdout/stderr
+separation, chunk local decoding and readiness scanning otherwise keep the
+existing behavior. The data persists in `apps/reference/.dev/reference.db`,
+which is gitignored; `--database PATH` uses another file, resolved against the
+current directory, in a directory that must exist. The command sets every
+address it owns itself: an inherited `IRIS_API_TARGET`, `IRIS_LISTEN`,
+`IRIS_PUBLIC_ORIGIN`, `IRIS_OIDC_ISSUER` or `IRIS_SMTP_ADDR` does not reach its
+children, so the console cannot reach another server or database.
 
 To stop it, press Ctrl-C or send it SIGTERM. It sends SIGTERM to each child's
 process group, SIGKILL to any group still running five seconds later, and waits
-for all three process groups and their stdio closure. It prints how each child
-exited, then exits 0 once all three have, whatever their own exit codes, or 1 if
+for all four process groups and their stdio closure. It prints how each child
+exited, then exits 0 once all four have, whatever their own exit codes, or 1 if
 one needed SIGKILL. A descendant that escaped the owned group can keep an
 inherited pipe open and delay the final report; there is no stream destroy,
 forced process exit or output-drain timeout. The server's exit code is its own
@@ -280,7 +306,11 @@ them locally:
 node --test apps/reference/scripts/test/dev.test.mjs
 ```
 
-To start the three by hand instead:
+These tests use Node's built-in `node:sqlite` (Node 22.23.2 here) to seed a
+private invitation and verify actual server registration, captured delivery and
+durable completion.
+
+To start by hand instead, first start the manual capture above, then:
 
 ```sh
 node experiments/api-slice/checks/oidc-provider.mjs --port 4001 --issuer http://127.0.0.1:4001 --redirect-uri http://127.0.0.1:5175/api/auth/callback
@@ -351,10 +381,11 @@ reset the message names.
 
 To stop the server, send it SIGINT (Ctrl-C) or SIGTERM. It prints
 `received SIGTERM; draining for up to 3s`, stops accepting connections, and lets
-requests in flight and the session cleanup finish. Once they have, it closes the
-session pool and waits up to one second for every request's database connection
-to report that it closed, releases the lock, prints `stopped after draining` and
-exits 0. A later signal neither shortens nor extends this.
+requests in flight, session cleanup and the admitted invitation send finish.
+Once they have, it closes the session pool and waits up to one second for every
+request's and delivery tick's tracked database connection to report that it
+closed, releases the lock, prints `stopped after draining` and exits 0. A later
+signal neither shortens nor extends this.
 
 If a request is still running after three seconds, the server prints that the
 drain deadline expired and exits 1 without sending it a final response. The
@@ -362,14 +393,14 @@ caller has no validated final response (an interim `100 Continue` may already
 have been sent), so the outcome of that request is unconfirmed: the exit is
 neither an acknowledgment nor proof of a rollback. The server also exits 1,
 after the one second, if a connection's closure was never acknowledged. That
-includes a request that failed to open its connection at any time while the
-server ran (for example against a busy database): nothing is left to confirm
-that such a connection closed, so the stop is reported as unestablished closure,
-not as a known open connection. In both cases the process ends while still
-holding the lock, so no other server or reset can start while a connection might
-be live, and a disposable database's temporary directory is left behind. The two
-deadlines are fixed at three seconds and one second, measured to end inside five
-seconds; they are not configurable.
+includes a request or delivery tick that failed to open its connection at any
+time while the server ran (for example against a busy database): nothing is left
+to confirm that such a connection closed, so the stop is reported as
+unestablished closure, not as a known open connection. In both cases the process
+ends while still holding the lock, so no other server or reset can start while a
+connection might be live, and a disposable database's temporary directory is
+left behind. The two deadlines are fixed at three seconds and one second,
+measured to end inside five seconds; they are not configurable.
 
 While it runs, the server deletes expired sessions and login attempts at start
 and every 60 seconds. A database error in that task is printed and the next tick
@@ -655,9 +686,9 @@ separate gate.
   classification is source-inspected only.
 - The client bundles the export it was built with, so client and server must
   ship from the same commit.
-- The development command's tests use fixed ports; they must own 4001, 3003 and
-  5175 exclusively and must not overlap browser workflows. Before CI was
-  disabled on 2026-10-03 (ROB-1229), CI also ran them.
+- The development command's tests use fixed ports; they must own 4001, 3003,
+  5175, 4025 and 4026 exclusively and must not overlap browser workflows. Before
+  CI was disabled on 2026-10-03 (ROB-1229), CI also ran them.
 - Ajv compiles validators with `new Function`; a strict content security policy
   would need precompiled validators. None is set here.
 - The browser workflows check selected paths in one browser, not every code.

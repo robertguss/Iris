@@ -3606,6 +3606,20 @@ route or client are not implemented; step 3 of ROB-1244 remains. Evidence is in
 the
 [dated decision](decisions.md#invitation-mail-capture-and-smtp-send--october-3-2026-rob-1244-step-2).
 
+**Stage 2 implemented — October 6, 2026 (ROB-1247).**
+`domains::invitations::worker::task` is registered in `reference-dev` through
+`lifecycle::Task::new`. Each one-second tick opens one tracked connection,
+sweeps, claims, sends outside the database transaction and completes under the
+existing fence, disposing the connection on every path. Shutdown checkpoints
+prevent a claim or SMTP after an observed stop; an admitted send finishes within
+the unchanged S18 drain/closure deadlines. Bounded diagnostics distinguish
+completion `unconfirmed`, `no-transition` and `acknowledged`. `dev.mjs` owns
+pinned loopback capture before the API and uses a sibling inbox per chosen
+application database. Reset starts no worker/capture and retains the inbox.
+Stage 3's routes, OpenAPI operations and client remain unimplemented. Evidence
+is in the
+[dated decision](decisions.md#supervised-invitation-delivery--october-6-2026-rob-1247).
+
 ### Invitation product and authority decisions
 
 Invitations target existing accounts by user ID, grant only `editor`, and expire

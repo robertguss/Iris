@@ -37,16 +37,16 @@ fn claim() -> Claim {
 // ---- A scripted SMTP responder, owned by the test.
 
 #[derive(Clone)]
-struct Plan {
-    greeting: &'static str,
-    rcpt: &'static str,
-    end: &'static str,
-    delay: Duration,
-    silent: bool,
+pub(crate) struct Plan {
+    pub(crate) greeting: &'static str,
+    pub(crate) rcpt: &'static str,
+    pub(crate) end: &'static str,
+    pub(crate) delay: Duration,
+    pub(crate) silent: bool,
 }
 
 impl Plan {
-    fn ok() -> Self {
+    pub(crate) fn ok() -> Self {
         Self {
             greeting: "220 test ready\r\n",
             rcpt: "250 ok\r\n",
@@ -57,9 +57,10 @@ impl Plan {
     }
 }
 
-struct Responder {
-    addr: SocketAddr,
+pub(crate) struct Responder {
+    pub(crate) addr: SocketAddr,
     connections: Arc<AtomicUsize>,
+    pub(crate) active: Arc<AtomicUsize>,
     data: Arc<Mutex<Vec<Vec<u8>>>>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -71,42 +72,68 @@ impl Drop for Responder {
 }
 
 impl Responder {
-    async fn start(plan: Plan) -> Self {
+    pub(crate) async fn start(plan: Plan) -> Self {
+        Self::gated(plan, None).await
+    }
+
+    pub(crate) async fn gated(plan: Plan, gate: Option<Arc<crate::lifecycle::Gate>>) -> Self {
         let listener = TcpListener::bind((LOOPBACK, 0)).await.unwrap();
         let addr = listener.local_addr().unwrap();
         let connections = Arc::new(AtomicUsize::new(0));
         let data = Arc::new(Mutex::new(Vec::new()));
+        let active = Arc::new(AtomicUsize::new(0));
         let task = tokio::spawn({
-            let (connections, data) = (connections.clone(), data.clone());
+            let (connections, data, active) = (connections.clone(), data.clone(), active.clone());
             async move {
+                let mut sessions = tokio::task::JoinSet::new();
                 while let Ok((stream, _)) = listener.accept().await {
                     connections.fetch_add(1, Ordering::SeqCst);
-                    tokio::spawn(session(stream, plan.clone(), data.clone()));
+                    active.fetch_add(1, Ordering::SeqCst);
+                    let guard = Active(active.clone());
+                    let session = session(stream, plan.clone(), data.clone(), gate.clone());
+                    sessions.spawn(async move {
+                        let _guard = guard;
+                        session.await;
+                    });
+                    while sessions.try_join_next().is_some() {}
                 }
             }
         });
         Self {
             addr,
             connections,
+            active,
             data,
             task,
         }
     }
 
-    fn mailer(&self) -> Mailer {
+    pub(crate) fn mailer(&self) -> Mailer {
         Mailer::new(ORIGIN, self.addr).unwrap()
     }
 
-    fn connections(&self) -> usize {
+    pub(crate) fn connections(&self) -> usize {
         self.connections.load(Ordering::SeqCst)
     }
 
-    fn messages(&self) -> Vec<Vec<u8>> {
+    pub(crate) fn messages(&self) -> Vec<Vec<u8>> {
         self.data.lock().unwrap().clone()
     }
 }
 
-async fn session(stream: TcpStream, plan: Plan, data: Arc<Mutex<Vec<Vec<u8>>>>) {
+struct Active(Arc<AtomicUsize>);
+impl Drop for Active {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+async fn session(
+    stream: TcpStream,
+    plan: Plan,
+    data: Arc<Mutex<Vec<Vec<u8>>>>,
+    gate: Option<Arc<crate::lifecycle::Gate>>,
+) {
     let (read, mut write) = stream.into_split();
     let mut read = BufReader::new(read);
     if plan.silent {
@@ -139,6 +166,9 @@ async fn session(stream: TcpStream, plan: Plan, data: Arc<Mutex<Vec<Vec<u8>>>>) 
                 body.extend_from_slice(&part);
             }
             data.lock().unwrap().push(body);
+            if let Some(gate) = &gate {
+                gate.pass().await;
+            }
             tokio::time::sleep(plan.delay).await;
             plan.end
         } else if command.starts_with("RCPT") {
@@ -462,7 +492,7 @@ impl Drop for Capture {
 }
 
 impl Capture {
-    async fn start(env: &[(&str, &str)]) -> Self {
+    pub(crate) async fn start(env: &[(&str, &str)]) -> Self {
         let exclusive = crate::storage::exclusive();
         assert!(
             std::path::Path::new(BIN).exists(),
@@ -512,7 +542,7 @@ impl Capture {
         capture
     }
 
-    fn mailer(&self) -> Mailer {
+    pub(crate) fn mailer(&self) -> Mailer {
         Mailer::new(ORIGIN, self.smtp).unwrap()
     }
 
@@ -545,7 +575,7 @@ impl Capture {
             .unwrap()
     }
 
-    async fn messages(&self) -> Vec<serde_json::Value> {
+    pub(crate) async fn messages(&self) -> Vec<serde_json::Value> {
         self.get("/api/v1/messages?limit=1000").await["messages"]
             .as_array()
             .unwrap()

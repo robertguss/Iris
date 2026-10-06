@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 
 use iris_reference::{
     app::{AppState, app, unix_time},
+    domains::invitations::worker,
     identity::{Auth, store::Store},
     lifecycle::{self, Connections, Process, Stopped},
+    mail::Mailer,
     storage::{Storage, reset_command},
 };
 
@@ -137,6 +139,12 @@ async fn serve(
     listen: &str,
     data: &str,
 ) -> Result<Stopped, Box<dyn std::error::Error>> {
+    let smtp = std::env::var("IRIS_SMTP_ADDR").unwrap_or_else(|_| "127.0.0.1:4025".into());
+    let smtp = smtp
+        .parse()
+        .map_err(|_| "IRIS_SMTP_ADDR must be a loopback socket address")?;
+    let mailer = Mailer::new(origin.clone(), smtp)
+        .map_err(|_| "invalid local invitation mail configuration")?;
     check_identity_issuer(&pool, database, &issuer).await?;
     let store = Store {
         pool,
@@ -146,7 +154,7 @@ async fn serve(
     let app = app(auth).with_state(AppState {
         database: database.to_owned(),
         now: unix_time,
-        connections,
+        connections: connections.clone(),
     });
     let listener = tokio::net::TcpListener::bind(listen).await?;
     // Registered before readiness is announced, so a supervisor that signals
@@ -154,7 +162,10 @@ async fn serve(
     let signal = lifecycle::signals()?;
     eprintln!("Iris reference application; {data}, local test identities only.");
     eprintln!("listening on http://{}", listener.local_addr()?);
-    let tasks = vec![lifecycle::session_cleanup(store, lifecycle::CLEANUP_PERIOD)];
+    let tasks = vec![
+        lifecycle::session_cleanup(store, lifecycle::CLEANUP_PERIOD),
+        worker::task(database.to_owned(), connections, mailer, unix_time),
+    ];
     Ok(lifecycle::serve(listener, app, tasks, signal, lifecycle::DRAIN).await)
 }
 

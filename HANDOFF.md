@@ -1,9 +1,16 @@
 # Handoff
 
+> **Workflow update — 2026-10-06:** Robert retired and requested deletion of the Crew
+> skill and workflow across projects. Crew roles, Jev routing, Herdr panes, model
+> requirements and launch/cleanup commands below are historical, not instructions.
+> Current work stays in this session. Independent engineering/review, delivery,
+> scientific, account, deployment and human acceptance gates remain where applicable.
+> Existing branch names and evidence paths are retained as provenance.
+
 Written October 3, 2026, by the outgoing crew driver (Claude Opus) at the end of
 its chunk. Jev had called for a fresh driver (context past its limit, and the
 next step unrelated), and the owner then stopped for the night. A new session
-starts tomorrow with `/crew`. This replaces the previous handoff, which git
+resumes in the current coding session. This replaces the previous handoff, which git
 history keeps at `8803201:HANDOFF.md`.
 
 ## 1. State
@@ -49,7 +56,7 @@ Linear team `ROB`, project `Iris`. Snapshot October 3, 2026:
 
 ## 3. Read these first
 
-- `AGENTS.md` (the crew workflow, delivery and "Scope and safety").
+- `AGENTS.md` (delivery, review and "Scope and safety").
 - `docs/design-spec.md` S19, all of it, including the step 1 and step 2 status
   paragraphs.
 - `docs/decisions.md`, its last two entries: "Invitation delivery claims and
@@ -153,8 +160,7 @@ What was checked independently, and what is only reported:
   before ROB-1247's first push. Nothing here authorizes stage 3, re-enabling CI
   or a release.
 
-- **Workflow, from earlier chunks and still in force:** oracle (or, on Jev's
-  call, driver) review before every commit; PR text reviewed before posting; ask
+- **Workflow, from earlier chunks and still in force:** independent review before every commit; PR text reviewed before posting; ask
   the owner one question per message.
 - **Owner, October 3 (earlier):** Iris uses the `crew` skill. "You are in
   control of linear": the driver creates, releases and closes issues. New
@@ -207,18 +213,6 @@ What was checked independently, and what is only reported:
   `ed024e35-4332-4f16-80b5-fe149add5e10`, Done
   `8646d9fb-67ea-405e-9490-6812c90eac3a`. The `oracle` label exists (created
   this chunk).
-- **Crew scripts.**
-  - Run `jev.py` directly (it is a `uv run --script`), never as
-    `python3 jev.py`, which fails on the missing `typesafe_sdk` module.
-  - `jev.py fresh` crashes with `StopIteration` for a pane that has never been
-    prompted (no transcript). Treat such a pane as fresh.
-  - `crewlog.py usage --issue` needs the issue that `crewlog.py step` was logged
-    under.
-- **Herdr.** `herdr agent read` returns only the visible screen. Ask the oracle
-  and builder to write replies and reports to a file and reply with the path,
-  then poll for the file and a non-`working` status. An agent can end its turn
-  with background work still running (the builder's mutation runs did), so wait
-  for the file, not the status alone.
 - **Scratch briefs.** A PostToolUse formatter reflows Markdown written to the
   scratch directory and joins adjacent plain lines. Put brief headers and lists
   in separate paragraphs or list items.
@@ -278,5 +272,4 @@ What was checked independently, and what is only reported:
 
 ## 9. Skills
 
-- Required: `crew` for every role (driver, oracle, builder).
-- Optional: `herdr` for pane operations.
+No development workflow skill is required.

@@ -2,12 +2,11 @@
 
 ## Delivery and tracking
 
-Iris is built with the `crew` skill (configured in `CLAUDE.md`): an Opus driver,
-a Sonnet builder and a Fable oracle in one Herdr tab.
+Work happens in the current coding session. Crew roles, model assignments, Jev
+routing and Herdr panes are no longer required (Robert, 2026-10-06).
 
 Delivery is one dedicated branch per issue (`rob-<number>-<slug>`), a PR, and a
-merge after review sign-off (the oracle's, or the driver's own where Jev routes
-the review to the driver) and the driver's own rerun, on the final tree,
+merge after independent review sign-off and the driver's own rerun, on the final tree,
 of the brief's verify commands. CI (`Verify`) is disabled by the owner as of
 2026-10-03, and re-enabling it is a CI change that needs the owner's approval.
 Done means merged. The approval gates under "Scope and safety" still apply.
